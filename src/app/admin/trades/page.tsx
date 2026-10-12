@@ -11,7 +11,7 @@ import type { Agg, ScoredTrade } from '@/lib/tradeLog';
 type Resp = { rows: ScoredTrade[]; summary: { closed: Agg; open: Agg; bySrc: Record<string, Agg>; byTier?: Record<string, Agg> }; updatedAt: string };
 const TIER_DOT: Record<string, string> = { green: 'bg-emerald-400', yellow: 'bg-amber-300', red: 'bg-rose-400' };
 const TIER_WORD: Record<string, string> = { green: 'Green (go)', yellow: 'Yellow (look)', red: 'Red (stay away)', none: 'Not on a card' };
-const SOURCES = ['EP9M', 'SIP', 'Daily', 'Swing', 'VCP', 'HRS', '100-Bagger', 'Momentum Leaders', 'Confluence', 'Liquid Leaders', 'Early Movers', 'Other'];
+const SOURCES = ['EP9M', 'SIP', 'Daily', 'Swing', 'VCP', 'HRS', '100-Bagger', 'Confluence', 'Liquid Leaders', 'Early Movers', 'Other'];
 const etToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 const blank = () => ({ id: '', t: '', src: '', style: 'swing', buyDate: etToday(), buy: '', shares: '', sellDate: '', sell: '', note: '' });
 type Form = ReturnType<typeof blank>;

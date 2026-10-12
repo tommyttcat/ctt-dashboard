@@ -117,10 +117,7 @@ import EdgeFilterPills from './EdgeFilterPills';
 import InfoDot from './InfoDot';
 import { etMinute, type OrbWatchStatus, type OrbWatchState } from '@/lib/orb';
 import { earlyMovers, EARLY_MIN_PCT, EARLY_MIN_PACE } from '@/lib/summary/earlyMovers';
-import { swingCheck, checkTip } from '@/lib/scans/checklist';
 import type { LeadersLive, LeaderRow } from '@/lib/leaders';
-import type { MomentumList, MomentumRow } from '@/lib/momentum';
-import { rulesShortlist } from '@/lib/momentum';
 import { bullShare, type SentimentLive } from '@/lib/sentiment';
 import { EARLY_PASS_N, type EarlySummary } from '@/lib/earlyTrack';
 
@@ -1306,82 +1303,6 @@ type LiveQuotesView = { live: boolean; asOf: number; session: string; quotes: Re
 const fmtEtClock = (ms: number | null | undefined) =>
   ms ? new Date(ms).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) : '—';
 
-/* ---- RULES (Setups Summary pill, 9 Oct 2026) ------------------------------
-   The Rules shortlist (lib/momentum rulesShortlist): Momentum Leaders' top 5
-   by 12-month return, no Stage 3 / 4, no red rows — shown only while the
-   Market exposure rule is in. Loaded when the pill is tapped: two CDN-cached
-   reads (/api/momentum/latest, /api/exposure/latest), 0 extra KV per viewer
-   beyond the cache misses those routes already have. */
-const RulesShortlist = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) => {
-  const [list, setList] = React.useState<MomentumList | null>(null);
-  const [mode, setMode] = React.useState<'in' | 'out' | 'boost' | null>(null);
-  const [failed, setFailed] = React.useState(false);
-  React.useEffect(() => {
-    let on = true;
-    Promise.all([
-      fetch('/api/momentum/latest').then(r => (r.ok ? r.json() : null)),
-      fetch('/api/exposure/latest').then(r => (r.ok ? r.json() : null)),
-    ]).then(([m, e]) => {
-      if (!on) return;
-      if (m?.list) setList(m.list); else setFailed(true);
-      setMode(e?.state?.mode ?? null);
-    }).catch(() => { if (on) setFailed(true); });
-    return () => { on = false; };
-  }, []);
-  if (!list) return <p className="text-[10px] text-slate-500">{failed ? 'The momentum list has not been built yet.' : 'Loading…'}</p>;
-  const red = new Set(Object.entries(edgeMap ?? {}).filter(([, t]) => t === 'red').map(([k]) => k));
-  /* RULES = Momentum Leaders that are GREEN on the swing checklist (12 Oct 2026; was the
-     GO model), strongest 12-month trend first. */
-  const picks = list.rows
-    .filter(r => !red.has(r.t) && (edgeMap?.[r.t] ?? swingCheck(r as unknown as Record<string, unknown>)?.tier) === 'green')
-    .sort((a, b) => b.mom - a.mom).slice(0, 5);
-  const H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
-  const badge = 'inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center';
-  const dash = `${badge} text-slate-600 border-slate-700/40 bg-slate-800/30`;
-  const pctCls = (v: number) => (v >= 0 ? 'text-emerald-400' : 'text-rose-400');
-  const out = mode === 'out';
-  return (
-    <div>
-      <div className="flex items-start gap-2 mb-2">
-        <p className="text-[10px] text-slate-400 leading-snug flex-1">
-          {out
-            ? <><span className="font-bold text-amber-300">Rules say cash.</span> QQQ closed below its 200-day average, so the tested rule holds nothing until it closes back above. The names below are what the list would hold.</>
-            : <><span className="font-bold text-emerald-300">Market: {mode === 'boost' ? 'Boost (150%)' : 'In'}.</span> The Momentum Leaders that are green — strongest 12-month trend AND green on the swing checklist — top {picks.length} by 12-month return. Not advice.</>}
-        </p>
-        <InfoDot text={"THE RULES — each evening:\n1. Only while the Market exposure strip says In (QQQ above its 200-day). Out = cash.\n2. From Momentum Leaders, only names GREEN on the swing checklist: uptrend (Stage 2, or above a rising 21 EMA and the 50), not stretched (within 1 ADR of the 10/21 EMA where a scan has those fields), RS 70+, QQQ above its 200-day.\n3. Never a name a scan marks red.\n4. Highest 12-month return first; top 5.\n\nA checklist traders use, not a tested edge — every mechanical entry test on our data lost to holding QQQ. Not advice."} />
-      </div>
-      <div className={scrollRowCls} style={scrollRowStyle}>
-        <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
-          <span className={`${H} w-[14px] text-right mr-1`}>#</span>
-          <span className={`${H} shrink-0 w-[38px] md:w-[44px] text-center mx-0.5`}>Ticker</span>
-          <span className={`${H} w-[46px] md:w-[52px] text-right ml-1`}>12M</span>
-          <span className={`${H} w-[42px] md:w-[46px] text-right ml-2 md:ml-1`}>1M</span>
-          <span className={`${H} w-[30px] md:w-[36px] text-right ml-2 md:ml-1`}>Surp</span>
-          <span className={`${H} w-[36px] md:w-[42px] text-right ml-2 md:ml-1`}>Prc</span>
-          <span className={`${H} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`}>RS</span>
-          <span className={`${H} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`}>Stg</span>
-        </div>
-      </div>
-      {picks.map((r, i) => (
-        <div key={r.t} className={`${edgeMap?.[r.t] ? `${EDGE_TINT[edgeMap[r.t]]} rounded-sm` : ''} ${out ? 'opacity-50' : ''}`} title={r.n ?? r.t}>
-          <div className={scrollRowCls} style={scrollRowStyle}>
-            <div className="flex items-center whitespace-nowrap py-[1px]">
-              <span className="text-[9px] tabular-nums text-slate-500 w-[14px] text-right mr-1">{i + 1}</span>
-              <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px] mx-0.5`}>{r.t}</span></TickerChartHover>
-              <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ml-1 ${pctCls(r.mom)}`}>{r.mom >= 0 ? '+' : ''}{r.mom.toFixed(0)}%</span>
-              <span className={`text-[9px] tabular-nums inline-block w-[42px] md:w-[46px] text-right ml-2 md:ml-1 ${pctCls(r.r1m)}`}>{r.r1m >= 0 ? '+' : ''}{r.r1m.toFixed(1)}%</span>
-              <span className={`text-[9px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-2 md:ml-1 ${r.sue == null ? 'text-slate-600' : r.sue >= 2 ? 'text-emerald-400' : r.sue > 0 ? 'text-slate-300' : 'text-rose-400'}`}>{r.sue == null ? '—' : `${r.sue >= 0 ? '+' : ''}${r.sue.toFixed(1)}`}</span>
-              <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-2 md:ml-1">{fmtPrc(r.price)}</span>
-              <span className="inline-block w-[22px] md:w-[24px] text-center ml-2 md:ml-1">{r.rs != null ? <span className={`${badge} ${rsBadge(r.rs)}`}>{r.rs}</span> : <span className={dash}>-</span>}</span>
-              <span className="inline-block w-[22px] md:w-[24px] text-center ml-2 md:ml-1">{r.stage ? <span className={`${badge} ${stageBadge(r.stage)}`}>{stageShort(r.stage)}</span> : <span className={dash}>-</span>}</span>
-            </div>
-          </div>
-        </div>
-      ))}
-      <p className="text-[10px] text-slate-500 font-medium mt-2">Rules shortlist · as of the {list.asOf} close · from Momentum Leaders</p>
-    </div>
-  );
-};
 
 const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter: sf, rsMap, stageMap, topSet, onVisibleChange, orbWatch, edgeMap }: {
   pool: any[];
@@ -1558,16 +1479,11 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
   return (
     <div>
       <div className="flex items-center gap-1.5 flex-wrap mb-2">
-        <button
-          onClick={() => toggle('rules')}
-          title="The Rules shortlist: top 5 Momentum Leaders by 12-month return, no Stage 3/4, no red rows, only while the market strip says In"
-          className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-[2px] rounded border transition-all duration-150 ${activeKey === 'rules' ? 'text-emerald-300 bg-emerald-500/20 border-emerald-400/40 ring-1 ring-emerald-400/30' : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'}`}
-        >RULES</button>
         {pills(SETUP_SOURCE_FILTERS)}
         {pills(SETUP_PATTERN_FILTERS)}
         {edgePills()}
       </div>
-      {activeKey === 'rules' ? <RulesShortlist edgeMap={edgeMap} /> : filtered.length === 0 ? (
+      {filtered.length === 0 ? (
         <p className="text-[10px] text-slate-500 font-medium">No names match the active filter.</p>
       ) : (
         <>
@@ -1831,121 +1747,6 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
       <p className="text-[10px] text-slate-500 font-medium mt-2">
         {live.universe} liquid names · 5-year highs · data 15 min delayed, as of {clock} ET
       </p>
-    </div>
-  );
-};
-
-/* ---- Momentum Leaders (9 Oct 2026) -----------------------------------------
-   lib/momentum: the 50 liquid stocks with the strongest 12-month return,
-   skipping the latest month — the one monthly ranking that beat SPY whichever
-   day it was rebalanced on (scripts/backtest/rank-*.ts). A ranking, not a buy
-   signal: no levels. Rebuilt nightly by /api/momentum/nightly, read through
-   the CDN, fetched once per page load (it changes once a night). */
-type MomSortKey = 'mom' | 'r1m' | 'price' | 'dvol' | 'sue' | 'vol' | 'rvol' | 'rs' | 'stage' | 'cnf' | 'model' | 'rank' | 'off52';
-const MomentumLeaders = ({ edgeMap, cnfMap }: { edgeMap?: Record<string, EdgeTier>; cnfMap?: Record<string, number> }) => {
-  const [list, setList] = React.useState<MomentumList | null>(null);
-  const [failed, setFailed] = React.useState(false);
-  const [sort, setSort] = React.useState<{ key: MomSortKey; dir: SortDir }>({ key: 'mom', dir: 'desc' });
-  /* The live colour scorecard (lib/system stepColours), from the System nightly. */
-  const [colours, setColours] = React.useState<{ since: string; days: number; green: number; yellow: number; red: number } | null>(null);
-  React.useEffect(() => {
-    let on = true;
-    fetch('/api/system/latest').then(r => (r.ok ? r.json() : null)).then(j => { if (on && j?.colours) setColours(j.colours); }).catch(() => {});
-    fetch('/api/momentum/latest').then(r => (r.ok ? r.json() : null))
-      .then(j => { if (on) { if (j?.list) setList(j.list); else setFailed(true); } })
-      .catch(() => { if (on) setFailed(true); });
-    return () => { on = false; };
-  }, []);
-  if (!list) return <p className="text-[10px] text-slate-500">{failed ? 'Not built yet — the list builds after the first nightly run (about 6:10 PM ET).' : 'Loading…'}</p>;
-  const onSort = (k: MomSortKey) => setSort(cur => (cur.key !== k ? { key: k, dir: 'desc' } : { key: k, dir: cur.dir === 'desc' ? 'asc' : 'desc' }));
-  const combined = list.ranking === 'momentum+earnings';
-  const val = (r: MomentumRow): number => {
-    if (sort.key === 'stage') { const v = parseFloat(stageShort(r.stage)); return Number.isFinite(v) ? v : -Infinity; }
-    if (sort.key === 'cnf') return cnfMap?.[r.t] ?? -Infinity;
-    if (sort.key === 'model') return allModelScores()?.[r.t] ?? -Infinity;
-    if (sort.key === 'rank') return -(list.rows.indexOf(r));
-    const v = r[sort.key as keyof MomentumRow];
-    return typeof v === 'number' && Number.isFinite(v) ? v : -Infinity;
-  };
-  /* Top 30 shown (15 x 15) since 10 Oct 2026; the nightly list and its paper record keep 50. */
-  const shownRows = list.rows.slice(0, 30);
-  const rows = [...shownRows].sort((a, b) => (sort.dir === 'desc' ? val(b) - val(a) : val(a) - val(b)));
-  const H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
-  const S = 'cursor-pointer hover:text-slate-400 transition-colors select-none';
-  const arrow = (k: MomSortKey) => (sort.key === k ? (sort.dir === 'desc' ? ' ↓' : ' ↑') : '');
-  const rank = new Map(list.rows.map((r, i) => [r.t, i + 1]));
-  const pctCls = (v: number) => (v >= 0 ? 'text-emerald-400' : 'text-rose-400');
-  const dash = 'inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30';
-  const badge = 'inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center';
-  /* Top Movers' row (renderStdRow / SortableHeader): same widths, same order,
-     same scrollRowCls wrapper, with 12M in CHG%'s place and SURP after it.
-     # and 1M are tablet-up only, so a phone shows what Top Movers shows. */
-  const header = (
-    <div className={scrollRowCls} style={scrollRowStyle}>
-      <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
-        <span className={`${H} ${S} hidden md:inline-block w-[18px] text-right mr-1`} onClick={() => onSort('rank')}>#{arrow('rank')}</span>
-        <span className={`${H} shrink-0 w-[38px] md:w-[44px] text-center mx-0.5`}>Ticker</span>
-        <span className={`${H} ${S} w-[24px] md:w-[26px] text-center ml-2 md:ml-1`} onClick={() => onSort('model')} title="The System model's score, 0-100 (percentile of ~2,000 liquid stocks)">Mdl{arrow('model')}</span>
-        <span className={`${H} ${S} w-[46px] md:w-[52px] text-right ml-1`} onClick={() => onSort('mom')}>12M{arrow('mom')}</span>
-        <span className={`${H} ${S} w-[38px] md:w-[42px] text-right ml-2 md:ml-1`} onClick={() => onSort('off52')} title="% below the highest high of the last 12 months">Off hi{arrow('off52')}</span>
-        <span className={`${H} ${S} hidden md:inline-block w-[46px] text-right ml-1`} onClick={() => onSort('r1m')}>1M{arrow('r1m')}</span>
-        {combined && <span className={`${H} ${S} w-[30px] md:w-[36px] text-right ml-2 md:ml-1`}><InfoDot content={<span>{"SURP — EARNINGS SURPRISE. The latest quarter's earnings per share against the same quarter a year earlier, divided by how much that year-on-year change usually moves for this company (its last 4-8 quarters). +2 = an unusually big improvement; 0 = about normal; negative = earnings got worse. Only quarters reported in the last 92 days count; a dash means no recent score."}</span>}><span onClick={() => onSort('sue')}>Surp{arrow('sue')}</span></InfoDot></span>}
-        <span className={`${H} ${S} w-[36px] md:w-[42px] text-right ml-2 md:ml-1`} onClick={() => onSort('price')}>Prc{arrow('price')}</span>
-        <span className={`${H} ${S} w-[36px] md:w-[40px] text-right ml-2 md:ml-1`} onClick={() => onSort('rvol')}>Rvol{arrow('rvol')}</span>
-        <span className={`${H} ${S} w-[30px] md:w-[36px] text-right ml-2 md:ml-1`} onClick={() => onSort('vol')}>Vol{arrow('vol')}</span>
-        <span className={`${H} ${S} w-[36px] md:w-[40px] text-right ml-2 md:ml-1`} onClick={() => onSort('dvol')}>$Vol{arrow('dvol')}</span>
-        <span className={`${H} ${S} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`} onClick={() => onSort('stage')}>Stg{arrow('stage')}</span>
-      </div>
-    </div>
-  );
-  const row = (r: MomentumRow) => {
-    /* Swing checklist (lib/scans/checklist): the scan's colour where a scan carries the
-       name (it has the EMA fields), else the checklist on this row (stage + RS + market). */
-    const own = swingCheck(r as unknown as Record<string, unknown>);
-    const edge = edgeMap?.[r.t] ?? own?.tier ?? null;
-    return (
-      /* Same green / yellow / red tint as the scan cards and Top Movers, from
-         the shared per-ticker map; a name no scan carries stays untinted. */
-      <div key={r.t} className={`${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
-        title={edge ? `${r.n ?? r.t} · ${edgeMap?.[r.t] ? `${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : checkTip('swing', own)}` : (r.n ?? r.t)}>
-        <div className={scrollRowCls} style={scrollRowStyle}>
-          <div className="flex items-center whitespace-nowrap py-[1px]">
-            <span className="text-[9px] tabular-nums text-slate-600 hidden md:inline-block w-[18px] text-right mr-1">{rank.get(r.t)}</span>
-            <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px] mx-0.5`}>{r.t}</span></TickerChartHover>
-            {(() => { const ms = allModelScores()?.[r.t]; return <span className={`text-[9px] tabular-nums font-semibold inline-block w-[24px] md:w-[26px] text-center ml-2 md:ml-1 ${ms == null ? 'text-slate-600' : 'text-slate-400'}`}>{ms == null ? '—' : Math.round(ms * 100)}</span>; })()}
-            <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ml-1 ${pctCls(r.mom)}`}>{r.mom >= 0 ? '+' : ''}{r.mom.toFixed(0)}%</span>
-            <span className="text-[9px] tabular-nums inline-block w-[38px] md:w-[42px] text-right text-slate-400 ml-2 md:ml-1">{r.off52 == null ? '—' : `${r.off52.toFixed(0)}%`}</span>
-            <span className={`text-[9px] tabular-nums hidden md:inline-block w-[46px] text-right ml-1 ${pctCls(r.r1m)}`}>{r.r1m >= 0 ? '+' : ''}{r.r1m.toFixed(1)}%</span>
-            {combined && <span className={`text-[9px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-2 md:ml-1 ${r.sue == null ? 'text-slate-600' : r.sue >= 2 ? 'text-emerald-400' : r.sue > 0 ? 'text-slate-300' : 'text-rose-400'}`}>{r.sue == null ? '—' : `${r.sue >= 0 ? '+' : ''}${r.sue.toFixed(1)}`}</span>}
-            <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-2 md:ml-1">{fmtPrc(r.price)}</span>
-            <span className={`text-[9px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-2 md:ml-1 ${r.rvol == null ? 'text-slate-600' : r.rvol >= 2 ? 'text-emerald-400' : r.rvol >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{r.rvol == null ? '—' : `${r.rvol < 1 ? r.rvol.toFixed(1) : r.rvol < 10 ? r.rvol.toFixed(1) : Math.round(r.rvol)}x`}</span>
-            <span className="text-[9px] tabular-nums inline-block w-[30px] md:w-[36px] text-right text-slate-400 ml-2 md:ml-1">{fmtShares(r.vol ?? undefined)}</span>
-            <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[40px] text-right text-slate-300 ml-2 md:ml-1">{fmtDollars(r.dvol)}</span>
-            <span className="inline-block w-[22px] md:w-[24px] text-center ml-2 md:ml-1">{r.stage ? <span className={`${badge} ${stageBadge(r.stage)}`}>{stageShort(r.stage)}</span> : <span className={dash}>-</span>}</span>
-          </div>
-        </div>
-      </div>
-    );
-  };
-  const half = Math.ceil(rows.length / 2);
-  return (
-    <div>
-      <div className="flex items-start gap-2 mb-2">
-        <p className="text-[10px] text-slate-400 leading-snug flex-1">
-          {combined
-            ? <>The top {shownRows.length} liquid stocks ranked on two things together: the strongest 12-month run (skipping the latest month) and the biggest jump in quarterly earnings against a year earlier. Ranked, not recommended — in testing it matched QQQ, not beat it. No buy levels.<br /><span className="text-slate-500">SURP = earnings surprise: this quarter&apos;s earnings vs the same quarter last year, scaled to the company&apos;s usual swing (+2 = unusually big jump, negative = worse).</span></>
-            : <>The top {shownRows.length} liquid stocks with the strongest 12-month return, skipping the latest month — ranked, not recommended. No buy levels. (The earnings half of the ranking switches on once enough companies have earnings scores.)</>}
-        </p>
-        <InfoDot text={"WHAT IT IS — every common stock or ADR at $5+ trading $20M+ a day. 12M is its return from 12 months ago to 1 month ago; 1M is the latest month (left out of the ranking: last month's winners tend to give some back). SURP — the earnings surprise: the latest quarter's earnings per share against the same quarter a year earlier, measured against how much that number usually moves (+2 = an unusually big improvement). The list ranks on 12M and SURP together. RVOL is today's volume against its 20-day average; VOL is today's shares; STG is the Weinstein stage. Mdl is the System model's score (0-100, percentile of ~2,000 liquid stocks); Off hi is the % below the 12-month high. Those are shown for context only — none is part of the ranking or was tested with it. On a phone # and 1M are hidden, as on Top Movers' layout.\n\nROW COLOUR — the same green / yellow / red as the scan cards, for names one of the scans also carries today. An uncoloured row is not on any scan.\n\nWHAT THE TESTS SAY — over 2016–2026, a monthly top 50 by 12-month momentum made +331% against QQQ's +207% in 2016–20, then fell 46% in 2021 and made +20% against QQQ's +122% in 2021–26, with a worst drop near −60%. Momentum is real but crashes; no market filter we tested fixed that. The Mdl column (the trade model) and the row colours are there to steer toward the steadier leaders. A ranking, not a buy list.\n\nNot a buy list and not advice. Rebuilt each evening from the day's close."} />
-      </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-2">
-        <div className="min-w-0 space-y-0.5">{header}{rows.slice(0, half).map(row)}</div>
-        <div className="min-w-0 space-y-0.5"><div className="hidden lg:block">{header}</div>{rows.slice(half).map(row)}</div>
-      </div>
-      <p className="text-[10px] text-slate-500 font-medium mt-2">{list.universe} names ranked{combined ? ` · ${list.scored} with earnings scores` : ''} · as of the {list.asOf} close</p>
-      <p className="text-[10px] text-slate-500 font-medium mt-1">{colours && colours.days >= 1
-        ? <>Colour scorecard, live since {colours.since} ({colours.days} day{colours.days === 1 ? '' : 's'}): <span className="text-emerald-400">green {colours.green >= 0 ? '+' : ''}{(colours.green * 100).toFixed(1)}%</span> · <span className="text-amber-300">yellow {colours.yellow >= 0 ? '+' : ''}{(colours.yellow * 100).toFixed(1)}%</span> · <span className="text-rose-400">red {colours.red >= 0 ? '+' : ''}{(colours.red * 100).toFixed(1)}%</span> — each evening&apos;s groups across ~2,000 liquid stocks, equal weight, marked to the next close.</>
-        : <>Colour scorecard starts with the next evening build — it tracks how each evening&apos;s green, yellow and red stocks do from there.</>}</p>
     </div>
   );
 };
@@ -2359,7 +2160,6 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves now. Volume-confirmed is tradeable; a thin gap is a fade.' },
   { label: 'Social Sentiment', color: 'violet', blurb: 'What StockTwits, Reddit and Bluesky are talking about most, and which way they lean. The crowd, not a signal.' },
   { label: 'Liquid Leaders', color: 'cyan', blurb: 'The ~1,000 most traded stocks: which are outrunning the market most, and which trade the heaviest volume.' },
-  { label: 'Momentum Leaders', color: 'cyan', blurb: 'The 30 strongest 12-month runs, with each name\'s model score (Mdl) and how far it sits below its 12-month high. A ranking, not a buy list.' },
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, and who is on air.' },
   { label: '$Vol Summary', color: 'teal', blurb: 'Top 20 by dollar volume — where the money actually is today.' },
   { label: 'Daily Setups Thesis', color: 'cyan', blurb: 'Day trades vs multi-day swing holds from the daily scanner — sorted by blended score.' },
@@ -3289,8 +3089,6 @@ export default function MarketSummary() {
                                 <SocialSentiment edgeMap={modelEdgeMap} cnfMap={sentCnfMap} />
                               ) : isOpen && label === 'Liquid Leaders' ? (
                                 <LiquidLeaders edgeMap={modelEdgeMap} cnfMap={sentCnfMap} stageMap={macroInsights?.stageMap} newsMap={scanNewsMap} />
-                              ) : isOpen && label === 'Momentum Leaders' ? (
-                                <MomentumLeaders edgeMap={modelEdgeMap} cnfMap={sentCnfMap} />
                               ) : isOpen && label === 'Top Movers' && moverView === 'early' ? (
                                 <EarlyMovers pool={macroInsights?.earlyPool ?? []} night={earlyNight} onVisibleChange={onMoverVisible} />
                               ) : isOpen && label === 'Sector Performance' ? (
