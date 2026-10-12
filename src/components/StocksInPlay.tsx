@@ -105,7 +105,7 @@ import { SCANNER, COLUMN_NOTES, columnTip } from '@/lib/scanConfig';
 import { useFreezeWhileChartOpen} from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
 import { formatSetupName, isBlueDotSetup } from '@/lib/setupName';
-import { edgeTier, EDGE_FILTER_TIP, EDGE_TINT } from '@/lib/scans/edge';
+import { edgeTier, EDGE_FILTER_TIP, EDGE_TINT, tipFor, edgeTierDay, DAY_FILTER_TIP } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import { SCAN, ScoreCell, FitCell, RsCell, PriceCell, ChgCell, Ema1021Cell, VolCell, DollarVolCell, RvolCell, FloatCell, AdrCell, MfCell, DtcCell, McapCell, StageCell, SectorCell } from './scan/ScanTable';
 import { usePhoneTable } from './scan/usePhoneTable';
@@ -611,14 +611,14 @@ export default function StocksInPlay() {
   /* Counts come from the same population the table draws from — the
      changePct/volume floor above is part of the scan, not a user filter. */
   const edgeTally = useMemo(
-    () => edgeCounts(stocks.filter(s => s.changePct >= 4.0 && s.vol >= 500000 && s.mktCap !== null && s.mktCap >= 20000000), edgeTier),
+    () => edgeCounts(stocks.filter(s => s.changePct >= 4.0 && s.vol >= 500000 && s.mktCap !== null && s.mktCap >= 20000000), edgeTierDay),
     [stocks],
   );
   const edge = useEdgeFilter(edgeTally);
 
   const computedStocks = useMemo(() => {
     let filtered = stocks.filter(s => s.changePct >= 4.0 && s.vol >= 500000 && s.mktCap !== null && s.mktCap >= 20000000);
-    if (edge.key) filtered = filtered.filter(s => edgeTier(s) === edge.key);
+    if (edge.key) filtered = filtered.filter(s => edgeTierDay(s) === edge.key);
 
     if (marketCapFilter !== 'All') {
       filtered = filtered.filter(s => {
@@ -827,7 +827,7 @@ export default function StocksInPlay() {
               {/* Colour filter lives OUTSIDE the collapsible block: it is the
                   one filter used on every visit, so it should not cost a
                   click. Rules per scan in lib/scans/edge. */}
-              <EdgeFilterPills counts={edgeTally} active={edge.key} onToggle={edge.toggle} tips={EDGE_FILTER_TIP} />
+              <EdgeFilterPills counts={edgeTally} active={edge.key} onToggle={edge.toggle} tips={DAY_FILTER_TIP} />
               <div className="flex items-center gap-2.5 text-[9px] font-semibold text-slate-500">
                 <span onClick={() => toggleVwap('above')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'above' ? 'text-emerald-400' : ''}`} title={vwapFilter === 'above' ? 'Filtering above VWAP — click to show all' : 'Click to filter above VWAP only'}><span className={`w-1.5 h-1.5 rounded-full bg-emerald-400 ${vwapFilter === 'above' ? 'ring-1 ring-white/40' : ''}`}></span>Above VWAP</span>
                 <span onClick={() => toggleVwap('below')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'below' ? 'text-rose-400' : ''}`} title={vwapFilter === 'below' ? 'Filtering below VWAP — click to show all' : 'Click to filter below VWAP only'}><span className={`w-1.5 h-1.5 rounded-full bg-rose-500 ${vwapFilter === 'below' ? 'ring-1 ring-white/40' : ''}`}></span>Below</span>
@@ -969,11 +969,11 @@ export default function StocksInPlay() {
                     const posture = postureOf(row);
                     /* The momentum tint — these are the tables it was measured
                        on (lib/scans/edge edgeTier). */
-                    const tier = edgeTier(row);
+                    const tier = edgeTierDay(row);
                     return (
                       <React.Fragment key={i}>
                         <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
-                          title={tier ? `${tier.toUpperCase()} — ${EDGE_FILTER_TIP[tier]}` : undefined}>
+                          title={tier ? tipFor('sip', row) : undefined}>
                           <TickerCell symbol={row.ticker} name={row.name} />
                           <td className={tdBase}><NewsStars row={row} /></td>
                           <FitCell late={row.late} />

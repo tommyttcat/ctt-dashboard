@@ -9,7 +9,7 @@ import { rsBadge } from '@/lib/indicators/rs';
 import { stageShort, stageBadge } from '@/lib/indicators/stage';
 import { tickerChipCls, scoreCellCls } from '@/lib/indicators/columnColors';
 import { hrsEdgeGrade, HRS_EDGE_GRADE_TIP } from '@/lib/scans/hrs';
-import { hrsTier, HRS_TIP, EDGE_TINT } from '@/lib/scans/edge';
+import { hrsTier, HRS_TIP, EDGE_TINT, tipFor } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import { displaySector } from '@/lib/sectors';
 import { NewsStars, type CatalystRow } from '@/lib/catalyst';
@@ -418,7 +418,7 @@ export default function HiddenRelativeStrength() {
                       <React.Fragment key={row.symbol}>
                         {/* Row 1 — data */}
                         <tr
-                          title={tier ? `${tier.toUpperCase()} — ${HRS_TIP[tier]}` : undefined}
+                          title={tier ? tipFor('hrs', row) : undefined}
                           className={`hover:bg-white/[0.02] cursor-pointer transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
                           onClick={() => setExpandedRow(isRowExpanded ? null : row.symbol)}
                         >

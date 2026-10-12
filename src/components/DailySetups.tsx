@@ -84,7 +84,7 @@ import { formatSetupName, isBlueDotSetup } from '@/lib/setupName';
 
 type FitFilterType = 'All' | 'OK';
 const FIT_BUCKETS: FitFilterType[] = ['OK'];
-import { edgeTier, EDGE_FILTER_TIP, EDGE_TINT } from '@/lib/scans/edge';
+import { edgeTier, EDGE_FILTER_TIP, EDGE_TINT, tipFor } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import {
   formatTime,
@@ -864,7 +864,7 @@ export default function DailySetups() {
                     return (
                       <React.Fragment key={i}>
                         <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
-                          title={tier ? `${tier.toUpperCase()} — ${EDGE_FILTER_TIP[tier]}` : undefined}>
+                          title={tier ? tipFor('daily', row) : undefined}>
                           <TickerCell symbol={row.ticker} name={row.name} />
                           <td className={tdBase}><NewsStars row={row} /></td>
                           <FitCell late={row.late} />

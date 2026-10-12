@@ -47,7 +47,10 @@ import {
   type EarlyPool, type EarlyTrack,
 } from '@/lib/earlyTrack';
 import { EARLY_MIN_PCT } from '@/lib/summary/earlyMovers';
-import { edgeTier, multibaggerTier, swingTier, consolidationTier, ep9mTier, vcpTier, hrsTier } from '@/lib/scans/edge';
+import { SCAN_RULES } from '@/lib/scans/edge';
+/* The scans' own measured rules — what this record has always logged; the site's colours
+   moved to the day / swing checklists on 12 Oct 2026 and must not change this research data. */
+const { edgeTier, multibaggerTier, swingTier, consolidationTier, ep9mTier, vcpTier, hrsTier } = SCAN_RULES;
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;

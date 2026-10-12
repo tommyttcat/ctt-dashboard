@@ -82,7 +82,7 @@ import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews, NewsStars } 
 import { displaySector } from '@/lib/sectors';
 import { dtcColor as getDtcColor, tickerChipCls, scoreCellNeutralCls } from '@/lib/indicators/columnColors';
 import { epMoveOdds, EP_MOVE_ODDS_TIP } from '@/lib/scans/ep9m';
-import { ep9mTier, EP9M_TIP, EDGE_TINT } from '@/lib/scans/edge';
+import { ep9mTier, EP9M_TIP, EDGE_TINT, tipFor } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import { SCAN, RvolCell, RsCell, PriceCell, DollarVolCell, AdrCell, McapCell, StageCell, SectorCell } from './scan/ScanTable';
 import { usePhoneTable } from './scan/usePhoneTable';
@@ -1021,7 +1021,7 @@ export default function Ep9m() {
                     return (
                       <React.Fragment key={row.ticker}>
                         <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
-                          title={tier ? `${tier.toUpperCase()} — ${EP9M_TIP[tier]}` : undefined}>
+                          title={tier ? tipFor('ep9m', row) : undefined}>
                           <td className={tdBase}>
                             <div className="flex items-center justify-start gap-1.5">
                               <WatchlistBtn symbol={row.ticker} />

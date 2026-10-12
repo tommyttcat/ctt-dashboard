@@ -206,12 +206,16 @@ function ColourRules() {
     <>
       <H>Row Colours</H>
       <P>
-        <strong className="text-slate-200">One rule on every card (since 10 Oct 2026): green = go, yellow = look, red = stay away.</strong>{' '}
-        Each evening a trade model scores ~2,000 liquid stocks on the expected result of a simple trade from the close
-        (+20% target, −10% stop, out after 40 days). Green is its top 30%, yellow the middle 40%, red the bottom 30%. On
-        years it never saw (2018–2026) its top 10% beat the average trade in 8 of 9 years, and the average trade fell
-        steadily from the top band to the bottom in both halves. Each scan&apos;s own red rule below still wins. Names the
-        model doesn&apos;t score (under $20M a day or under a year of history) keep the rules below.
+        <strong className="text-slate-200">Two checklists, since 12 Oct 2026: green = go, yellow = look, red = stay away.</strong>{' '}
+        <strong className="text-slate-200">Swing</strong> (3–5 days, let runners run) colours every card except the intraday ones:
+        green when the stock is in an uptrend (above a rising 21 EMA and the 50-day), within one average daily range of the 10 or
+        21 EMA (not chasing), RS 70+, and QQQ is above its 200-day; red when it is below the 50-day, more than three daily
+        ranges above the 21 EMA, reports earnings within three days, or QQQ is below its 200-day.{' '}
+        <strong className="text-slate-200">Day</strong> colours Stocks in Play, EP9M and Early Movers: green when it is up on
+        the day on twice its usual volume, holding the top half of the day&apos;s range and above the open, with a 4%+ daily range
+        and $20M+ traded; red when it is down on the day, below the open, or under 1.5× volume. Yellow is in between. Hover a row
+        to see which checks it passed. These are rules traders use, not a tested edge — every mechanical entry we tested lost
+        to holding QQQ. Each scan&apos;s own red rule below still wins.
       </P>
       <P>
         Each scan has its own colour rules, taken from its own backtest (Sep 2022 – Sep 2026). Only

@@ -91,7 +91,7 @@ import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews, NewsStars } 
 import { displaySector } from '@/lib/sectors';
 import { tickerChipCls, scoreCellCls } from '@/lib/indicators/columnColors';
 import { vcpEdgeGrade, VCP_EDGE_GRADE_TIP } from '@/lib/scans/vcp';
-import { vcpTier, VCP_TIP, EDGE_TINT } from '@/lib/scans/edge';
+import { vcpTier, VCP_TIP, EDGE_TINT, tipFor } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import { SCAN, StageCell, SectorCell } from './scan/ScanTable';
 import { usePhoneTable } from './scan/usePhoneTable';
@@ -907,7 +907,7 @@ export default function Vcp() {
                     return (
                       <React.Fragment key={row.symbol}>
                         <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
-                          title={tier ? `${tier.toUpperCase()} — ${VCP_TIP[tier]}` : undefined}>
+                          title={tier ? tipFor('vcp', row) : undefined}>
                           <td className={tdBase}>
                             <div className="flex items-center justify-start gap-1.5">
                               <WatchlistBtn symbol={row.symbol} />

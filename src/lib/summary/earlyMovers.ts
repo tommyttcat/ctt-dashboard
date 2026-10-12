@@ -72,7 +72,7 @@ export function earlyMovers(pool: any[], quotes: Record<string, LiveQ>, session:
     }
     const row = {
       ...s, ticker: t, price: q.price, last: q.price, change: q.pct, changePct: q.pct,
-      rvol: pace != null ? +pace.toFixed(2) : null, _live: true,
+      rvol: pace != null ? +pace.toFixed(2) : null, _live: true, _early: true,
     };
     const pr = planRowsFor([row])[0];
     if (pr && planStatusOf(pr) === 'out') continue;

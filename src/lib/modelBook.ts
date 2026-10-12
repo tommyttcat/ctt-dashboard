@@ -39,7 +39,10 @@
 // trades, v2 becomes the main book only if it beats BOTH v1 and SPY on return
 // since start AND its worst drop is no more than 5 points deeper than v1's.
 
-import { edgeTier, swingTier, ep9mTier } from '@/lib/scans/edge';
+import { SCAN_RULES } from '@/lib/scans/edge';
+/* The scans' own measured rules — what this record has always logged; the site's colours
+   moved to the day / swing checklists on 12 Oct 2026 and must not change this research data. */
+const { edgeTier, swingTier, ep9mTier } = SCAN_RULES;
 import { orbTrigger, type Minute } from '@/lib/orb';
 
 export const MODEL_BOOK_KEY = 'model_book_v1';

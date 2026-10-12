@@ -113,6 +113,7 @@ import EdgeFilterPills from './EdgeFilterPills';
 import InfoDot from './InfoDot';
 import { etMinute, type OrbWatchStatus, type OrbWatchState } from '@/lib/orb';
 import { earlyMovers, EARLY_MIN_PCT, EARLY_MIN_PACE } from '@/lib/summary/earlyMovers';
+import { swingCheck, checkTip } from '@/lib/scans/checklist';
 import type { LeadersLive, LeaderRow } from '@/lib/leaders';
 import type { MomentumList, MomentumRow } from '@/lib/momentum';
 import { rulesShortlist } from '@/lib/momentum';
@@ -1261,7 +1262,7 @@ const MoverRows = ({ pool }: { pool: any[] }) => {
 
   const row = (s0: any) => {
     const ticker: string = s0?.ticker ?? s0?.symbol;
-    const t = tierForScan(s0._source, s0);
+    const t = tierForScan(s0._early ? 'early' : s0._source, s0);   // Early Movers: the day checklist
     const cnf = scoreOf(s0);
     const chg = chgOf(s0);
     const rv = rvolOf(s0);
@@ -1325,7 +1326,11 @@ const RulesShortlist = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) => 
   }, []);
   if (!list) return <p className="text-[10px] text-slate-500">{failed ? 'The momentum list has not been built yet.' : 'Loading…'}</p>;
   const red = new Set(Object.entries(edgeMap ?? {}).filter(([, t]) => t === 'red').map(([k]) => k));
-  const picks = rulesShortlist(list.rows, red, allModelScores());
+  /* RULES = Momentum Leaders that are GREEN on the swing checklist (12 Oct 2026; was the
+     GO model), strongest 12-month trend first. */
+  const picks = list.rows
+    .filter(r => !red.has(r.t) && (edgeMap?.[r.t] ?? swingCheck(r as unknown as Record<string, unknown>)?.tier) === 'green')
+    .sort((a, b) => b.mom - a.mom).slice(0, 5);
   const H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
   const badge = 'inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center';
   const dash = `${badge} text-slate-600 border-slate-700/40 bg-slate-800/30`;
@@ -1337,9 +1342,9 @@ const RulesShortlist = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) => 
         <p className="text-[10px] text-slate-400 leading-snug flex-1">
           {out
             ? <><span className="font-bold text-amber-300">Rules say cash.</span> QQQ closed below its 200-day average, so the tested rule holds nothing until it closes back above. The names below are what the list would hold.</>
-            : <><span className="font-bold text-emerald-300">Market: {mode === 'boost' ? 'Boost (150%)' : 'In'}.</span> The Momentum Leaders that are green — strongest 12-month trend AND a go on the trade model — top {picks.length} by 12-month return. Not advice.</>}
+            : <><span className="font-bold text-emerald-300">Market: {mode === 'boost' ? 'Boost (150%)' : 'In'}.</span> The Momentum Leaders that are green — strongest 12-month trend AND green on the swing checklist — top {picks.length} by 12-month return. Not advice.</>}
         </p>
-        <InfoDot text={"THE RULES — applied mechanically each evening:\n1. Only while the Market exposure strip says In (QQQ above its 200-day). Out = cash.\n2. From Momentum Leaders, only names that are GREEN on the trade model (top 30% of ~2,000 liquid stocks on the expected result of a +20% target / −10% stop / 40-day trade).\n3. Never a name a scan marks red.\n4. Highest 12-month return first; top 5.\n\nTHE EVIDENCE — the trade model, tested only on years it never saw (2018–2026), put its top 10% above the average trade in 8 of 9 years; its green band averaged +0.9–1.2% a trade in 2018–21 and +0.2–0.5% in 2022–26. Momentum alone over 2016–2026 beat QQQ in 2016–20 but fell 46% in 2021 — the green filter is there to skip the stretched, wild names that caused that. The combination itself has not been tested as one rule.\n\nNot advice. Rebuilt each evening from the close."} />
+        <InfoDot text={"THE RULES — each evening:\n1. Only while the Market exposure strip says In (QQQ above its 200-day). Out = cash.\n2. From Momentum Leaders, only names GREEN on the swing checklist: uptrend (Stage 2, or above a rising 21 EMA and the 50), not stretched (within 1 ADR of the 10/21 EMA where a scan has those fields), RS 70+, QQQ above its 200-day.\n3. Never a name a scan marks red.\n4. Highest 12-month return first; top 5.\n\nA checklist traders use, not a tested edge — every mechanical entry test on our data lost to holding QQQ. Not advice."} />
       </div>
       <div className={scrollRowCls} style={scrollRowStyle}>
         <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
@@ -1600,7 +1605,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
             <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-amber-400/30" />yellow</span>
             <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-rose-500/30" />red</span>
             <span className="absolute bottom-full left-0 mb-2 w-72 px-3.5 py-2.5 rounded-lg bg-[#1a2035] border border-white/10 shadow-2xl text-[10px] leading-[1.6] text-slate-300 font-normal whitespace-normal opacity-0 pointer-events-none group-hover/edge:opacity-100 transition-opacity z-[9999]">
-              Colours are the same on every card: GREEN = go (top 30% of the trade model), YELLOW = look (middle 40%), RED = stay away (bottom 30%, or any scan&apos;s red rule — wild range, $5–10 on the momentum scans, Stage 1 base, tight coil). The trade model scores ~2,000 liquid stocks each evening on the expected result of a +20% target / −10% stop / 40-day trade; on years it never saw, its top band beat the average trade in 8 of 9 years. Opens on green.
+              Two checklists. SWING (3–5 days, let runners run) on every card except the intraday ones: GREEN = uptrend (above a rising 21 EMA and the 50), within 1 ADR of the 10/21 EMA, RS 70+, QQQ above its 200-day; RED = below the 50, 3+ ADRs above the 21 EMA, earnings within 3 days, or QQQ below its 200-day. DAY on Stocks in Play, EP9M and Early Movers: GREEN = up today on 2×+ volume, top half of the day&apos;s range, above the open, ADR 4%+; RED = down today, below the open, or under 1.5× volume. YELLOW = in between. A scan&apos;s own red rule always wins. Hover any row for its ✔ / ✖. Rules traders use, not a tested edge.
             </span>
           </p>
         </>
@@ -1887,17 +1892,20 @@ const MomentumLeaders = ({ edgeMap, cnfMap }: { edgeMap?: Record<string, EdgeTie
     </div>
   );
   const row = (r: MomentumRow) => {
-    const edge = edgeMap?.[r.t] ?? null;
+    /* Swing checklist (lib/scans/checklist): the scan's colour where a scan carries the
+       name (it has the EMA fields), else the checklist on this row (stage + RS + market). */
+    const own = swingCheck(r as unknown as Record<string, unknown>);
+    const edge = edgeMap?.[r.t] ?? own?.tier ?? null;
     return (
       /* Same green / yellow / red tint as the scan cards and Top Movers, from
          the shared per-ticker map; a name no scan carries stays untinted. */
       <div key={r.t} className={`${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
-        title={edge ? `${r.n ?? r.t} · ${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : (r.n ?? r.t)}>
+        title={edge ? `${r.n ?? r.t} · ${edgeMap?.[r.t] ? `${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : checkTip('swing', own)}` : (r.n ?? r.t)}>
         <div className={scrollRowCls} style={scrollRowStyle}>
           <div className="flex items-center whitespace-nowrap py-[1px]">
             <span className="text-[9px] tabular-nums text-slate-600 hidden md:inline-block w-[18px] text-right mr-1">{rank.get(r.t)}</span>
             <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px] mx-0.5`}>{r.t}</span></TickerChartHover>
-            {(() => { const ms = allModelScores()?.[r.t]; return <span className={`text-[9px] tabular-nums font-semibold inline-block w-[24px] md:w-[26px] text-center ml-2 md:ml-1 ${ms == null ? 'text-slate-600' : ms >= 2 / 3 ? 'text-emerald-400' : ms >= 1 / 3 ? 'text-amber-300' : 'text-rose-400'}`}>{ms == null ? '—' : Math.round(ms * 100)}</span>; })()}
+            {(() => { const ms = allModelScores()?.[r.t]; return <span className={`text-[9px] tabular-nums font-semibold inline-block w-[24px] md:w-[26px] text-center ml-2 md:ml-1 ${ms == null ? 'text-slate-600' : 'text-slate-400'}`}>{ms == null ? '—' : Math.round(ms * 100)}</span>; })()}
             <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ml-1 ${pctCls(r.mom)}`}>{r.mom >= 0 ? '+' : ''}{r.mom.toFixed(0)}%</span>
             <span className="text-[9px] tabular-nums inline-block w-[38px] md:w-[42px] text-right text-slate-400 ml-2 md:ml-1">{r.off52 == null ? '—' : `${r.off52.toFixed(0)}%`}</span>
             <span className={`text-[9px] tabular-nums hidden md:inline-block w-[46px] text-right ml-1 ${pctCls(r.r1m)}`}>{r.r1m >= 0 ? '+' : ''}{r.r1m.toFixed(1)}%</span>

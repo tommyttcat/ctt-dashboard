@@ -101,7 +101,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useModelScores } from '@/lib/modelScores';
-import { consolidationTier, CONSOLIDATION_TIP, EDGE_TINT } from '@/lib/scans/edge';
+import { consolidationTier, CONSOLIDATION_TIP, EDGE_TINT, tipFor } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import { cachedJson } from '@/lib/scannerLatest';
 import { useMarketData } from './MarketDataContext';
@@ -976,7 +976,7 @@ export default function Consolidation1021() {
                     return (
                       <React.Fragment key={row.symbol}>
                         <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
-                          title={tier ? `${tier.toUpperCase()} — ${CONSOLIDATION_TIP[tier]}` : undefined}>
+                          title={tier ? tipFor('coil', row) : undefined}>
                           <TickerCell symbol={row.symbol} name={row.name} score={row.score} />
                           <td className={tdBase}><NewsStars row={row} /></td>
                           <ScoreCell value={row.score} title={cnfTooltip(row)} />

@@ -10,10 +10,10 @@
  * threshold drifts without anyone noticing.
  */
 
-import {
-  edgeTier, ep9mTier, vcpTier, swingTier, consolidationTier, multibaggerTier, hrsTier,
-  tierForScan, EP9M_TIP, VCP_TIP, EDGE_FILTER_TIP,
-} from '../src/lib/scans/edge.ts';
+import { SCAN_RULES, tierForScan } from '../src/lib/scans/edge.ts';
+// Since 12 Oct 2026 the colours are the day / swing checklists (scripts/checklist.test.mts);
+// each scan's measured rule below now decides only its red override, so it is tested raw.
+const { edgeTier, ep9mTier, vcpTier, swingTier, consolidationTier, multibaggerTier, hrsTier } = SCAN_RULES;
 import { eq, ok, done } from './testkit.mts';
 
 // ---- momentum: Stocks in Play + Daily Setups -------------------------------
@@ -84,22 +84,15 @@ eq('hrs never returns red', hrsTier({ price: 500 }), 'yellow');
    a row that would be shaded differently by two of them, so the cases below
    are rows where the scans genuinely disagree. */
 
-// $6, ADR 4%, closed at the high: red on the momentum tables ($5-10 lost
-// there) and green on EP9M (money flow 70), from the same row.
-const cheap = { price: 6, adrPct: 4, closeStrength: 1, mf: 70, mktCap: 4e8, floatTurnover: 0.3 };
-eq('momentum rules call the $5-10 row red', tierForScan('daily', cheap)?.tier, 'red');
-eq('EP9M rules call the same row green', tierForScan('ep9m', cheap)?.tier, 'green');
-eq('sip routes to the momentum rules', tierForScan('sip', cheap)?.tier, 'red');
-
-eq('the tip travels with the tier', tierForScan('ep9m', cheap)?.tip, EP9M_TIP.green);
-eq('and is the momentum text for a momentum row', tierForScan('daily', cheap)?.tip, EDGE_FILTER_TIP.red);
-
-const base = { atrPct: 4, finalDepthPct: 12, stopPct: 8 };
-eq('vcp routes to its own rule', tierForScan('vcp', base)?.tier, 'green');
-eq('with its own tip', tierForScan('vcp', base)?.tip, VCP_TIP.green);
-
-eq('an unknown source falls back to the momentum rules', tierForScan('nonsense', cheap)?.tier, 'red');
-eq('so does a missing one', tierForScan(null, cheap)?.tier, 'red');
-ok('no tier means no tint at all', tierForScan('daily', { price: 6 }) === null);
+// The scan's red rule still wins over the checklist, in both modes.
+const cheap = { price: 6, adrPct: 4, closeStrength: 1, mf: 70, mktCap: 4e8, floatTurnover: 0.3, changePct: 5, rvol: 3, rsRating: 90, stage: 'Stage 2A' };
+eq('momentum red rule ($5-10) wins on the swing checklist', tierForScan('daily', cheap)?.tier, 'red');
+eq('and on the day checklist (sip)', tierForScan('sip', cheap)?.tier, 'red');
+ok('the tip says why', /own red rule/.test(tierForScan('daily', cheap)?.tip ?? ''));
+const day = { price: 30, adrPct: 6, closeStrength: 0.8, changePct: 6, rvol: 3, dVol: 5e7, mf: 50, mktCap: 1e9, floatTurnover: 0.3 };
+eq('ep9m uses the day checklist', tierForScan('ep9m', day)?.tier, 'green');
+ok('with a day tip', /day-trade checklist/.test(tierForScan('ep9m', day)?.tip ?? ''));
+ok('daily uses the swing checklist', /swing checklist/.test(tierForScan('daily', day)?.tip ?? ''));
+eq('an unknown source falls back to daily', tierForScan('nonsense', cheap)?.tier, 'red');
 
 done('edge tiers');

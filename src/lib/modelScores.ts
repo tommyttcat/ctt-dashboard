@@ -6,20 +6,30 @@
 
 import { useEffect, useState } from 'react';
 import { allModelScores, onModelScores, setModelScores } from './modelScoreStore';
+import { marketIsUp, onMarket, setMarketUp } from './scans/checklist';
 
 export { allModelScores, setModelScores } from './modelScoreStore';
 let pending: Promise<void> | null = null;
+let pendingMkt: Promise<void> | null = null;
 
 export function useModelScores(): number {
   const [v, setV] = useState(allModelScores() ? 1 : 0);
   useEffect(() => {
     const off = onModelScores(() => setV(x => x + 1));
+    /* The swing checklist's market line (QQQ above its 200-day) — /api/exposure/latest,
+       187 bytes, CDN-cached 10 min: one request per page however many tables ask. */
+    const offM = onMarket(() => setV(x => x + 1));
+    if (marketIsUp() == null && !pendingMkt) {
+      pendingMkt = fetch('/api/exposure/latest').then(r => (r.ok ? r.json() : null))
+        .then(j => { const st = j?.state; if (st && typeof st.qqq === 'number' && typeof st.sma200 === 'number') setMarketUp(st.qqq > st.sma200); })
+        .catch(() => {});
+    }
     if (!allModelScores() && !pending) {
       pending = fetch('/api/system/scores').then(r => (r.ok ? r.json() : null))
         .then(j => { if (j?.scores && Object.keys(j.scores).length) setModelScores(j.scores, j.asOf ?? null); })
         .catch(() => {});
     }
-    return off;
+    return () => { off(); offM(); };
   }, []);
   return v;
 }
