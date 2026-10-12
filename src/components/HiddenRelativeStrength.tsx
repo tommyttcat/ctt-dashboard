@@ -1,5 +1,7 @@
 'use client';
 
+import InfoDot from './InfoDot';
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { useModelScores } from '@/lib/modelScores';
 import { cachedJson } from '@/lib/scannerLatest';
@@ -434,8 +436,8 @@ export default function HiddenRelativeStrength() {
                     return (
                       <React.Fragment key={row.symbol}>
                         {/* Row 1 — data */}
-                        <tr
-                          title={tier ? tipFor('hrs', row) : undefined}
+                        <InfoDot as="tr" block
+                          text={tier ? tipFor('hrs', row) : undefined}
                           className={`hover:bg-white/[0.02] cursor-pointer transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
                           onClick={() => setExpandedRow(isRowExpanded ? null : row.symbol)}
                         >
@@ -503,7 +505,7 @@ export default function HiddenRelativeStrength() {
                             <span title={displaySector(row.sector, row.symbol)} className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{displaySector(row.sector, row.symbol)}</span>
                           </td>
 
-                        </tr>
+                        </InfoDot>
 
                         {/* Row 2 — catalyst sub-row (only when there's news) */}
                         {(headline || tag) && (

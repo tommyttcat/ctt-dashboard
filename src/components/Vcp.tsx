@@ -1,5 +1,7 @@
 'use client';
 
+import InfoDot from './InfoDot';
+
 // Vcp — Volatility Contraction Pattern (Mark Minervini) — v1.3
 //
 // v1.3: STATUS column removed, and the trigger / stop / target hover on the
@@ -906,8 +908,8 @@ export default function Vcp() {
 
                     return (
                       <React.Fragment key={row.symbol}>
-                        <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
-                          title={tier ? tipFor('vcp', row) : undefined}>
+                        <InfoDot as="tr" block className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
+                          text={tier ? tipFor('vcp', row) : undefined}>
                           <td className={tdBase}>
                             <div className="flex items-center justify-start gap-1.5">
                               <WatchlistBtn symbol={row.symbol} />
@@ -1014,7 +1016,7 @@ export default function Vcp() {
                           <StageCell stage={row.stage} />
 
                           <SectorCell text={sectorText} />
-                        </tr>
+                        </InfoDot>
 
                         {/* Sub-row: where price sits against the pivot, then
                             the headline. */}

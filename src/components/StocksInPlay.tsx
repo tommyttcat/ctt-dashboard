@@ -1,5 +1,7 @@
 'use client';
 
+import InfoDot from './InfoDot';
+
 // StocksInPlay — v3.5
 //
 // v3.5: STATUS column removed. The site publishes no buy levels, stops or
@@ -972,8 +974,8 @@ export default function StocksInPlay() {
                     const tier = edgeTierDay(row);
                     return (
                       <React.Fragment key={i}>
-                        <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
-                          title={tier ? tipFor('sip', row) : undefined}>
+                        <InfoDot as="tr" block className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
+                          text={tier ? tipFor('sip', row) : undefined}>
                           <TickerCell symbol={row.ticker} name={row.name} />
                           <td className={tdBase}><NewsStars row={row} /></td>
                           <FitCell late={row.late} />
@@ -1001,7 +1003,7 @@ export default function StocksInPlay() {
                           <McapCell value={row.mktCap} />
                           <StageCell stage={row.stage} />
                           <SectorCell text={sectorText} />
-                        </tr>
+                        </InfoDot>
                         {/* Sub-row starts at column 1 so the setup name sits
                             directly under the ticker rather than under CNF.
                             Order down the left edge: symbol, then what it is,

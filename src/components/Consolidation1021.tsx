@@ -1,5 +1,7 @@
 'use client';
 
+import InfoDot from './InfoDot';
+
 // Consolidation1021 — v3.2
 //
 // v3.2: STATUS column and PLAN filter removed. The site publishes no buy
@@ -975,8 +977,8 @@ export default function Consolidation1021() {
                     const tier = consolidationTier(row);
                     return (
                       <React.Fragment key={row.symbol}>
-                        <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
-                          title={tier ? tipFor('coil', row) : undefined}>
+                        <InfoDot as="tr" block className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
+                          text={tier ? tipFor('coil', row) : undefined}>
                           <TickerCell symbol={row.symbol} name={row.name} score={row.score} />
                           <td className={tdBase}><NewsStars row={row} /></td>
                           <ScoreCell value={row.score} title={cnfTooltip(row)} />
@@ -1027,7 +1029,7 @@ export default function Consolidation1021() {
                           <McapCell value={row.mktCap} />
                           <StageCell stage={row.stage} />
                           <SectorCell text={sectorText} />
-                        </tr>
+                        </InfoDot>
                         {/* There is no setup name to show under the ticker
                             here — every row is a coil — so its slot reads "—".
 

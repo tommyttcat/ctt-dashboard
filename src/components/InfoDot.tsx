@@ -14,7 +14,7 @@ const MAX_H = 520;  // tallest the panel gets before it scrolls
 /* `block` (12 Oct 2026): render the hover target as a block <div> carrying `className`, so a
    whole row can open the panel without falling back to a native title. Clicks are not
    swallowed in block mode, so the row stays clickable. */
-export default function InfoDot({ text, content, children, block, className }: { text?: string; content?: React.ReactNode; children?: React.ReactNode; block?: boolean; className?: string }) {
+export default function InfoDot({ text, content, children, block, className, as = 'div', onClick }: { text?: string; content?: React.ReactNode; children?: React.ReactNode; block?: boolean; className?: string; as?: 'div' | 'tr'; onClick?: React.MouseEventHandler }) {
   const [show, setShow] = useState(false);
   const [pos, setPos] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number } | null>(null);
   const dotRef = useRef<HTMLElement>(null);
@@ -59,11 +59,15 @@ export default function InfoDot({ text, content, children, block, className }: {
   );
 
   if (block) {
+    /* `as="tr"` makes a table row the hover target (the scan tables' colour reasons). With no
+       text or content the panel never opens, so an untinted row shows nothing. */
+    const has = !!(content || text);
+    const Tag = as;
     return (
-      <div className={className} ref={dotRef as React.RefObject<HTMLDivElement>} onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
+      <Tag className={className} ref={dotRef as React.RefObject<HTMLTableRowElement & HTMLDivElement>} onClick={onClick} onMouseEnter={() => has && setShow(true)} onMouseLeave={() => setShow(false)}>
         {children}
         {popup}
-      </div>
+      </Tag>
     );
   }
   return (

@@ -1,5 +1,7 @@
 'use client';
 
+import InfoDot from './InfoDot';
+
 // SwingCandidates — v2.5
 //
 // v2.5: STATUS column and PLAN filter removed. The site publishes no buy
@@ -1023,8 +1025,8 @@ export default function SwingCandidates() {
                     const tier = swingTier(row);
                     return (
                       <React.Fragment key={row.symbol}>
-                        <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
-                          title={tier ? tipFor('swing', row) : undefined}>
+                        <InfoDot as="tr" block className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
+                          text={tier ? tipFor('swing', row) : undefined}>
                           <TickerCell symbol={row.symbol} name={row.name} score={null} />
                           <td className={tdBase}><NewsStars row={row} /></td>
                           <td className={tdBase}>
@@ -1071,7 +1073,7 @@ export default function SwingCandidates() {
                           <McapCell value={row.mktCap} />
                           <StageCell stage={row.stage} />
                           <SectorCell text={sectorText} />
-                        </tr>
+                        </InfoDot>
                         {/* Sub-row starts at column 1 so the setup name sits
                             directly under the ticker. Order down the left edge:
                             symbol, then what it is, then the headline.

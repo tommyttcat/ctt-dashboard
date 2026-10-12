@@ -1027,8 +1027,8 @@ export default function Ep9m() {
                     const tier = ep9mTier(row);
                     return (
                       <React.Fragment key={row.ticker}>
-                        <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
-                          title={tier ? tipFor('ep9m', row) : undefined}>
+                        <InfoDot as="tr" block className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
+                          text={tier ? tipFor('ep9m', row) : undefined}>
                           <td className={tdBase}>
                             <div className="flex items-center justify-start gap-1.5">
                               <WatchlistBtn symbol={row.ticker} />
@@ -1107,7 +1107,7 @@ export default function Ep9m() {
                           <McapCell value={row.mktCap} />
                           <StageCell stage={row.stage} />
                           <SectorCell text={sectorText} />
-                        </tr>
+                        </InfoDot>
                         {/* VS60D leads, in the slot the setup name occupies
                             on SIPs and Daily — it is the signal this scan
                             exists for.
