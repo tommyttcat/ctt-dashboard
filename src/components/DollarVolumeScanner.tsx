@@ -199,7 +199,7 @@ const COLUMNS: {
   { key: 'price', label: 'PRICE', align: 'center', dir: 'desc', w: 'w-[6%]', get: r => r.price,
     tip: 'Last close.' },
   { key: 'changePct', label: 'CHG%', align: 'center', dir: 'desc', w: 'w-[5%]', get: r => r.changePct,
-    tip: 'Change vs the prior close. This list only carries names at +4% and above.' },
+    tip: 'Change vs the prior close. This list only carries names at +4% and above, with RS 50+ and not in Stage 3/4 (since 12 Oct 2026: money moving through broken stocks is not leadership).' },
   { key: 'ema', label: '10/21', align: 'center', dir: 'desc', w: 'w-[5%]',
     get: r => (r.aboveEma10 ? 2 : 0) + (r.aboveEma21 ? 1 : 0),
     tip: 'Position against the 10 and 21 EMAs. Both green is stacked; above 21 and below 10 is a pullback into the first touch.' },

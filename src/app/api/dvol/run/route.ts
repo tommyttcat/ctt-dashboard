@@ -65,6 +65,9 @@ const KV_META = 'dvol_meta_v1';
    meant collecting a cohort with no way to view it. */
 const DVOL_FLOOR = 20e6;
 
+/* RS floor for the quality gate (see `quality` below). */
+const MIN_RS = 50;
+
 /* Money alone was surfacing SPY, QQQ and the mega caps every day — true, and
    not actionable, because a large stock trading its normal size is not news.
    Pairing the dollar floor with a move filter asks the question the card is
@@ -516,8 +519,14 @@ async function runScan(req: Request) {
        which is the same treatment the ADR and RVOL gates used to give an
        unmeasurable value. */
     const capped = candidates.filter(r => r.mktCap == null || r.mktCap >= MIN_MKT_CAP);
-    const kept = capped.slice(0, KEEP);
+    /* Quality (12 Oct 2026, owner's call): RS 50+ and not Stage 3/4 — the same strength bar
+       as the swing scans. Before it, half the board was money moving through broken stocks
+       and leveraged bear funds (Stage 4, RS 1-26): bounces and hedges, not leadership. An
+       unknown stage passes; an unrated name does not. ETFs stay, judged the same way. */
+    const quality = capped.filter(r => (r.rsRating ?? -1) >= MIN_RS && !/^(stage\s*)?[34]/i.test(String(r.stage ?? '').trim()));
+    const kept = quality.slice(0, KEEP);
     const droppedOnCap = candidates.length - capped.length;
+    const droppedOnQuality = capped.length - quality.length;
 
     const meta = {
       targetDate,
@@ -525,6 +534,8 @@ async function runScan(req: Request) {
       clearedFloor: rows.length,
       moved: moved.length,
       droppedOnCap,
+      droppedOnQuality,
+      minRs: MIN_RS,
       minChangePct: MIN_CHANGE_PCT,
       minVol: MIN_VOL,
       minMktCap: MIN_MKT_CAP,

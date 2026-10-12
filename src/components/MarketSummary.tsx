@@ -2165,7 +2165,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: 'Social Sentiment', color: 'violet', blurb: 'What StockTwits, Reddit and Bluesky are talking about most, and which way they lean. The crowd, not a signal.' },
   { label: 'Liquid Leaders', color: 'cyan', blurb: 'The ~1,000 most traded stocks: which are outrunning the market most, and which trade the heaviest volume.' },
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, and who is on air.' },
-  { label: '$Vol Summary', color: 'teal', blurb: 'Top 20 by dollar volume — where the money actually is today.' },
+  { label: '$Vol Summary', color: 'teal', blurb: 'Top 20 by dollar volume among names with RS 50+ and not in Stage 3/4 — where the money is going into strength today.' },
   { label: 'Daily Setups Thesis', color: 'cyan', blurb: 'Day trades vs multi-day swing holds from the daily scanner — sorted by blended score.' },
   { label: 'Reversal Swing Thesis', color: 'amber', blurb: 'Swing candidates split by reversals (reclaims, blue dots) vs pullback entries.' },
   { label: '10/21 Thesis', color: 'violet', blurb: 'Top names by holding period. Percentages are distance from the 21 and 10 EMA.' },
