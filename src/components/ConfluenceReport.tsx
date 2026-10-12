@@ -17,7 +17,7 @@ import {
   fmtLvl, verdictOf, trendLine, whyLine, flagsOf, shortName, shortRisk, bestLine, moveStatus,
   type ReadoutReport, type ReportTf, type FlagTone,
 } from '@/lib/confluence/readout';
-import { poll } from '@/lib/poll';
+import { poll, pollMs } from '@/lib/poll';
 
 // ---- types ------------------------------------------------------------------
 
@@ -318,7 +318,34 @@ function StockCard({ report: r }: { report: Report }) {
 export default function ConfluenceReport() {
   /* Re-render when the model's nightly scores arrive: they re-colour the rows (lib/scans/edge). */
   useModelScores();
-  const [reports, setReports] = useState<Report[]>([]);
+  const [rawReports, setReports] = useState<Report[]>([]);
+  /* Live price + day change (/api/live-quotes, real-time). The report is built
+     once an hour from the scan rows, so its price and CHG% can be an hour old —
+     the 9:30 run even reads the previous session's rows. Price and change drive
+     the CHG% chip, Hasn't moved / Moving / Extended and the nearest levels, so
+     all of them read the live number. One sorted list of the report's names:
+     every viewer sends the same URL and the edge cache serves it (no KV, at most
+     4 live-feed calls a minute however many people look). Paused when hidden. */
+  const [live, setLive] = useState<Record<string, { price: number; pct: number }> | null>(null);
+  const liveSyms = useMemo(
+    () => [...new Set(rawReports.map(r => String(r.ticker ?? '').toUpperCase()).filter(Boolean))].sort().join(','),
+    [rawReports],
+  );
+  useEffect(() => {
+    if (!liveSyms) { setLive(null); return; }
+    let on = true;
+    const load = () => fetch(`/api/live-quotes?s=${liveSyms}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => { if (on) setLive(j?.quotes && typeof j.quotes === 'object' ? j.quotes : null); })
+      .catch(() => { if (on) setLive(null); });
+    load();
+    const stop = poll(load, pollMs.marketHours(30_000, 300_000));
+    return () => { on = false; stop(); };
+  }, [liveSyms]);
+  const reports = useMemo(
+    () => rawReports.map(r => { const q = live?.[r.ticker]; return q && q.price > 0 ? { ...r, price: q.price, changePct: q.pct } : r; }),
+    [rawReports, live],
+  );
   const [loading, setLoading] = useState(true);
   const [lastScan, setLastScan] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
