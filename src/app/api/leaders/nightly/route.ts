@@ -18,12 +18,12 @@
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
-import { authorized } from '@/lib/apiAuth';
+import { authorized, authorizedOrAdmin } from '@/lib/apiAuth';
 import { etGate } from '@/lib/etCron';
 import { etToday } from '@/lib/orb';
 import { etMinute } from '@/lib/orb';
 import {
-  LEADERS_STATE_KEY, LEADERS_MIN_PRICE, LEADERS_MIN_DVOL, BUCKETS, profileOf,
+  LEADERS_STATE_KEY, LEADERS_MIN_PRICE, LEADERS_MIN_DVOL, BUCKETS, profileOf, chkOf,
   type LeadersState, type LeaderHist,
 } from '@/lib/leaders';
 
@@ -57,8 +57,11 @@ async function inBatches<T>(items: T[], size: number, deadline: number, fn: (x: 
 }
 
 export async function GET(req: Request) {
-  if (!authorized(req)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  const gate = etGate([17], 'liquid leaders nightly');
+  /* force=1 rebuilds outside the 17:00 ET hour — for the cron secret or a signed-in admin, as
+     on the other nightlies. A same-day rerun is safe: highs only roll forward once a day. */
+  const force = new URL(req.url).searchParams.get('force') === '1';
+  if (!(force ? await authorizedOrAdmin(req) : authorized(req))) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const gate = force ? null : etGate([17], 'liquid leaders nightly');
   if (gate) return gate;
   if (!KEY) return NextResponse.json({ success: false, error: 'no data key' }, { status: 500 });
   const t0 = Date.now();
@@ -76,14 +79,20 @@ export async function GET(req: Request) {
   }
   if (names.size < 1000) return NextResponse.json({ success: false, error: `reference too small (${names.size})` }, { status: 502 });
 
-  // 2. The last 20 sessions of grouped bars.
-  const days: { d: string; bars: Map<string, { c: number; v: number }> }[] = [];
-  for (let back = 0; days.length < 20 && back < 40; back++) {
-    const d = ymd(Date.now() - back * 864e5);
-    const j = await pg<{ results?: { T: string; c: number; v: number }[] }>(`/v2/aggs/grouped/locale/us/market/stocks/${d}?adjusted=true`);
-    if (j?.results?.length) days.push({ d, bars: new Map(j.results.map(r => [r.T, { c: r.c, v: r.v }])) });
+  /* 2. The last 70 sessions of grouped bars (20 until 12 Oct 2026): 20 for the universe and
+     usual volume, 70 for the swing checklist's EMAs, ADR and tightness (lib/leaders chkOf).
+     ~50 more Polygon calls a night, fetched 10 at a time; no extra KV command. */
+  const days: { d: string; bars: Map<string, { c: number; v: number; h: number; l: number }> }[] = [];
+  const cands = Array.from({ length: 110 }, (_, back) => ymd(Date.now() - back * 864e5)).filter(d => { const w = new Date(d + 'T12:00:00Z').getUTCDay(); return w !== 0 && w !== 6; });
+  for (let i = 0; i < cands.length && days.length < 70; i += 10) {
+    const got = await Promise.all(cands.slice(i, i + 10).map(async d => {
+      const j = await pg<{ results?: { T: string; c: number; v: number; h: number; l: number }[] }>(`/v2/aggs/grouped/locale/us/market/stocks/${d}?adjusted=true`);
+      return j?.results?.length ? { d, bars: new Map(j.results.map(r => [r.T, { c: r.c, v: r.v, h: r.h, l: r.l }])) } : null;
+    }));
+    for (const g of got) if (g && days.length < 70) days.push(g);
   }
   if (days.length < 20) return NextResponse.json({ success: false, error: `only ${days.length} sessions of grouped bars` }, { status: 502 });
+  const recent = days.slice(0, 20);
   const today = days[0];
   const spyToday = today.bars.get('SPY')?.c;
   if (!spyToday) return NextResponse.json({ success: false, error: 'no SPY close' }, { status: 502 });
@@ -92,7 +101,7 @@ export async function GET(req: Request) {
   for (const [t] of names) {
     const last = today.bars.get(t); if (!last || last.c < LEADERS_MIN_PRICE) continue;
     let dv = 0, v = 0, n = 0;
-    for (const day of days) { const b = day.bars.get(t); if (b) { dv += b.c * b.v; v += b.v; n++; } }
+    for (const day of recent) { const b = day.bars.get(t); if (b) { dv += b.c * b.v; v += b.v; n++; } }
     if (n < 15 || dv / n < LEADERS_MIN_DVOL) continue;
     universe.push({ t, adv: v / n });
   }
@@ -120,6 +129,15 @@ export async function GET(req: Request) {
     out[u.t] = { n: names.get(u.t), maxClose, maxRs, adv: u.adv, prof: [] };
   });
 
+  // 3b. Swing-checklist inputs at tonight's close, from the 70 grouped sessions (oldest first).
+  const asc = [...days].reverse();
+  let chkDone = 0;
+  for (const t of Object.keys(out)) {
+    const bars = asc.map(d => d.bars.get(t)).filter((b): b is { c: number; v: number; h: number; l: number } => !!b && b.c > 0);
+    const chk = chkOf(bars);
+    if (chk) { out[t].chk = chk; chkDone++; } else delete out[t].chk;
+  }
+
   // 4. Usual volume by half hour, from 20 sessions of 30-minute bars.
   const from30 = ymd(Date.now() - 32 * 864e5);
   const withHist = Object.keys(out);
@@ -140,6 +158,6 @@ export async function GET(req: Request) {
   await kv.set(LEADERS_STATE_KEY, state);
   return NextResponse.json({
     success: true, date: today.d, reference: names.size, universe: universe.length, stored: Object.keys(out).length,
-    backfilled: `${histDone} of ${needHist.length}`, profiles: `${profDone} of ${withHist.length}`, ms: Date.now() - t0, forToday: etToday(),
+    backfilled: `${histDone} of ${needHist.length}`, checklist: `${chkDone} of ${Object.keys(out).length}`, sessions: days.length, profiles: `${profDone} of ${withHist.length}`, ms: Date.now() - t0, forToday: etToday(),
   });
 }

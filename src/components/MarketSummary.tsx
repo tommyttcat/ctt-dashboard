@@ -117,6 +117,7 @@ import EdgeFilterPills from './EdgeFilterPills';
 import InfoDot from './InfoDot';
 import { etMinute, type OrbWatchStatus, type OrbWatchState } from '@/lib/orb';
 import { earlyMovers, EARLY_MIN_PCT, EARLY_MIN_PACE } from '@/lib/summary/earlyMovers';
+import { swingCheck, checkTip } from '@/lib/scans/checklist';
 import type { LeadersLive, LeaderRow } from '@/lib/leaders';
 import { bullShare, type SentimentLive } from '@/lib/sentiment';
 import { EARLY_PASS_N, type EarlySummary } from '@/lib/earlyTrack';
@@ -1697,11 +1698,14 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
           const cnf = cnfMap?.[r.t] ?? null;
           const stg = stageMap?.[r.t] ?? null;
           const news = newsMap?.[r.t] ?? null;
+          /* Universal colour (12 Oct 2026): the scan's colour where a scan carries the name,
+             else the swing checklist on this row — live price against last night's EMAs
+             (lib/leaders checkFields), with the stage the scans know when they know it. */
+          const own = swingCheck({ ...r, ticker: r.t, stage: stg ?? undefined } as unknown as Record<string, unknown>);
+          const edge: EdgeTier | null = edgeMap?.[r.t] ?? own?.tier ?? null;
           return (
-            /* Same green / yellow / red tint as the scan cards, from the shared
-               per-ticker map; a name no scan carries stays untinted. */
-            <div key={r.t} className={`flex items-center whitespace-nowrap py-[1px] ${edgeMap?.[r.t] ? `${EDGE_TINT[edgeMap[r.t]]} rounded-sm` : ''}`}
-              title={edgeMap?.[r.t] ? `${r.n ?? r.t} · ${edgeMap[r.t].toUpperCase()} — ${EDGE_FILTER_TIP[edgeMap[r.t]]}` : (r.n ?? r.t)}>
+            <div key={r.t} className={`flex items-center whitespace-nowrap py-[1px] ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
+              title={edge ? `${r.n ?? r.t} · ${edgeMap?.[r.t] ? `${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : checkTip('swing', own)}` : (r.n ?? r.t)}>
               <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover>
               <span className="inline-block w-[20px] md:w-[22px] text-center ml-2 md:ml-1">{cnf != null
                 ? <span className={`${badge} ${cnfBadgeCls(cnf)}`}>{Math.round(cnf)}</span>
@@ -1738,11 +1742,11 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
           {tile('RS lines at 5-yr high', <span className="text-slate-100">{live.counts.rsHigh}</span>, 'outrunning SPY more than ever')}
           {tile('Heavy volume', <span className="text-slate-100">{live.counts.heavy}</span>, '2x usual pace or more')}
         </div>
-        <InfoDot text={"RS LINE HIGH — the RS line is the stock's price divided by SPY. When it rises the stock is beating the market; at a 5-year high it is beating the market by more than at any time in 5 years, often before the price itself breaks out.\n\nHEAVIEST VOLUME — RVOL: today's volume against this stock's own usual volume by this time of day (its last 20 sessions, by half hour). 2x means twice its usual pace.\n\nRS — the RS Rating, 1-99: stronger than that % of the market over the last 12 months, as of yesterday's close. Different from the RS line: the rating ranks the stock against all others, the line compares it with SPY.\n\nVOL — shares traded today so far. $VOL — dollars traded today (shares × price).\n\nCNF, STG and N come from the scans: CNF is the site's confluence score, STG the Weinstein stage, N the news star (click for the story). A dash means no scan carries the name today. On a phone PRC, VOL and $VOL are hidden to fit.\n\nROW COLOUR — the same green / yellow / red as the scan cards, for names one of the scans also carries today. An uncoloured row is not on any scan.\n\nThe universe is NASDAQ and NYSE common stock at $10+ trading $100M+ a day, rebuilt each evening. Data is 15 minutes delayed; the history goes back 5 years, so highs are 5-year highs, not all-time. A view of what is leading, not a tested buy signal."} />
+        <InfoDot text={"RS LINE HIGH — the RS line is the stock's price divided by SPY. When it rises the stock is beating the market; at a 5-year high it is beating the market by more than at any time in 5 years, often before the price itself breaks out.\n\nHEAVIEST BUYING — RVOL: today's volume against this stock's own usual volume by this time of day (its last 20 sessions, by half hour). 2x means twice its usual pace. Only names UP on the day with RS 50+: heavy selling is not leadership.\n\nCOLOUR — the site's one checklist (swing, 3–5 days) on every row: the live price against last night's 10/21/50 EMAs, RS, industry group, tightness, earnings and QQQ. Hover a row for its ✔ / ✖.\n\nRS — the RS Rating, 1-99: stronger than that % of the market over the last 12 months, as of yesterday's close. Different from the RS line: the rating ranks the stock against all others, the line compares it with SPY.\n\nVOL — shares traded today so far. $VOL — dollars traded today (shares × price).\n\nCNF, STG and N come from the scans: CNF is the site's confluence score, STG the Weinstein stage, N the news star (click for the story). A dash means no scan carries the name today. On a phone PRC, VOL and $VOL are hidden to fit.\n\nROW COLOUR — the same green / yellow / red as the scan cards, for names one of the scans also carries today. An uncoloured row is not on any scan.\n\nThe universe is NASDAQ and NYSE common stock at $10+ trading $100M+ a day, rebuilt each evening. Data is 15 minutes delayed; the history goes back 5 years, so highs are 5-year highs, not all-time. A view of what is leading, not a tested buy signal."} />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-3">
         {list('RS line at 5-yr high', live.counts.rsHigh, live.rsHigh)}
-        {list('Heaviest volume vs usual', live.counts.heavy, live.volume)}
+        {list('Heaviest buying vs usual', live.counts.heavy, live.volume)}
       </div>
       <p className="text-[10px] text-slate-500 font-medium mt-2">
         {live.universe} liquid names · 5-year highs · data 15 min delayed, as of {clock} ET
