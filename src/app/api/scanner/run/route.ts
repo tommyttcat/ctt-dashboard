@@ -115,6 +115,9 @@
 import { fitScore, isLate } from '@/lib/scans/fit';
 import { NextResponse } from 'next/server';
 import { tightnessOf } from '@/lib/scans/tightness';
+
+/* Top Movers Gainers: RS floor (12 Oct 2026). */
+const TOPMOVER_MIN_RS = 50;
 import { neglectOf } from '@/lib/scans/neglect';
 import { kv } from '@vercel/kv';
 import { computeRMV } from '@/lib/indicators/rmv';
@@ -1172,7 +1175,10 @@ async function runScan(request: Request) {
     const etfGainersRaw = [...knownEtfsRaw].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
     const etfLosersRaw = [...knownEtfsRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 20);
     const regularStocksRaw = viableSetups.filter((t: any) => !ETF_TARGET_MAP[t.ticker] && !MEGA_CAP_TICKERS.has(t.ticker));
-    let gainersRaw = [...regularStocksRaw].filter((t: any) => t._liveChg >= SCANNER.minChange).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 40);
+    /* Gainers: RS 50+ first (12 Oct 2026, owner's call) — the rating is already loaded, so
+       the 40 that get enriched are ones that can pass; not-Stage-3/4 and the $20M floor are
+       checked after enrichment (finalTopMovers). */
+    let gainersRaw = [...regularStocksRaw].filter((t: any) => t._liveChg >= SCANNER.minChange && (rsLookup.get(t.ticker) ?? -1) >= TOPMOVER_MIN_RS).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 40);
     let losersRaw = [...regularStocksRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 40);
     /* Surfaced to the Top Movers card via scan_meta so it can label the
        Gainers/Losers tabs as pre-market or after-hours when they come from
@@ -1817,12 +1823,17 @@ async function runScan(request: Request) {
       }
     } catch (e) { console.error('[scanner] fundamental enrichment failed:', e); }
 
+    /* Every tab gets the site-wide floor (12 Oct 2026): $3+ (the universe gate) and $20M+ a
+       day on the 20-day average. Gainers also need RS 50+ and not Stage 3/4, the $Vol bar.
+       Losers and the ETF tabs stay as awareness, floor only. */
+    const floorOk = (r: any) => r !== undefined && r.vol >= SCANNER.minVolume && (r.avgVol ?? 0) * (r.price ?? 0) >= SCANNER.minAvgDollarVol;
+    const strongOk = (r: any) => (r.rsRating ?? -1) >= TOPMOVER_MIN_RS && !/^(stage\s*)?[34]/i.test(String(r.stage ?? '').trim());
     const finalTopMovers = {
       'Mega Caps': megaCapsRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10),
-      'Gainers': gainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.vol >= SCANNER.minVolume).slice(0, 10),
-      'Losers': losersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.vol >= SCANNER.minVolume).slice(0, 10),
-      'ETF Gainers': etfGainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.vol >= SCANNER.minVolume).slice(0, 10),
-      'ETF Losers': etfLosersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.vol >= SCANNER.minVolume).slice(0, 10)
+      'Gainers': gainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => floorOk(r) && strongOk(r)).slice(0, 10),
+      'Losers': losersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter(floorOk).slice(0, 10),
+      'ETF Gainers': etfGainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter(floorOk).slice(0, 10),
+      'ETF Losers': etfLosersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter(floorOk).slice(0, 10)
     };
 
     const finalHighBeta = enrichedList

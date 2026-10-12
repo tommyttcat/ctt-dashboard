@@ -2900,7 +2900,6 @@ export default function MarketSummary() {
                              — ETF Flow leads that pair, so Money Flow does not
                              emit a second strip beside it. */
                           const renderHrsBefore = label === '100-Bagger Thesis' && hrsTop.length > 0;
-                          const renderWatchAfter = label === '100-Bagger Thesis';
                           const hrsSort = sectionSorts['HRS'] ?? null;
                           const hrsSorted = hrsSort ? [...hrsTop].sort((a, b) => {
                             let av = 0, bv = 0;
@@ -3457,89 +3456,7 @@ export default function MarketSummary() {
                                 )
                               )}
                             </div>
-                            {renderWatchAfter && macroInsights.watching?.length > 0 && (
-                              <div className="lg:col-span-2 rounded-xl px-2.5 md:px-4 py-3 bg-cyan-500/[0.04]">
-                                <div className="flex items-center gap-3 mb-2 cursor-pointer select-none" onClick={() => toggleSection('topSetups')} title={collapsedSections.has('topSetups') ? 'Expand' : 'Collapse'}>
-                                  <div className="inline-flex items-center gap-1.5">
-                                    <span className={`text-[9px] transition-transform duration-200 ${collapsedSections.has('topSetups') ? '' : 'rotate-90'} text-slate-500`}>&#9654;</span>
-                                    <span className="inline-block text-[7px] font-bold tracking-widest uppercase px-1.5 py-[1px] rounded border text-cyan-400 bg-cyan-500/10 border-cyan-500/20">Top Setups</span>
-                                  </div>
-                                  {!collapsedSections.has('topSetups') && <span onClick={e => e.stopPropagation()}><SectionCopyButton tickers={macroInsights.watching.map(w => w.symbol)} /></span>}
-                                  {!collapsedSections.has('topSetups') && <span onClick={e => e.stopPropagation()}><SectionTxtButton tickers={macroInsights.watching.map(w => w.symbol)} /></span>}
-                                  {collapsedSections.has('topSetups') && macroInsights.watching.length > 0 && (
-                                    <span className="text-[8px] text-slate-600 font-medium">{macroInsights.watching.map(w => w.symbol).join(' · ')}</span>
-                                  )}
-                                </div>
-                                {!collapsedSections.has('topSetups') && (() => {
-                                  const ws = sectionSorts['Top Setups'];
-                                  const sortedItems = ws ? [...macroInsights.watching].sort((a, b) => {
-                                    let av = 0, bv = 0;
-                                    switch (ws.key) {
-                                      case 'cnf': av = Number(a.score) || 0; bv = Number(b.score) || 0; break;
-                                      case 'chg': av = a.chg ?? 0; bv = b.chg ?? 0; break;
-                                      case 'rvol': av = Number(a.rvol) || 0; bv = Number(b.rvol) || 0; break;
-                                      case 'vol': av = a.vol ?? 0; bv = b.vol ?? 0; break;
-                                      case 'dvol': av = a.dVol ?? 0; bv = b.dVol ?? 0; break;
-                                      case 'rs': av = Number(a.rsRating) || 0; bv = Number(b.rsRating) || 0; break;
-                                    }
-                                    return ws.dir === 'desc' ? bv - av : av - bv;
-                                  }) : macroInsights.watching;
-                                  const filtered = sortedItems.filter((item: any) => passesPoolFilter(scanFilter, item));
-                                  const leftItems = filtered.slice(0, Math.ceil(filtered.length / 2));
-                                  const rightItems = filtered.slice(Math.ceil(filtered.length / 2));
-                                  const hdr = <SortableHeader sortKey={ws?.key ?? null} sortDir={ws?.dir ?? 'desc'} onSort={(k) => handleSectionSort('Top Setups', k)} />;
-                                  const renderItem = (item: any, idx: number) => {
-                                    const _s = typeof item === 'object' ? item : { symbol: item as never, chg: 0, rvol: null, vol: 0, dVol: 0, stage: '', grade: null, score: undefined, dotKind: null, posture: null, rsRating: null, price: null as number | null, catalyst: null as string | null, catalystUrl: null as string | null, newsCausal: null as boolean | null };
-                                    const s = { ..._s, rsRating: _s.rsRating ?? macroInsights.rsMap?.[_s.symbol] ?? null, stage: _s.stage || macroInsights.stageMap?.[_s.symbol] || '' };
-                                    const pb: PostureBucket | null = s.posture || null;
-                                    const pMeta = pb ? POSTURE_META[pb] : null;
-                                    const rv = s.rvol != null ? Number(s.rvol) : null;
-                                    const v = s.vol ?? 0;
-                                    const dv = s.dVol ?? 0;
-                                    const fmtV = v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(0) + 'K' : '';
-                                    const fmtDv = dv >= 1e9 ? '$' + (dv / 1e9).toFixed(1) + 'B' : dv >= 1e6 ? '$' + (dv / 1e6).toFixed(0) + 'M' : dv > 0 ? '$' + (dv / 1e3).toFixed(0) + 'K' : '';
-                                    const isAvoid = macroInsights.avoidSet?.has(s.symbol) || s.dotKind === 'red';
-                                    const isBlueDot = s.dotKind === 'blue';
-                                    /* Same edge tint as the scan cards, from the
-                                       shared per-ticker map so every card agrees. */
-                                    const edge = macroInsights.edgeMap?.[s.symbol] ?? null;
-                                    return (
-                                      <div key={idx} className={`flex items-center whitespace-nowrap py-[1px] ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
-                                        title={edge ? `${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : undefined}>
-                                        <span className="hidden md:inline-flex shrink-0" style={{ width: 0, overflow: 'visible', position: 'relative' }}><span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)' }}><WatchlistBtn symbol={s.symbol} /></span></span>
-                                        <TickerChartHover symbol={s.symbol}><span className={`${gradeChipCls(s.grade, isAvoid)} w-[38px] md:w-[44px]`}>{s.symbol}</span></TickerChartHover>
-                                        <span className="inline-block w-[12px] text-center leading-none shrink-0" />
-                                        <span className="inline-block w-[8px] text-center shrink-0">
-                                          {isBlueDot && <span className="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_5px_rgba(56,189,248,0.6)]" />}
-                                        </span>
-                                        <span className="inline-block w-[8px] text-center shrink-0">
-                                          {pMeta ? <span title={`${pMeta.short} — ${pMeta.tip}`} className={`inline-block w-[6px] h-[6px] rounded-full cursor-help ${pMeta.tone === 'good' ? 'bg-emerald-400' : pMeta.tone === 'warn' ? 'bg-amber-400' : 'bg-rose-400'}`} /> : null}
-                                        </span>
-                                        <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${s.score != null && !isNaN(Number(s.score)) ? cnfBadgeCls(Number(s.score)) : 'text-slate-600 border-slate-700/40 bg-slate-800/30'}`}>{s.score != null && !isNaN(Number(s.score)) ? Number(s.score) : '-'}</span>
-                                        <span className={`text-[10px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ${(s.chg ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(s.chg ?? 0) >= 0 ? '+' : ''}{(s.chg ?? 0).toFixed(2)}%</span>
-                                        <span className="text-[10px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-1">{fmtPrc(s.price)}</span>
-                                        <span className={`text-[10px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-1 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? `${rv < 1 ? rv.toFixed(1) : Math.round(rv)}x` : ''}</span>
-                                        <span className={`text-[10px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-1 ${fmtV ? 'text-slate-400' : 'text-transparent'}`}>{fmtV}</span>
-                                        <span className={`text-[10px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-1 ${fmtDv ? 'text-slate-300' : 'text-transparent'}`}>{fmtDv}</span>
-                                        <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{s.rsRating != null ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(Number(s.rsRating))}`}>{Number(s.rsRating)}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
-                                        <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{s.stage ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${stageBadge(s.stage)}`}>{s.stage}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
-                                        {(() => {
-                                          const nc = newsStarCount({ catalyst: s.catalyst, catalystUrl: s.catalystUrl, newsCausal: (s as any).newsCausal });
-                                          if (nc >= 1 && s.catalystUrl) return <a href={s.catalystUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className={`inline-block w-[14px] md:w-[16px] text-center ${nc >= 2 ? 'text-amber-400' : 'text-slate-500'} hover:brightness-125 font-bold text-[7px] leading-none cursor-pointer transition-all ml-1`} title={s.catalyst || ''}>{'★'.repeat(nc)}</a>;
-                                          return <span className="inline-block w-[14px] md:w-[16px] ml-1"></span>;
-                                        })()}
-                                      </div>
-                                    );
-                                  };
-                                  return (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
-                                      <div className="flex flex-col gap-0.5">{hdr}{leftItems.map(renderItem)}</div>
-                                      {rightItems.length > 0 && <div className="flex flex-col gap-0.5"><div className="hidden md:flex">{hdr}</div>{rightItems.map((item, i) => renderItem(item, 500 + i))}</div>}
-                                    </div>
-                                  );
-                                })()}
-                              </div>
-                            )}
+                            {/* Top Setups block removed 12 Oct 2026 (owner's call). */}
                             </React.Fragment>
                           );
                         })}

@@ -294,9 +294,10 @@ export const TOPMOVERS_META: ScanConfigMeta = {
   premise:
     'The raw tape, split into buckets. Mega caps track the generals; Gainers and Losers are everything else; ETF tabs cover the leveraged and sector products. Less filtered than the setup tables \u2014 this is what moved, not what is worth trading.',
   gates: [
-    { label: 'Price', value: `\u2265 ${usd(SCANNER.minPrice)}`, why: 'Bare minimum to exclude sub-dollar noise.' },
+    { label: 'Price', value: `\u2265 ${usd(SCANNER.minPrice)}`, why: 'The site-wide floor.' },
     { label: 'Volume', value: `\u2265 ${shares(SCANNER.minVolume)}`, why: 'Something has to have traded.' },
-    { label: 'Gainers', value: `\u2265 +${SCANNER.minChange}%`, why: 'The Losers tab has no floor \u2014 the worst performers are the point.' },
+    { label: 'Gainers', value: `\u2265 +${SCANNER.minChange}%, RS 50+, not Stage 3/4`, why: 'A gainer in a broken stock is a bounce, not a leader (since 12 Oct 2026). The Losers tab has no move floor \u2014 the worst performers are the point.' },
+    { label: 'Avg $ volume', value: `\u2265 ${usd(SCANNER.minAvgDollarVol)} (20d)`, why: 'The site-wide quality floor, on every tab.' },
     { label: 'Market cap', value: `\u2265 ${usd(SCANNER.minMarketCap)}`, why: 'Excludes shells.' },
   ],
   shows: 'Top 10 per tab',
