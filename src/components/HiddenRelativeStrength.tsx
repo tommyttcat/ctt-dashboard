@@ -270,6 +270,11 @@ export default function HiddenRelativeStrength() {
             HIDDEN RELATIVE STRENGTH
           </span>
 
+          {regime && !regime.active && (
+            <span className="text-[10px] text-amber-300/80 font-medium tracking-wide">
+              Quiet mode · QQQ not weak
+            </span>
+          )}
           {regime && regime.active && (
             <span className="hidden md:inline text-[10px] text-slate-500 font-medium tracking-wide">
               QQQ 5d: <span className={regime.qqqReturn5d < 0 ? 'text-rose-400' : 'text-emerald-400'}>{regime.qqqReturn5d >= 0 ? '+' : ''}{regime.qqqReturn5d.toFixed(1)}%</span>
@@ -330,6 +335,18 @@ export default function HiddenRelativeStrength() {
         <>
           {/* Summary card — top 10 + regime */}
           <div className="mb-5 px-2">
+            {/* Quiet mode (12 Oct 2026): the list still fills when QQQ is NOT weak, but then it
+                is relative strength on a handful of down days, not the "absorbing the selling"
+                signal the scan exists for — say so before the reader reads the table as one. */}
+            {regime && !regime.active && sorted.length > 0 && (
+              <div className="mb-3 rounded-lg border border-amber-400/20 bg-amber-500/5 px-3 py-2 text-[10px] leading-relaxed text-slate-300 max-w-2xl">
+                <span className="font-bold text-amber-300">QUIET MODE — the market is not weak.</span>{' '}
+                QQQ is {regime.qqqReturn5d >= 0 ? '+' : ''}{regime.qqqReturn5d.toFixed(1)}% over 5 days and {regime.qqqReturn10d >= 0 ? '+' : ''}{regime.qqqReturn10d.toFixed(1)}% over 10, so
+                this is not the &ldquo;holding up while the market sells off&rdquo; signal the scan is built for. The list shows names that
+                beat QQQ on its {regime.weakDays.length} down day{regime.weakDays.length === 1 ? '' : 's'} in the last 30 sessions — useful as relative strength, weaker as a signal.
+                It switches to full mode when QQQ falls 0.5%+ over 5 days, 1.5%+ over 10, or has 3+ down days in 5.
+              </div>
+            )}
             {regime && regime.active && (
               <div className="mb-3">
                 <div className="flex flex-wrap gap-4 text-[10px] text-slate-400">
