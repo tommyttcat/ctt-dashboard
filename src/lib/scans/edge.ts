@@ -40,7 +40,7 @@ export type EdgeTier = 'green' | 'yellow' | 'red';
    store is empty, so these functions behave exactly as before. The 100-Bagger
    screen now takes the model colours too (universal, by request). */
 import { modelScoreOf } from '@/lib/modelScoreStore';
-import { check, checkTip, CHECKLIST_TIP, type Mode } from './checklist';
+import { check, checkTip, CHECKLIST_TIP, type Mode, type Checked } from './checklist';
 /* ON (10 Oct 2026, evening): colours now come from the GO model (lib/system scoreGo —
    the expected result of a +20% / -10% / 40-session trade), universal across every card:
    GREEN = go (top 30%), YELLOW = look (middle 40%), RED = stay away (bottom 30%, or any
@@ -353,6 +353,29 @@ export const HRS_TIP: Record<EdgeTier, string> = {
    The tip travels WITH the tier for that reason: there is no way to ask for
    one without the other. Unknown sources fall back to the momentum rules,
    which is what the Setups Summary card did for every row before this. */
+/* REQUIRE BOTH (12 Oct 2026, owner's call): where a scan's own backtest found a winning bucket,
+   green needs the checklist AND that bucket. VCP: ATR 3.5%+ with a final contraction of 10%+
+   (the only bucket with big runs). 10/21: a coil of 3x+ ATR pressed at its high (stochastic
+   75+; +1.21% a trade). A row the rule cannot judge (no data, an undercut & rally) is not held
+   back. */
+const MEASURED_GREEN: Record<string, string> = {
+  vcp: "VCP's measured winners: ATR 3.5%+ and a final contraction of 10%+",
+  coil: "10/21's measured winners: coil 3x+ ATR pressed at its high (stochastic 75+)",
+};
+export function checkedFor(source: string, row: any): Checked | null {
+  const entry = TIER_BY_SOURCE[source] ?? TIER_BY_SOURCE.daily;
+  const mode = modeFor(entry.mode);
+  const rule = entry.rule(row);
+  const c = check(mode, row, rule === 'red');
+  if (!c) return null;
+  const need = MEASURED_GREEN[source];
+  if (need && rule != null) {
+    c.checks.push({ label: need, ok: rule === 'green' });
+    if (c.tier === 'green' && rule !== 'green') c.tier = 'yellow';
+  }
+  return c;
+}
+
 const TIER_BY_SOURCE: Record<string, { fn: (r: any) => EdgeTier | null; rule: (r: any) => EdgeTier | null; tip: Record<EdgeTier, string>; mode: Mode }> = {
   daily: { fn: edgeTier, rule: r => edgeTierRule(r), tip: EDGE_FILTER_TIP, mode: 'swing' },
   sip: { fn: edgeTierDay, rule: r => edgeTierRule(r), tip: EDGE_FILTER_TIP, mode: 'day' },
@@ -371,7 +394,7 @@ export function tierForScan(source: string | null | undefined, row: any): { tier
   const tier = entry.fn(row);
   if (!tier) return null;
   const mode = modeFor(entry.mode);
-  return { tier, tip: CHECKLIST_COLOURS ? checkTip(mode, check(mode, row, entry.rule(row) === 'red')) : entry.tip[tier] };
+  return { tier, tip: CHECKLIST_COLOURS ? checkTip(mode, checkedFor(String(source ?? ''), row)) : entry.tip[tier] };
 }
 
 /** The row's tooltip on a scan table: the checklist, ✔ / ✖ per check. */
@@ -399,13 +422,13 @@ export function edgeTierDay(row: Parameters<typeof edgeTierRule>[0]): EdgeTier |
 export function swingTier(row: Parameters<typeof swingTierRule>[0]): EdgeTier | null { return blendModel(swingTierRule(row), row); }
 
 /** consolidationTier: the scan's own rule, re-coloured by the model where it scored the name (red rule wins). */
-export function consolidationTier(row: Parameters<typeof consolidationTierRule>[0]): EdgeTier | null { return blendModel(consolidationTierRule(row), row); }
+export function consolidationTier(row: Parameters<typeof consolidationTierRule>[0]): EdgeTier | null { return CHECKLIST_COLOURS && row ? (checkedFor('coil', row)?.tier ?? consolidationTierRule(row)) : blendModel(consolidationTierRule(row), row); }
 
 /** ep9mTier: the scan's own rule, re-coloured by the model where it scored the name (red rule wins). */
 export function ep9mTier(row: Parameters<typeof ep9mTierRule>[0]): EdgeTier | null { return CHECKLIST_COLOURS ? viaChecklist(modeFor('day'), ep9mTierRule(row), row) : blendModel(ep9mTierRule(row), row); }
 
 /** vcpTier: the scan's own rule, re-coloured by the model where it scored the name (red rule wins). */
-export function vcpTier(row: Parameters<typeof vcpTierRule>[0]): EdgeTier | null { return blendModel(vcpTierRule(row), row); }
+export function vcpTier(row: Parameters<typeof vcpTierRule>[0]): EdgeTier | null { return CHECKLIST_COLOURS && row ? (checkedFor('vcp', row)?.tier ?? vcpTierRule(row)) : blendModel(vcpTierRule(row), row); }
 
 /** hrsTier: the scan's own rule, re-coloured by the model where it scored the name (red rule wins). */
 export function hrsTier(row: Parameters<typeof hrsTierRule>[0]): EdgeTier | null { return blendModel(hrsTierRule(row), row); }
@@ -426,6 +449,8 @@ export const DAY_FILTER_TIP: Record<EdgeTier, string> = { ...CHECKLIST_TIP[UNIVE
 if (CHECKLIST_COLOURS) {
   for (const m of [EDGE_FILTER_TIP, SWING_TIP, CONSOLIDATION_TIP, VCP_TIP, HRS_TIP, MULTIBAGGER_TIP]) Object.assign(m, CHECKLIST_TIP.swing);
   Object.assign(EP9M_TIP, CHECKLIST_TIP[UNIVERSAL_SWING ? 'swing' : 'day']);
+  VCP_TIP.green += ' On VCP, green also needs the scan\'s measured winners: ATR 3.5%+ and a final contraction of 10%+.';
+  CONSOLIDATION_TIP.green += ' On 10/21, green also needs the scan\'s measured winners: a coil of 3x+ ATR pressed at its high (stochastic 75+).';
 }
 
 /** Each scan's own measured rule, before the checklist (tests pin these thresholds). */

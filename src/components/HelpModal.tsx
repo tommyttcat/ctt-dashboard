@@ -213,7 +213,7 @@ function ColourRules() {
         required — the 10/21 test found tight coils lost money), and QQQ is above its 200-day; red when it is below the 50-day, more than three daily ranges above the 21
         EMA, reports earnings within three days, or QQQ is below its 200-day. Yellow is in between. Day-trade signals —
         volume pace, catalyst, holding the range — show in the columns, not the colour. Hover a row to see which checks it
-        passed. These are rules traders use, not a tested edge. Each scan&apos;s own red rule below still wins. Every scan
+        passed. These are rules traders use, not a tested edge. Each scan&apos;s own red rule below still wins, and on VCP and 10/21 green also needs the scan&apos;s measured winning bucket (VCP: ATR 3.5%+ with a final contraction of 10%+; 10/21: a coil of 3×+ ATR pressed at its high). Every scan
         also starts from the same floor: $3+ and $20M+ traded a day (20-day average; 100-Bagger: price only).
       </P>
       <P>

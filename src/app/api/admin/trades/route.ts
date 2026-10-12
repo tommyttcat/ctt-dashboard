@@ -13,17 +13,17 @@ import { kv } from '@vercel/kv';
 import { verifySession, SESSION_COOKIE } from '@/lib/auth';
 import { noCacheHeaders } from '@/lib/httpCache';
 import { TRADE_LOG_KEY, MAX_TRADES, cleanTrade, scoreTrades, summarize, type Bars, type Trade, type TradeLog } from '@/lib/tradeLog';
-import { check, setMarketUp, setGroups } from '@/lib/scans/checklist';
-import { SCAN_RULES } from '@/lib/scans/edge';
+import { setMarketUp, setGroups } from '@/lib/scans/checklist';
+import { checkedFor } from '@/lib/scans/edge';
 import { EXPOSURE_KEY } from '@/lib/exposure';
 import { SYSTEM_SCORES_KEY } from '@/lib/system';
 
 /* Where to look a ticker up, in order: the day cards first for a day trade, the swing cards
-   first for a swing. [KV key, label, the scan's own rule]. */
-const DAY_SRC: [string, string, (r: never) => unknown][] = [['stocks_in_play_v6', 'Stocks in Play', SCAN_RULES.edgeTier], ['ep9m_v1', 'EP9M', SCAN_RULES.ep9mTier]];
-const SWING_SRC: [string, string, (r: never) => unknown][] = [
-  ['swing_candidates_v1', 'Swing', SCAN_RULES.swingTier], ['consol_1021_v1', '10/21', SCAN_RULES.consolidationTier], ['vcp_v1', 'VCP', SCAN_RULES.vcpTier],
-  ['daily_setups_v6', 'Daily', SCAN_RULES.edgeTier], ['dvol_rows_v1', 'DVol', SCAN_RULES.edgeTier], ['hrs_results_v1', 'HRS', SCAN_RULES.hrsTier],
+   first for a swing. [KV key, label, the scan's source key]. */
+const DAY_SRC: [string, string, string][] = [['stocks_in_play_v6', 'Stocks in Play', 'sip'], ['ep9m_v1', 'EP9M', 'ep9m']];
+const SWING_SRC: [string, string, string][] = [
+  ['swing_candidates_v1', 'Swing', 'swing'], ['consol_1021_v1', '10/21', 'coil'], ['vcp_v1', 'VCP', 'vcp'],
+  ['daily_setups_v6', 'Daily', 'daily'], ['dvol_rows_v1', 'DVol', 'dvol'], ['hrs_results_v1', 'HRS', 'hrs'],
 ];
 
 /** The ticker's checklist colour right now, from the scan rows in KV (one mget, admin saves only). */
@@ -38,7 +38,7 @@ async function colourAtEntry(t: string, mode: 'day' | 'swing'): Promise<Trade['a
     const rows = (Array.isArray(v) ? v : (v as { rows?: unknown[] } | null)?.rows ?? []) as Record<string, unknown>[];
     const row = rows.find(r => String(r?.ticker ?? r?.symbol ?? r?.t ?? '').toUpperCase() === t);
     if (!row) continue;
-    const c = check(mode, row, (order[i][2] as (r: unknown) => unknown)(row) === 'red');
+    const c = checkedFor(order[i][2], row);   // the same colour the card shows (universal swing + measured green)
     if (!c) continue;
     return { tier: c.tier, mode, src: order[i][1], checks: c.checks.map(k => [k.label, k.ok]), reds: c.reds, at: new Date().toISOString() };
   }
