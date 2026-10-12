@@ -108,7 +108,11 @@ import { isTradingDay } from '@/lib/marketCalendar';
 import TickerChartHover, { ActiveChartProvider, WatchlistBtn } from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
 import { hrsEdgeGrade } from '@/lib/scans/hrs';
-import { edgeTier as edgeOf, EDGE_TINT, EDGE_FILTER_TIP, type EdgeTier } from '@/lib/scans/edge';
+import { EDGE_TINT, EDGE_FILTER_TIP, type EdgeTier } from '@/lib/scans/edge';
+/* A summary row's colour = the colour it is drawn with: its own scan's checklist (day for
+   Stocks in Play / EP9M / Early Movers, swing for the rest). Filtering on one colour while
+   drawing another hid green rows behind the green filter (12 Oct 2026). */
+const edgeOf = (s: any): EdgeTier | null => tierForScan(s?._early ? 'early' : s?._source, s)?.tier ?? null;
 import EdgeFilterPills from './EdgeFilterPills';
 import InfoDot from './InfoDot';
 import { etMinute, type OrbWatchStatus, type OrbWatchState } from '@/lib/orb';
@@ -1443,6 +1447,9 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
      that cleared both losing filters and closed strong. The pills switch to
      yellow, red, or all with one click. */
   const [edgeKey, setEdgeKey] = React.useState<EdgeTier | null>('green');
+  /* A colour with no names in the pool is not applied (12 Oct 2026): its pill hides itself,
+     so a green default with no green names left the card empty with nothing to click. */
+  const liveEdge = edgeKey && taggedPool.some(item => edgeOf(item) === edgeKey) ? edgeKey : null;
 
   const filtered = React.useMemo(() => {
     const activeFilter = activeKey ? ALL_SETUP_FILTERS.find(f => f.key === activeKey) : null;
@@ -1450,7 +1457,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
     if (sf) {
       base = base.filter(item => passesPoolFilter(sf, item));
     }
-    if (edgeKey) base = base.filter(item => edgeOf(item) === edgeKey);
+    if (liveEdge) base = base.filter(item => edgeOf(item) === liveEdge);
     const cmp = (a: any, b: any) => {
       let av = 0, bv = 0;
       switch (sortKey) {
@@ -1465,7 +1472,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
       return sortDir === 'desc' ? bv - av : av - bv;
     };
     return [...base].sort(cmp).slice(0, 20);
-  }, [taggedPool, activeKey, edgeKey, sortKey, sortDir, sf]);
+  }, [taggedPool, activeKey, liveEdge, sortKey, sortDir, sf]);
 
   // Sorted and filtered on the scan's numbers above; the live overlay only
   // replaces what is displayed, so rows do not jump as prices tick.
@@ -1508,20 +1515,20 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
   const activeSetup = activeKey ? ALL_SETUP_FILTERS.find(f => f.key === activeKey) : null;
   const sfPool = sf ? taggedPool.filter(item => passesPoolFilter(sf, item)) : taggedPool;
   const edgeBase = activeSetup ? sfPool.filter(activeSetup.match) : sfPool;
-  const setupBase = edgeKey ? sfPool.filter(item => edgeOf(item) === edgeKey) : sfPool;
+  const setupBase = liveEdge ? sfPool.filter(item => edgeOf(item) === liveEdge) : sfPool;
 
   const edgePills = () =>
     EDGE_FILTERS.map(f => {
       if (!taggedPool.some(item => edgeOf(item) === f.key)) return null;
       const count = edgeBase.filter(item => edgeOf(item) === f.key).length;
-      const on = edgeKey === f.key;
+      const on = liveEdge === f.key;
       return (
         <button
           key={f.key}
-          onClick={() => setEdgeKey(edgeKey === f.key ? null : f.key)}
+          onClick={() => setEdgeKey(liveEdge === f.key ? null : f.key)}
           title={`${f.label} rows — ${EDGE_FILTER_TIP[f.key]}`}
           className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-[2px] rounded border transition-all duration-150 ${
-            on ? f.cls : edgeKey == null && count > 0 ? f.cls : 'text-slate-600 bg-transparent border-white/5'
+            on ? f.cls : liveEdge == null && count > 0 ? f.cls : 'text-slate-600 bg-transparent border-white/5'
           }`}
         >
           {f.label} {count}
