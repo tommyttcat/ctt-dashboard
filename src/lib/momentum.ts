@@ -43,6 +43,8 @@ export interface MomentumRow {
   rs?: number | null;    // the site's RS Rating (lib/indicators/rs), as of the last RS run
   stage?: string | null; // Weinstein stage (lib/indicators/stage), from a year of the name's own bars
   off52?: number | null;  // % below the highest high of the last 252 sessions (0 = at the high)
+  /* Swing-checklist fields (lib/scans/checklist), from the same year of bars — 12 Oct 2026. */
+  ema50?: number | null; distToEma21?: number | null; distToEma10?: number | null; ema21Rising?: boolean | null; adrPct?: number | null;
 }
 
 export interface MomentumList {

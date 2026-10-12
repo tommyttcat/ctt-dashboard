@@ -16,7 +16,7 @@
 //          3 days · QQQ below its 200-day
 //   YELLOW anything else (stretched 1-3 ADRs, RS 50-69, 21 EMA flat or falling)
 // DAY (Stocks in Play, EP9M, Early Movers):
-//   GREEN  up today · volume 2x+ usual · price in the top half of today's range · above the
+//   GREEN  up today · volume pace 2x+ usual (RVOL scaled to the share of the session gone) · price in the top half of today's range · above the
 //          open · ADR 4%+ · $20M+ traded
 //   RED    down today · volume under 1.5x · below the open
 //   YELLOW in play but fading (bottom half of the range) or volume 1.5-2x, or a thin range
@@ -57,6 +57,7 @@ export function swingCheck(r: Row | null | undefined, ruleRed = false, today?: s
   let uptrend: boolean | null = null;
   if (rising != null && price != null && e50 != null) uptrend = rising && price > e50;
   else if (stage) uptrend = stage.startsWith('2');
+  if (uptrend && stage && !stage.startsWith('2')) uptrend = false;   // a known Stage 1/3/4 is not an uptrend
   const below50 = price != null && e50 != null ? price < e50 : stage ? /^[34]/.test(stage) : false;
   const stretch = d21 != null && adr != null && adr > 0 ? d21 / adr : null;
   const near = stretch != null ? Math.min(Math.abs(d21 as number), d10 != null ? Math.abs(d10) : Infinity) / (adr as number) <= 1 : null;
@@ -77,14 +78,31 @@ export function swingCheck(r: Row | null | undefined, ruleRed = false, today?: s
   if (mkt === false) reds.push('QQQ below its 200-day');
 
   const tier: EdgeTier = reds.length ? 'red'
-    : uptrend === true && near !== false && rs != null && rs >= 70 && mkt !== false ? 'green'
+    : uptrend === true && near === true && rs != null && rs >= 70 && mkt !== false ? 'green'   // 'not checked' never makes green
     : 'yellow';
   return { tier, checks, reds };
 }
 
-export function dayCheck(r: Row | null | undefined, ruleRed = false): Checked | null {
+/** Minutes since midnight on a New York clock. */
+export function etMinuteNow(d: Date = new Date()): number {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(d).map(x => [x.type, x.value]));
+  return (Number(p.hour) % 24) * 60 + Number(p.minute);
+}
+/* A scan row's RVOL is volume so far against a whole average day, so at 11:00 even a hot name
+   reads 0.5x. During the session it is scaled to the share of the day gone (the pace), with a
+   15-minute floor; before the open and after the close it is left as it is. Early Movers rows
+   already carry a pace. */
+export function paceOf(rvol: number | null, etMin: number, alreadyPace = false): number | null {
+  if (rvol == null || alreadyPace || etMin < 570 || etMin >= 960) return rvol;
+  return rvol / (Math.max(15, etMin - 570) / 390);
+}
+
+/* The scans' own red rules were measured on 20-session holds (a wide range, $5-10), so the
+   day checklist ignores them — a +100% gapper on a 60% ADR is exactly what it is for. */
+export function dayCheck(r: Row | null | undefined, _ruleRed = false, etMin: number = etMinuteNow()): Checked | null {
   if (!r) return null;
-  const price = num(r.price), chg = num(r.changePct), rvol = num(r.rvol), adr = adrOf(r), open = num(r.open);
+  const price = num(r.price), chg = num(r.changePct), adr = adrOf(r), open = num(r.open);
+  const rvol = paceOf(num(r.rvol), etMin, r._early === true);
   const dvol = num(r.dVol) ?? num(r.dvol) ?? (num(r.avgDollarVolM) != null ? (num(r.avgDollarVolM) as number) * 1e6 : null);
   let cs = num(r.closeStrength);
   if (cs == null) { const hi = num(r.dayHigh), lo = num(r.dayLow); if (price != null && hi != null && lo != null && hi > lo) cs = (price - lo) / (hi - lo); }
@@ -92,16 +110,15 @@ export function dayCheck(r: Row | null | undefined, ruleRed = false): Checked | 
 
   const checks: Check[] = [
     { label: chg != null ? `Up today (${chg >= 0 ? '+' : ''}${chg.toFixed(1)}%)` : 'Up today', ok: chg != null ? chg > 0 : null },
-    { label: rvol != null ? `Volume 2x+ usual (${rvol.toFixed(1)}x)` : 'Volume 2x+ usual', ok: rvol != null ? rvol >= 2 : null },
+    { label: rvol != null ? `Volume pace 2x+ usual (${rvol.toFixed(1)}x)` : 'Volume pace 2x+ usual', ok: rvol != null ? rvol >= 2 : null },
     { label: cs != null ? `Holding — top half of today's range (${Math.round(cs * 100)}%)` : "Holding — top half of today's range", ok: cs != null ? cs >= 0.5 : null },
     { label: 'Above the open', ok: aboveOpen },
     { label: adr != null ? `Moves enough — ADR 4%+ (${adr.toFixed(1)}%)` : 'Moves enough — ADR 4%+', ok: adr != null ? adr >= 4 : null },
     { label: '$20M+ traded', ok: dvol != null ? dvol >= 20e6 : null },
   ];
   const reds: string[] = [];
-  if (ruleRed) reds.push("this scan's own red rule");
   if (chg != null && chg < 0) reds.push('down today');
-  if (rvol != null && rvol < 1.5) reds.push('volume under 1.5x usual');
+  if (rvol != null && rvol < 1.5) reds.push('volume pace under 1.5x usual');
   if (aboveOpen === false) reds.push('below the open');
 
   const passes = (i: number) => checks[i].ok !== false;
@@ -129,13 +146,13 @@ export function checkTip(mode: Mode, c: Checked | null): string {
 /** What each colour means, per checklist — the filter pills' help text. */
 export const CHECKLIST_TIP: Record<Mode, Record<EdgeTier, string>> = {
   swing: {
-    green: 'GO (swing, 3-5 days, let runners run): uptrend — above a rising 21 EMA and the 50 — within 1 ADR of the 10 or 21 EMA (not chasing), RS 70+, and QQQ above its 200-day. A checklist traders use, not a tested edge. Hover a row for its ✔ / ✖.',
+    green: 'GO (swing, 3-5 days, let runners run): Stage 2 uptrend — above a rising 21 EMA and the 50 — within 1 ADR of the 10 or 21 EMA (not chasing), RS 70+, and QQQ above its 200-day. Every check must pass; a row that cannot be checked for stretch stays yellow. A checklist traders use, not a tested edge. Hover a row for its ✔ / ✖.',
     yellow: 'LOOK (swing): in an uptrend but stretched 1-3 ADRs above the 21 EMA, RS 50-69, or the 21 EMA not rising. Wait for a pullback toward the 10/21.',
     red: "STAY AWAY (swing): below the 50-day, more than 3 ADRs above the 21 EMA (blow-off), earnings within 3 days, QQQ below its 200-day — or this scan's own red rule.",
   },
   day: {
     green: 'GO (day trade): up today on 2x+ usual volume, holding the top half of today\'s range and above the open, ADR 4%+ and $20M+ traded. A checklist traders use, not a tested edge. Hover a row for its ✔ / ✖.',
     yellow: 'LOOK (day trade): in play but fading into the bottom half of the range, volume only 1.5-2x, or the range is thin.',
-    red: "STAY AWAY (day trade): down today, below the open, or volume under 1.5x usual — or this scan's own red rule.",
+    red: 'STAY AWAY (day trade): down today, below the open, or volume running under 1.5x its usual pace. (The scans\' 20-day red rules do not apply to day trades.)',
   },
 };

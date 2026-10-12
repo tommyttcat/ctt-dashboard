@@ -6,7 +6,7 @@
 // history), ranks, and writes the top 50.
 //
 // Cost per run: Polygon ~7 reference pages + 22 grouped days + ~150-300
-// per-name year histories (reuse guard, Stage, RVOL) and a few company
+// per-name year histories (reuse guard, Stage, RVOL, the swing checklist EMAs) and a few company
 // checks; 1 KV read of the earnings scores (~90 KB), 1 of the RS map, 2 writes (list
 // ~6 KB, universe ~10 KB), plus the hidden paper records' 1 mget + up to 2
 // sets (~20 KB each). Polygon: ~7 reference pages, 1 SPY
@@ -104,13 +104,17 @@ export async function GET(req: Request) {
     ...ranked.all.slice(0, ENRICH_N).map(r => r.t),
     ...(useCombined ? rankCombined(ranked.all, sue, cal[last], ENRICH_N).map(r => r.t) : []),
   ])];
-  const extra = new Map<string, { vol: number | null; rvol: number | null; stage: string | null; off52: number | null }>();
+  type Extra = { vol: number | null; rvol: number | null; stage: string | null; off52: number | null;
+    /* The swing checklist's fields (lib/scans/checklist), from the same bars — 12 Oct 2026. */
+    ema50: number | null; distToEma21: number | null; distToEma10: number | null; ema21Rising: boolean | null; adrPct: number | null };
+  const extra = new Map<string, Extra>();
+  const emaSeries = (xs: number[], n: number) => { const k = 2 / (n + 1); const out: number[] = []; let e = NaN; for (const x of xs) { e = Number.isNaN(e) ? x : x * k + e * (1 - k); out.push(e); } return out; };
   const reused: string[] = [];
   const figi = async (t: string, date?: string) => (await pg<{ results?: { composite_figi?: string; name?: string } }>(`/v3/reference/tickers/${encodeURIComponent(t)}${date ? `?date=${date}` : ''}`))?.results ?? null;
   for (let i = 0; i < cand.length; i += 10) {
     const batch = cand.slice(i, i + 10);
     await Promise.all(batch.map(async t => {
-      const h = await pg<{ results?: { t: number; h: number; c: number; v: number }[] }>(`/v2/aggs/ticker/${encodeURIComponent(t)}/range/1/day/${cal[last - 260]}/${cal[last]}?adjusted=true&sort=asc&limit=400`);
+      const h = await pg<{ results?: { t: number; h: number; l: number; c: number; v: number }[] }>(`/v2/aggs/ticker/${encodeURIComponent(t)}/range/1/day/${cal[last - 260]}/${cal[last]}?adjusted=true&sort=asc&limit=400`);
       const bars = h?.results ?? [];
       if (!bars.length) return;
       const closes = bars.map(b => b.c), vols = bars.map(b => b.v);
@@ -121,7 +125,18 @@ export async function GET(req: Request) {
         if (!same) { reused.push(t); return; }
       }
       const hi = bars.slice(-252).reduce((m, b) => Math.max(m, b.h ?? 0), 0);
-      extra.set(t, { vol: vols.at(-1) ?? null, rvol: rvolOf(vols), stage: closes.length >= 210 ? computeStage(closes) : null, off52: hi > 0 && closes.length ? +((closes[closes.length - 1] / hi - 1) * 100).toFixed(1) : null });
+      const lastC = closes[closes.length - 1];
+      const e10 = emaSeries(closes, 10), e21 = emaSeries(closes, 21), e50 = emaSeries(closes, 50);
+      const n = closes.length, rng = bars.slice(-20).filter(b => b.l > 0 && b.h > 0);
+      extra.set(t, {
+        vol: vols.at(-1) ?? null, rvol: rvolOf(vols), stage: closes.length >= 210 ? computeStage(closes) : null,
+        off52: hi > 0 && closes.length ? +((lastC / hi - 1) * 100).toFixed(1) : null,
+        ema50: n >= 50 ? +e50[n - 1].toFixed(2) : null,
+        distToEma21: n >= 21 ? +((lastC / e21[n - 1] - 1) * 100).toFixed(2) : null,
+        distToEma10: n >= 10 ? +((lastC / e10[n - 1] - 1) * 100).toFixed(2) : null,
+        ema21Rising: n >= 22 ? e21[n - 1] > e21[n - 2] : null,
+        adrPct: rng.length >= 15 ? +((rng.reduce((a, b) => a + b.h / b.l - 1, 0) / rng.length) * 100).toFixed(2) : null,
+      });
     }));
   }
   const drop = new Set(reused);
