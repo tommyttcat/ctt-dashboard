@@ -35,6 +35,7 @@ export const SWING_HIGH_LOOKBACK = 63;
 export const SWING_HIGH_EXCLUDE_RECENT = 5;
 
 export interface Bar { t: number; o: number; h: number; l: number; c: number; v: number; }
+import { tightnessOf } from './tightness';
 
 export interface SnapInfo {
   vwap: number | null;
@@ -63,6 +64,8 @@ export interface TradePlanOut {
 }
 
 export interface Candidate {
+  tight5?: number | null;   // last 5 bars' span in ADRs (lib/scans/tightness)
+  volDry?: number | null;   // last 3 bars' volume vs the 20 before
   symbol: string;
   name: string;
   sector: string;
@@ -456,6 +459,7 @@ export function analyzeConsolidation(
     symbol,
     name,
     sector,
+    ...tightnessOf(bars),   // swing checklist: tight & quiet (lib/scans/tightness)
     /* 'U&R' rows: which level was undercut and reclaimed. */
     undercutOf: undercut ? UNDERCUT_LABEL[undercut.level] : null,
     price: +price.toFixed(2),
@@ -786,6 +790,7 @@ export function analyze(
     symbol,
     name,
     sector,
+    ...tightnessOf(bars),   // swing checklist: tight & quiet (lib/scans/tightness)
     price: +price.toFixed(2),
     score,
     changePct: +changePct.toFixed(2),

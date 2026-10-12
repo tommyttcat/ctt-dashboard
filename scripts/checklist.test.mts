@@ -1,5 +1,7 @@
 /* scripts/checklist.test.mts — the day and swing checklists (lib/scans/checklist). */
-import { swingCheck, dayCheck, setMarketUp, checkTip, daysToEarnings, paceOf } from '../src/lib/scans/checklist.ts';
+import { swingCheck, dayCheck, setMarketUp, checkTip, daysToEarnings, paceOf, setEarnings, setGroups } from '../src/lib/scans/checklist.ts';
+import { tightnessOf } from '../src/lib/scans/tightness.ts';
+import { groupTerciles } from '../src/lib/groups.ts';
 import { eq, ok, done } from './testkit.mts';
 
 const T = '2026-10-12';
@@ -46,4 +48,33 @@ eq('pace: pre-market left as is', paceOf(0.4, 500), 0.4);
 eq('day: half-day 1.0x RVOL is a 2x pace = green', dayCheck({ price: 30, changePct: 5, rvol: 1.0, closeStrength: 0.7, adrPct: 6, dVol: 5e7 }, false, 765)!.tier, 'green');
 eq('day: scan red rules do not apply', dayCheck({ price: 6, changePct: 50, rvol: 9, closeStrength: 0.7, adrPct: 60, dVol: 5e7 }, true, AFTER)!.tier, 'green');
 eq('days to earnings', daysToEarnings({ earningsDate: '2026-10-15T20:00:00Z' }, T), 3);
+// ---- 12 Oct, round 2: earnings lookup, group, tightness, catalyst
+setMarketUp(true);
+setEarnings({ AAA: '2026-10-14' });
+eq('swing: earnings from the calendar map = red', sw({ ticker: 'AAA' }), 'red');
+eq('swing: a name not on the calendar is clear', sw({ ticker: 'BBB' }), 'green');
+setEarnings(null);
+setGroups({ AAA: 0, BBB: 1, CCC: 2 });
+eq('swing: top-third group stays green', sw({ ticker: 'AAA' }), 'green');
+eq('swing: middle group = yellow', sw({ ticker: 'BBB' }), 'yellow');
+eq('swing: bottom group = yellow', sw({ ticker: 'CCC' }), 'yellow');
+eq('swing: unclassified group does not block', sw({ ticker: 'ZZZ' }), 'green');
+setGroups(null);
+eq('swing: tight and quiet = green', sw({ tight5: 1.2, volDry: 0.6 }), 'green');
+eq('swing: wide (2 ADRs in 5 days) = yellow', sw({ tight5: 2, volDry: 0.6 }), 'yellow');
+eq('swing: loud (volume 1.1x) = yellow', sw({ tight5: 1.2, volDry: 1.1 }), 'yellow');
+eq('day: specific catalyst = green', dy({ catalyst: 'Earnings Beat' }), 'green');
+eq('day: generic catalyst = yellow', dy({ catalyst: 'Technical Momentum' }), 'yellow');
+eq('day: generic tag but causal news = green', dy({ catalyst: 'News', newsCausal: true }), 'green');
+eq('day: no news fields = not checked', dy({}), 'green');
+const flat = Array.from({ length: 30 }, (_, i) => ({ h: 101, l: 99, c: 100, v: i >= 27 ? 500 : 1000 }));
+const tt = tightnessOf(flat);
+eq('tightness: 5-day span in ADRs', tt.tight5, +((2 / 100) / (101 / 99 - 1)).toFixed(2));
+eq('tightness: volume dry-up', tt.volDry, 0.5);
+eq('tightness: too few bars', tightnessOf(flat.slice(0, 10)).tight5, null);
+// SIC 73 (software), 13 (oil & gas extraction), 60 (banks) — five names each.
+const names = [...['MSFT', 'ORCL', 'ADBE', 'CRM', 'NOW'].map(t => ({ t, r63: 0.3 })), ...['JPM', 'BAC', 'C', 'WFC', 'USB'].map(t => ({ t, r63: -0.1 })), ...['EOG', 'OXY', 'HAL', 'SLB', 'DVN'].map(t => ({ t, r63: 0.1 }))];
+const g = groupTerciles(names);
+ok('groups: three groups ranked', g.MSFT === 0 && g.EOG === 1 && g.JPM === 2);
+eq('groups: under 5 names is unclassified', groupTerciles(names.slice(0, 4)).MSFT, undefined);
 done('checklist');

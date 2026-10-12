@@ -16,7 +16,7 @@
 export const SYSTEM_KEY = 'system_v1';
 /** Every scored name's GO-model percentile (0 = worst, 1 = best), for row colours site-wide. */
 export const SYSTEM_SCORES_KEY = 'system_scores_v1';
-export interface SystemScores { asOf: string; scores: Record<string, number> }
+export interface SystemScores { asOf: string; scores: Record<string, number>; group?: Record<string, 0 | 1 | 2> }
 export const LEVERAGE = 2;
 export const SHORTLIST_N = 10;
 export const MIN_DVOL_PICK = 50e6;

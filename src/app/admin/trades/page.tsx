@@ -8,10 +8,12 @@ import { useCallback, useEffect, useState } from 'react';
 import InfoDot from '@/components/InfoDot';
 import type { Agg, ScoredTrade } from '@/lib/tradeLog';
 
-type Resp = { rows: ScoredTrade[]; summary: { closed: Agg; open: Agg; bySrc: Record<string, Agg> }; updatedAt: string };
+type Resp = { rows: ScoredTrade[]; summary: { closed: Agg; open: Agg; bySrc: Record<string, Agg>; byTier?: Record<string, Agg> }; updatedAt: string };
+const TIER_DOT: Record<string, string> = { green: 'bg-emerald-400', yellow: 'bg-amber-300', red: 'bg-rose-400' };
+const TIER_WORD: Record<string, string> = { green: 'Green (go)', yellow: 'Yellow (look)', red: 'Red (stay away)', none: 'Not on a card' };
 const SOURCES = ['EP9M', 'SIP', 'Daily', 'Swing', 'VCP', 'HRS', '100-Bagger', 'Momentum Leaders', 'Confluence', 'Liquid Leaders', 'Early Movers', 'Other'];
 const etToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-const blank = () => ({ id: '', t: '', src: '', buyDate: etToday(), buy: '', shares: '', sellDate: '', sell: '', note: '' });
+const blank = () => ({ id: '', t: '', src: '', style: 'swing', buyDate: etToday(), buy: '', shares: '', sellDate: '', sell: '', note: '' });
 type Form = ReturnType<typeof blank>;
 
 const pct = (v: number | null | undefined, d = 1) => (v == null ? '—' : `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(d)}%`);
@@ -64,7 +66,7 @@ export default function TradeLogPage() {
     if (await post({ action: 'save', trade: { ...form, id: form.id || undefined } })) { setForm(blank()); setMsg('Saved.'); }
   };
   const edit = (r: ScoredTrade) => {
-    setForm({ id: r.id, t: r.t, src: r.src, buyDate: r.buyDate, buy: String(r.buy), shares: r.shares == null ? '' : String(r.shares), sellDate: r.sellDate ?? '', sell: r.sell == null ? '' : String(r.sell), note: r.note });
+    setForm({ id: r.id, t: r.t, src: r.src, style: r.style ?? 'swing', buyDate: r.buyDate, buy: String(r.buy), shares: r.shares == null ? '' : String(r.shares), sellDate: r.sellDate ?? '', sell: r.sell == null ? '' : String(r.sell), note: r.note });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
   const del = async (r: ScoredTrade) => { if (window.confirm(`Delete ${r.t} bought ${r.buyDate}?`)) await post({ action: 'delete', id: r.id }); };
@@ -92,6 +94,12 @@ export default function TradeLogPage() {
               <label className="col-span-1">Ticker<input className={input} value={form.t} onChange={set('t')} placeholder="NVDA" autoCapitalize="characters" required /></label>
               <label className="col-span-1">From<input className={input} value={form.src} onChange={set('src')} list="trade-src" placeholder="EP9M" /></label>
               <datalist id="trade-src">{SOURCES.map(x => <option key={x} value={x} />)}</datalist>
+              <label className="col-span-2">Type
+                <select className={input} value={form.style} onChange={e => setForm(f => ({ ...f, style: e.target.value }))}>
+                  <option value="swing">Swing (3–5 days, runners run)</option>
+                  <option value="day">Day trade</option>
+                </select>
+              </label>
               <label>Buy date<input className={input} type="date" value={form.buyDate} onChange={set('buyDate')} required /></label>
               <label>Buy price<input className={input} inputMode="decimal" value={form.buy} onChange={set('buy')} placeholder="0.00" required /></label>
               <label>Sell date<input className={input} type="date" value={form.sellDate} onChange={set('sellDate')} /></label>
@@ -112,6 +120,17 @@ export default function TradeLogPage() {
                 <div className="font-semibold text-slate-100">Closed trades vs QQQ</div>
                 <Verdict a={s.closed} />
                 {s.open.n > 0 && <p className="text-slate-400">Open: {s.open.n} · avg <span className={tone(s.open.avgPct)}>{pct(s.open.avgPct)}</span> vs QQQ <span className={tone(s.open.avgQqq)}>{pct(s.open.avgQqq)}</span> so far (marked to the last close).</p>}
+                {s.byTier && Object.keys(s.byTier).length > 0 && (
+                  <div className="pt-1 space-y-0.5">
+                    <div className="text-slate-400">By checklist colour when you logged it <InfoDot text={"Each trade logged on its buy day records the name's day or swing checklist colour at that moment (from the scan cards). After 30–50 closed trades this answers whether your greens actually beat your yellows and reds — your results, not a backtest."} /></div>
+                    {Object.entries(s.byTier).map(([tier, a]) => (
+                      <div key={tier} className="flex justify-between gap-2">
+                        <span className="text-slate-300 inline-flex items-center gap-1.5">{TIER_DOT[tier] && <span className={`inline-block w-2 h-2 rounded-full ${TIER_DOT[tier]}`} />}{TIER_WORD[tier] ?? tier}</span>
+                        <span className="tabular-nums text-slate-400">{a.n} · won {a.wins} · <span className={tone(a.avgPct)}>{pct(a.avgPct)}</span> vs QQQ <span className={tone(a.avgQqq)}>{pct(a.avgQqq)}</span></span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {Object.keys(s.bySrc).length > 1 && (
                   <div className="pt-1 space-y-0.5">
                     {Object.entries(s.bySrc).map(([src, a]) => (
@@ -130,8 +149,9 @@ export default function TradeLogPage() {
                 <div key={r.id} className="rounded-lg border border-white/10 bg-[#141a2b] px-3 py-2">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
+                      {r.atEntry && <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${TIER_DOT[r.atEntry.tier]}`} title={`${r.atEntry.mode} checklist at entry (${r.atEntry.src}):\n${r.atEntry.checks.map(([l, ok]) => `${ok === true ? '✔' : ok === false ? '✖' : '–'} ${l}`).join('\n')}${r.atEntry.reds.length ? `\nRed because: ${r.atEntry.reds.join('; ')}` : ''}`} />}
                       <span className="font-semibold text-slate-100">{r.t}</span>
-                      <span className="text-slate-500 truncate">{r.src}</span>
+                      <span className="text-slate-500 truncate">{r.src}{r.style === 'day' ? ' · day' : ''}</span>
                       {r.open && <span className="rounded px-1.5 py-0.5 bg-indigo-500/15 text-indigo-300">OPEN</span>}
                     </div>
                     <div className="tabular-nums whitespace-nowrap">

@@ -3,7 +3,8 @@
 // GET: the log scored against QQQ. POST { action: 'save', trade } | { action: 'delete', id }.
 //
 // Cost: GET = 1 KV read + 1 Polygon call for QQQ's daily bars since the first buy + 1
-// Polygon call per OPEN trade (last close). POST = 1 KV read + 1 write. Admin-only and
+// Polygon call per OPEN trade (last close). POST = 1 KV read + 1 write, plus one 11-key mget when a NEW trade is
+// logged on its buy day (its checklist colour at entry, from the scan rows). Admin-only and
 // never cached, so it is flat in subscribers: nothing runs unless the owner opens the page.
 
 import { NextResponse } from 'next/server';
@@ -11,7 +12,39 @@ import { cookies } from 'next/headers';
 import { kv } from '@vercel/kv';
 import { verifySession, SESSION_COOKIE } from '@/lib/auth';
 import { noCacheHeaders } from '@/lib/httpCache';
-import { TRADE_LOG_KEY, MAX_TRADES, cleanTrade, scoreTrades, summarize, type Bars, type TradeLog } from '@/lib/tradeLog';
+import { TRADE_LOG_KEY, MAX_TRADES, cleanTrade, scoreTrades, summarize, type Bars, type Trade, type TradeLog } from '@/lib/tradeLog';
+import { check, setMarketUp, setGroups } from '@/lib/scans/checklist';
+import { SCAN_RULES } from '@/lib/scans/edge';
+import { MOMENTUM_KEY } from '@/lib/momentum';
+import { EXPOSURE_KEY } from '@/lib/exposure';
+import { SYSTEM_SCORES_KEY } from '@/lib/system';
+
+/* Where to look a ticker up, in order: the day cards first for a day trade, the swing cards
+   first for a swing. [KV key, label, the scan's own rule]. */
+const DAY_SRC: [string, string, (r: never) => unknown][] = [['stocks_in_play_v6', 'Stocks in Play', SCAN_RULES.edgeTier], ['ep9m_v1', 'EP9M', SCAN_RULES.ep9mTier]];
+const SWING_SRC: [string, string, (r: never) => unknown][] = [
+  ['swing_candidates_v1', 'Swing', SCAN_RULES.swingTier], ['consol_1021_v1', '10/21', SCAN_RULES.consolidationTier], ['vcp_v1', 'VCP', SCAN_RULES.vcpTier],
+  ['daily_setups_v6', 'Daily', SCAN_RULES.edgeTier], ['dvol_rows_v1', 'DVol', SCAN_RULES.edgeTier], ['hrs_results_v1', 'HRS', SCAN_RULES.hrsTier], [MOMENTUM_KEY, 'Momentum Leaders', () => null],
+];
+
+/** The ticker's checklist colour right now, from the scan rows in KV (one mget, admin saves only). */
+async function colourAtEntry(t: string, mode: 'day' | 'swing'): Promise<Trade['atEntry']> {
+  const order = mode === 'day' ? [...DAY_SRC, ...SWING_SRC] : [...SWING_SRC, ...DAY_SRC];
+  const vals = await kv.mget<unknown[]>(...order.map(o => o[0]), EXPOSURE_KEY, SYSTEM_SCORES_KEY);
+  const ex = vals[order.length] as { qqq?: number; sma200?: number } | null, sc = vals[order.length + 1] as { group?: Record<string, number> } | null;
+  setMarketUp(ex && typeof ex.qqq === 'number' && typeof ex.sma200 === 'number' ? ex.qqq > ex.sma200 : null);
+  setGroups(sc?.group ?? null);
+  for (let i = 0; i < order.length; i++) {
+    const v = vals[i] as unknown;
+    const rows = (Array.isArray(v) ? v : (v as { rows?: unknown[] } | null)?.rows ?? []) as Record<string, unknown>[];
+    const row = rows.find(r => String(r?.ticker ?? r?.symbol ?? r?.t ?? '').toUpperCase() === t);
+    if (!row) continue;
+    const c = check(mode, row, (order[i][2] as (r: unknown) => unknown)(row) === 'red');
+    if (!c) continue;
+    return { tier: c.tier, mode, src: order[i][1], checks: c.checks.map(k => [k.label, k.ok]), reds: c.reds, at: new Date().toISOString() };
+  }
+  return null;
+}
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -62,8 +95,15 @@ export async function POST(req: Request) {
     const t = cleanTrade(body.trade, etDate(Date.now()));
     if (typeof t === 'string') return NextResponse.json({ error: t }, { status: 400 });
     const i = log.trades.findIndex(x => x.id === t.id);
-    if (i >= 0) log.trades[i] = t;
-    else { if (log.trades.length >= MAX_TRADES) return NextResponse.json({ error: 'log is full' }, { status: 400 }); log.trades.push(t); }
+    if (i >= 0) log.trades[i] = { ...t, atEntry: log.trades[i].atEntry ?? null };   // an edit keeps the colour it was logged with
+    else {
+      if (log.trades.length >= MAX_TRADES) return NextResponse.json({ error: 'log is full' }, { status: 400 });
+      /* Colour at entry only for a trade logged on its buy day — a back-filled trade would get
+         today's colour, not the one it was bought on. */
+      const today = etDate(Date.now());
+      t.atEntry = t.buyDate === today ? await colourAtEntry(t.t, t.style ?? 'swing').catch(() => null) : null;
+      log.trades.push(t);
+    }
   } else {
     return NextResponse.json({ error: 'bad request' }, { status: 400 });
   }

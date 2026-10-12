@@ -35,6 +35,18 @@ export const setMarketUp = (v: boolean | null) => { marketUp = v; marketListener
 export const marketIsUp = () => marketUp;
 export const onMarket = (f: () => void) => { marketListeners.add(f); return () => { marketListeners.delete(f); }; };
 
+/* Upcoming earnings dates by ticker (/api/earnings/upcoming) and industry-group terciles
+   (0 = top third of 2-digit SIC groups by 3-month return; /api/system/scores `group`). Both
+   set on the client; on the server, rows carry their own earningsDate and groups read null. */
+let earnings: Record<string, string> | null = null;
+let groups: Record<string, number> | null = null;
+export const setEarnings = (m: Record<string, string> | null) => { earnings = m; marketListeners.forEach(f => f()); };
+export const setGroups = (m: Record<string, number> | null) => { groups = m; marketListeners.forEach(f => f()); };
+export const earningsLoaded = () => earnings != null;
+const tickerOf = (r: Row): string => String(r.ticker ?? r.symbol ?? r.t ?? '').toUpperCase();
+/** 0 = top third of industry groups, 1 middle, 2 bottom; null = not classified. */
+export const groupOf = (r: Row): number | null => { const g = groups?.[tickerOf(r)]; return typeof g === 'number' ? g : null; };
+
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 type Row = Record<string, unknown>;
 
@@ -43,7 +55,8 @@ function stageOf(r: Row): string { return String(r.stage ?? '').replace(/^Stage\
 
 /** Days from today (ET date) to the row's next earnings date; null when unknown. */
 export function daysToEarnings(r: Row, today: string = new Date().toISOString().slice(0, 10)): number | null {
-  const d = typeof r.earningsDate === 'string' ? r.earningsDate.slice(0, 10) : null;
+  const own = typeof r.earningsDate === 'string' ? r.earningsDate : null;
+  const d = (own ?? earnings?.[tickerOf(r)] ?? null)?.slice(0, 10) ?? null;
   if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
   return Math.round((Date.parse(d) - Date.parse(today)) / 864e5);
 }
@@ -63,12 +76,20 @@ export function swingCheck(r: Row | null | undefined, ruleRed = false, today?: s
   const near = stretch != null ? Math.min(Math.abs(d21 as number), d10 != null ? Math.abs(d10) : Infinity) / (adr as number) <= 1 : null;
   const dte = daysToEarnings(r, today);
   const mkt = marketUp;
+  const grp = groupOf(r);
+  /* Tight and quiet: the last 5 sessions' high-low range within 1.5 ADRs and the last 3
+     sessions' volume at 0.8x its 20-day average or less (fields from the scan's own bars). */
+  const t5 = num(r.tight5), vd = num(r.volDry);
+  const tight = t5 == null && vd == null ? null : (t5 == null || t5 <= 1.5) && (vd == null || vd <= 0.8);
 
   const checks: Check[] = [
     { label: 'Uptrend (rising 21 EMA, above the 50)', ok: uptrend },
     { label: stretch != null ? `Near the 10/21 EMA (${stretch >= 0 ? '+' : ''}${stretch.toFixed(1)} ADR from the 21)` : 'Near the 10/21 EMA', ok: near },
     { label: rs != null ? `RS 70+ (${Math.round(rs)})` : 'RS 70+', ok: rs != null ? rs >= 70 : null },
     { label: 'QQQ above its 200-day', ok: mkt },
+    { label: 'Industry group in the top third (3-month)', ok: grp == null ? null : grp === 0 },
+    { label: t5 != null || vd != null ? `Tight & quiet (5-day range ${t5 != null ? t5.toFixed(1) : '–'} ADR, volume ${vd != null ? vd.toFixed(1) : '–'}x)` : 'Tight & quiet (5-day range, volume drying up)', ok: tight },
+    { label: dte != null && dte >= 0 ? `No earnings within 3 days (${dte}d)` : 'No earnings within 3 days', ok: dte == null ? (earnings ? true : null) : !(dte >= 0 && dte <= 3) },
   ];
   const reds: string[] = [];
   if (ruleRed) reds.push("this scan's own red rule");
@@ -78,7 +99,7 @@ export function swingCheck(r: Row | null | undefined, ruleRed = false, today?: s
   if (mkt === false) reds.push('QQQ below its 200-day');
 
   const tier: EdgeTier = reds.length ? 'red'
-    : uptrend === true && near === true && rs != null && rs >= 70 && mkt !== false ? 'green'   // 'not checked' never makes green
+    : uptrend === true && near === true && rs != null && rs >= 70 && mkt !== false && grp !== 2 && grp !== 1 && tight !== false ? 'green'   // 'not checked' stretch never makes green
     : 'yellow';
   return { tier, checks, reds };
 }
@@ -107,6 +128,12 @@ export function dayCheck(r: Row | null | undefined, _ruleRed = false, etMin: num
   let cs = num(r.closeStrength);
   if (cs == null) { const hi = num(r.dayHigh), lo = num(r.dayLow); if (price != null && hi != null && lo != null && hi > lo) cs = (price - lo) / (hi - lo); }
   const aboveOpen = price != null && open != null ? price > open : null;
+  /* A real catalyst: a specific news tag (not 'Technical Momentum' / 'News') or news the
+     scan judged to have caused the move. Rows with no news fields at all read "not checked". */
+  const tag = typeof r.catalyst === 'string' ? r.catalyst.replace(/\s*\(Delayed\)\s*$/i, '').trim().toLowerCase() : '';
+  const generic = !tag || tag.startsWith('technical') || tag === 'news' || tag === 'recent news';
+  const newsKnown = 'catalyst' in r || 'newsCausal' in r || 'headline' in r;
+  const catalyst = (!generic || r.newsCausal === true) ? true : newsKnown ? false : null;
 
   const checks: Check[] = [
     { label: chg != null ? `Up today (${chg >= 0 ? '+' : ''}${chg.toFixed(1)}%)` : 'Up today', ok: chg != null ? chg > 0 : null },
@@ -115,6 +142,7 @@ export function dayCheck(r: Row | null | undefined, _ruleRed = false, etMin: num
     { label: 'Above the open', ok: aboveOpen },
     { label: adr != null ? `Moves enough — ADR 4%+ (${adr.toFixed(1)}%)` : 'Moves enough — ADR 4%+', ok: adr != null ? adr >= 4 : null },
     { label: '$20M+ traded', ok: dvol != null ? dvol >= 20e6 : null },
+    { label: catalyst ? `Catalyst — ${typeof r.catalyst === 'string' && !generic ? r.catalyst : 'news behind the move'}` : 'Catalyst (real news behind the move)', ok: catalyst },
   ];
   const reds: string[] = [];
   if (chg != null && chg < 0) reds.push('down today');
@@ -123,7 +151,7 @@ export function dayCheck(r: Row | null | undefined, _ruleRed = false, etMin: num
 
   const passes = (i: number) => checks[i].ok !== false;
   const tier: EdgeTier = reds.length ? 'red'
-    : checks[0].ok === true && checks[1].ok === true && passes(2) && passes(3) && passes(4) && passes(5) ? 'green'
+    : checks[0].ok === true && checks[1].ok === true && passes(2) && passes(3) && passes(4) && passes(5) && passes(6) ? 'green'
     : 'yellow';
   return { tier, checks, reds };
 }
@@ -146,13 +174,13 @@ export function checkTip(mode: Mode, c: Checked | null): string {
 /** What each colour means, per checklist — the filter pills' help text. */
 export const CHECKLIST_TIP: Record<Mode, Record<EdgeTier, string>> = {
   swing: {
-    green: 'GO (swing, 3-5 days, let runners run): Stage 2 uptrend — above a rising 21 EMA and the 50 — within 1 ADR of the 10 or 21 EMA (not chasing), RS 70+, and QQQ above its 200-day. Every check must pass; a row that cannot be checked for stretch stays yellow. A checklist traders use, not a tested edge. Hover a row for its ✔ / ✖.',
-    yellow: 'LOOK (swing): in an uptrend but stretched 1-3 ADRs above the 21 EMA, RS 50-69, or the 21 EMA not rising. Wait for a pullback toward the 10/21.',
+    green: 'GO (swing, 3-5 days, let runners run): Stage 2 uptrend — above a rising 21 EMA and the 50 — within 1 ADR of the 10 or 21 EMA (not chasing), RS 70+, QQQ above its 200-day, industry group in the top third, tight and quiet the last few days, and no earnings within 3 days. A row that cannot be checked for stretch stays yellow. A checklist traders use, not a tested edge. Hover a row for its ✔ / ✖.',
+    yellow: 'LOOK (swing): in an uptrend but something is off — stretched 1-3 ADRs above the 21 EMA, RS 50-69, the 21 EMA not rising, a lagging industry group, or still wide and loud. Wait for it to tighten near the 10/21.',
     red: "STAY AWAY (swing): below the 50-day, more than 3 ADRs above the 21 EMA (blow-off), earnings within 3 days, QQQ below its 200-day — or this scan's own red rule.",
   },
   day: {
-    green: 'GO (day trade): up today on 2x+ usual volume, holding the top half of today\'s range and above the open, ADR 4%+ and $20M+ traded. A checklist traders use, not a tested edge. Hover a row for its ✔ / ✖.',
-    yellow: 'LOOK (day trade): in play but fading into the bottom half of the range, volume only 1.5-2x, or the range is thin.',
+    green: 'GO (day trade): up today on 2x+ its usual volume pace with a real catalyst (specific news), holding the top half of today\'s range and above the open, ADR 4%+ and $20M+ traded. A checklist traders use, not a tested edge. Hover a row for its ✔ / ✖.',
+    yellow: 'LOOK (day trade): in play but fading into the bottom half of the range, volume pace only 1.5-2x, a thin range, or no specific news behind the move.',
     red: 'STAY AWAY (day trade): down today, below the open, or volume running under 1.5x its usual pace. (The scans\' 20-day red rules do not apply to day trades.)',
   },
 };

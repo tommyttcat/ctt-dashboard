@@ -23,6 +23,10 @@ export interface Trade {
   sellDate: string | null;
   sell: number | null;
   note: string;
+  style?: 'day' | 'swing';
+  /* The name's checklist colour when the trade was logged (server-set, never from the form):
+     the feedback loop — after 30-50 trades, do your greens beat your yellows? */
+  atEntry?: { tier: 'green' | 'yellow' | 'red'; mode: 'day' | 'swing'; src: string; checks: [string, boolean | null][]; reds: string[]; at: string } | null;
 }
 
 export interface TradeLog { trades: Trade[]; updatedAt: string }
@@ -52,6 +56,7 @@ export function cleanTrade(raw: Record<string, unknown>, today: string): Trade |
   return {
     id, t, src: String(raw.src ?? '').trim().slice(0, 30) || 'Other', buyDate, buy,
     shares: sharesRaw, sellDate, sell: sellRaw, note: String(raw.note ?? '').trim().slice(0, 300),
+    style: raw.style === 'day' ? 'day' : 'swing',
   };
 }
 
@@ -116,5 +121,7 @@ export function summarize(rows: ScoredTrade[]) {
   const closed = rows.filter(r => !r.open);
   const bySrc: Record<string, Agg> = {};
   for (const src of [...new Set(closed.map(r => r.src))].sort()) bySrc[src] = aggregate(closed.filter(r => r.src === src));
-  return { closed: aggregate(closed), open: aggregate(rows.filter(r => r.open)), bySrc };
+  const byTier: Record<string, Agg> = {};
+  for (const tier of ['green', 'yellow', 'red', 'none']) { const xs = closed.filter(r => (r.atEntry?.tier ?? 'none') === tier); if (xs.length) byTier[tier] = aggregate(xs); }
+  return { closed: aggregate(closed), open: aggregate(rows.filter(r => r.open)), bySrc, byTier };
 }

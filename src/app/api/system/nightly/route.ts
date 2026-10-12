@@ -16,6 +16,7 @@ import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { authorized, authorizedOrAdmin } from '@/lib/apiAuth';
 import { etGate } from '@/lib/etCron';
+import { groupTerciles } from '@/lib/groups';
 import {
   SYSTEM_KEY, SYSTEM_SCORES_KEY, LEVERAGE, SHORTLIST_N, MIN_DVOL_PICK, featuresAt, rankFeatures, scoreRow, scoreGo, isLate, stepColours,
   type SystemState, type SystemPick, type SystemDay,
@@ -127,6 +128,9 @@ export async function GET(req: Request) {
     : stepColours(prevCol, asOf, closesNow, scoreMap);
   const state: SystemState = { asOf, builtAt: new Date().toISOString(), universe: rows.length, core, picks, history, colours };
   await kv.set(SYSTEM_KEY, state);
-  await kv.set(SYSTEM_SCORES_KEY, { asOf, scores: scoreMap });
+  /* Industry-group terciles for the swing checklist (lib/groups): ~1,800 names x ~8 bytes
+     in the same value the page already reads — no extra KV command. */
+  const group = groupTerciles(meta.map((m, i) => ({ t: m.t, r63: rows[i][2] })));
+  await kv.set(SYSTEM_SCORES_KEY, { asOf, scores: scoreMap, group });
   return NextResponse.json({ success: true, asOf, universe: rows.length, ms: Date.now() - t0, core, top: picks.map(p => `${p.t}${p.late ? '*' : ''}`), historyDays: history.length });
 }

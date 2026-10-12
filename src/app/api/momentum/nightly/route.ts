@@ -16,6 +16,7 @@
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { etGate } from '@/lib/etCron';
+import { tightnessOf } from '@/lib/scans/tightness';
 import { authorized, authorizedOrAdmin } from '@/lib/apiAuth';
 import {
   MOMENTUM_KEY, MOMENTUM_PAPER_KEY, MOMENTUM_PAPER_P2_KEY, MOMENTUM_UNIVERSE_KEY, MIN_SUE_NAMES,
@@ -106,7 +107,7 @@ export async function GET(req: Request) {
   ])];
   type Extra = { vol: number | null; rvol: number | null; stage: string | null; off52: number | null;
     /* The swing checklist's fields (lib/scans/checklist), from the same bars — 12 Oct 2026. */
-    ema50: number | null; distToEma21: number | null; distToEma10: number | null; ema21Rising: boolean | null; adrPct: number | null };
+    ema50: number | null; distToEma21: number | null; distToEma10: number | null; ema21Rising: boolean | null; adrPct: number | null; tight5: number | null; volDry: number | null };
   const extra = new Map<string, Extra>();
   const emaSeries = (xs: number[], n: number) => { const k = 2 / (n + 1); const out: number[] = []; let e = NaN; for (const x of xs) { e = Number.isNaN(e) ? x : x * k + e * (1 - k); out.push(e); } return out; };
   const reused: string[] = [];
@@ -136,6 +137,7 @@ export async function GET(req: Request) {
         distToEma10: n >= 10 ? +((lastC / e10[n - 1] - 1) * 100).toFixed(2) : null,
         ema21Rising: n >= 22 ? e21[n - 1] > e21[n - 2] : null,
         adrPct: rng.length >= 15 ? +((rng.reduce((a, b) => a + b.h / b.l - 1, 0) / rng.length) * 100).toFixed(2) : null,
+        ...tightnessOf(bars),
       });
     }));
   }
