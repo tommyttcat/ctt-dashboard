@@ -618,8 +618,10 @@ async function runSwingScan() {
         rsAgeDays: rsLookup.ageDays,
         rsRankedUniverse: rsLookup.ranked,
         rsReason: rsLookup.reason,
-        universeSize: universe.length,
-        excludedForEarnings: universe.length - toScan.length,
+        universeSize: toScan.length,
+        topByDollarVol: universe.length,
+        wideAdded: wideExtra.length,
+        excludedForEarnings: universe.filter(sym => earningsBlackout.has(sym)).length,
         count: candidates.length,
         // Gate metadata for the on-screen key — the config this run enforced.
         scanMeta: SWING_META,
@@ -656,8 +658,10 @@ async function runSwingScan() {
       count: candidates.length,
       consolCount: consols.length,
       consolShortlisted: consolShortlist.length,
-      universeSize: universe.length,
-      excludedForEarnings: universe.length - toScan.length,
+      universeSize: toScan.length,
+      topByDollarVol: universe.length,
+      wideAdded: wideExtra.length,
+      excludedForEarnings: universe.filter(sym => earningsBlackout.has(sym)).length,
       /* Renamed from catalystsFound, which counted WIIM matches and had been
          reporting zero for weeks without being read as a fault. Split by
          table because the two mean different things: a swing pullback with
