@@ -206,16 +206,15 @@ function ColourRules() {
     <>
       <H>Row Colours</H>
       <P>
-        <strong className="text-slate-200">Two checklists, since 12 Oct 2026: green = go, yellow = look, red = stay away.</strong>{' '}
-        <strong className="text-slate-200">Swing</strong> (3–5 days, let runners run) colours every card except the intraday ones:
-        green when the stock is in an uptrend (above a rising 21 EMA and the 50-day), within one average daily range of the 10 or
-        21 EMA (not chasing), RS 70+, its industry group (2-digit SIC) is in the top third by 3-month return, the last five days are tight (within 1.5 daily ranges) on volume drying up, and QQQ is above its 200-day; red when it is below the 50-day, more than three daily
-        ranges above the 21 EMA, reports earnings within three days, or QQQ is below its 200-day.{' '}
-        <strong className="text-slate-200">Day</strong> colours Stocks in Play, EP9M and Early Movers: green when it is up on
-        the day on twice its usual volume pace with a real catalyst (specific news, not just momentum), after being neglected — up no more than 15% over three months and 30% over six, in a 60-day range under 60% (Stocks in Play rows; the one gap setup that tested positive) — holding the top half of the day&apos;s range and above the open, with a 4%+ daily range
-        and $20M+ traded; red when it is down on the day, below the open, or under 1.5× volume. Yellow is in between. Hover a row
-        to see which checks it passed. These are rules traders use, not a tested edge — every mechanical entry we tested lost
-        to holding QQQ. Each scan&apos;s own red rule below still wins.
+        <strong className="text-slate-200">One colour per stock on every card, since 12 Oct 2026: green = go, yellow = look, red = stay away.</strong>{' '}
+        It is the swing checklist (3–5 days, let runners run): green when the stock is in an uptrend (above a rising 21 EMA
+        and the 50-day), within one average daily range of the 10 or 21 EMA (not chasing), RS 70+, its industry group
+        (2-digit SIC) is in the top third by 3-month return, the last five days are tight (within 1.5 daily ranges) on volume
+        drying up, and QQQ is above its 200-day; red when it is below the 50-day, more than three daily ranges above the 21
+        EMA, reports earnings within three days, or QQQ is below its 200-day. Yellow is in between. Day-trade signals —
+        volume pace, catalyst, holding the range — show in the columns, not the colour. Hover a row to see which checks it
+        passed. These are rules traders use, not a tested edge. Each scan&apos;s own red rule below still wins. Every scan
+        also starts from the same floor: $3+ and $20M+ traded a day (20-day average; 100-Bagger: price only).
       </P>
       <P>
         Each scan has its own colour rules, taken from its own backtest (Sep 2022 – Sep 2026). Only

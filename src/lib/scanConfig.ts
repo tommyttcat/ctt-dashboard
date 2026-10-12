@@ -45,6 +45,13 @@ const shares = (n: number) => {
   return String(n);
 };
 
+/* ---- One quality floor for every scan (12 Oct 2026, owner's call) ---------
+   Consistency: every list starts from the same minimum — $3+ and $20M+ traded a day on the
+   20-day average — and each scan's own pattern rules sit on top. ETFs stay (owner's call).
+   100-Bagger takes the price floor only: it screens small compounders, and a $20M/day floor
+   would empty it. */
+export const QUALITY_FLOOR = { minPrice: 3, minAvgDollarVol: 20_000_000 } as const;
+
 /* ==========================================================================
    STOCKS IN PLAY + DAILY SETUPS
    ========================================================================== */
@@ -53,8 +60,9 @@ export const SCANNER = {
   minAvgVol: 2_000_000,
   minMarketCap: 10_000_000,
   minChange: 4.0,
-  minPrice: 2.00,
-  minDollarVol: 5_000_000,
+  minPrice: QUALITY_FLOOR.minPrice,            // $2 until 12 Oct 2026
+  minDollarVol: 5_000_000,                      // today's $ volume so far
+  minAvgDollarVol: QUALITY_FLOOR.minAvgDollarVol, // 20-day average (12 Oct 2026)
   minAdrPct: 3.0,
   minAtr: 1.00,
   finalSize: 10,
@@ -70,6 +78,7 @@ export const SCANNER_SIP_META: ScanConfigMeta = {
     { label: 'Volume', value: `\u2265 ${shares(SCANNER.minVolume)}`, why: 'Absolute floor \u2014 thin names cannot be traded out of.' },
     { label: '$ Volume', value: `\u2265 ${usd(SCANNER.minDollarVol)}`, why: 'Kills low-priced spikes that show big share counts but no real money.' },
     { label: 'Avg volume', value: `\u2265 ${shares(SCANNER.minAvgVol)} (20d)`, why: 'The name has to be normally liquid, not a one-day wonder.' },
+    { label: 'Avg $ volume', value: `\u2265 ${usd(SCANNER.minAvgDollarVol)} (20d)`, why: 'The site-wide quality floor (same on every scan since 12 Oct 2026).' },
     { label: 'ADR', value: `\u2265 ${pct(SCANNER.minAdrPct)}`, why: 'Anti-chop. A name that cannot travel 3% on a typical day has no room to pay you.' },
     { label: 'ATR', value: `\u2265 ${usd(SCANNER.minAtr)}`, why: 'Enough absolute range to place a stop that is not inside the spread.' },
     { label: 'Market cap', value: `\u2265 ${usd(SCANNER.minMarketCap)}`, why: 'Excludes shells and sub-scale listings.' },
@@ -87,6 +96,7 @@ export const SCANNER_DAILY_META: ScanConfigMeta = {
     { label: 'Volume', value: `\u2265 ${shares(SCANNER.minVolume)}`, why: 'Absolute floor \u2014 thin names cannot be traded out of.' },
     { label: '$ Volume', value: `\u2265 ${usd(SCANNER.minDollarVol)}`, why: 'Kills low-priced spikes that show big share counts but no real money.' },
     { label: 'ADR', value: `\u2265 ${pct(SCANNER.minAdrPct)}`, why: 'Anti-chop. A name that cannot travel 3% on a typical day has no room to pay you.' },
+    { label: 'Avg $ volume', value: `\u2265 ${usd(SCANNER.minAvgDollarVol)} (20d)`, why: 'The site-wide quality floor (same on every scan since 12 Oct 2026).' },
     { label: 'Market cap', value: `\u2265 ${usd(SCANNER.minMarketCap)}`, why: 'Excludes shells and sub-scale listings.' },
   ],
   shows: `Top ${SCANNER.finalSize} by dollar volume`,
@@ -96,9 +106,9 @@ export const SCANNER_DAILY_META: ScanConfigMeta = {
    REVERSAL / SWING
    ========================================================================== */
 export const SWING = {
-  minPrice: 2,
+  minPrice: QUALITY_FLOOR.minPrice,   // $2 until 12 Oct 2026
   maxPrice: 2000,
-  minAvgDollarVol: 20_000_000,   // $50M until 12 Oct 2026 (wider universe, lib/scans/swingWide)
+  minAvgDollarVol: QUALITY_FLOOR.minAvgDollarVol,   // $50M until 12 Oct 2026 (wider universe, lib/scans/swingWide)
   minAtrPct: 1.5,
   maxAtrPct: 6.0,
   minPctOffHigh: 2,
@@ -136,7 +146,7 @@ export const SWING_META: ScanConfigMeta = {
    10/21 CONSOLIDATION
    ========================================================================== */
 export const CONSOL = {
-  minDollarVol: 10_000_000,
+  minDollarVol: QUALITY_FLOOR.minAvgDollarVol,   // $10M until 12 Oct 2026
   minMarketCap: 10_000_000,
   minAdrPct: 3.0,
   maxDistToEma10: 5,
@@ -155,7 +165,7 @@ export const CONSOL_META: ScanConfigMeta = {
   premise:
     'Names coiling tightly on rising 10/21 EMAs inside a confirmed uptrend \u2014 the trend-hold entry BEFORE the breakout rather than after it. Tightness is judged in multiples of the stock\'s own ATR, so a high-volatility name is not punished for its normal wiggle.',
   gates: [
-    { label: 'Avg $ volume', value: `\u2265 ${usd(CONSOL.minDollarVol)} (20d)`, why: 'Lower than the swing floor \u2014 coiling names are quieter by definition.' },
+    { label: 'Avg $ volume', value: `\u2265 ${usd(CONSOL.minDollarVol)} (20d)`, why: 'The site-wide quality floor (same on every scan since 12 Oct 2026).' },
     { label: 'Market cap', value: `\u2265 ${usd(CONSOL.minMarketCap)}`, why: 'Excludes shells and sub-scale listings.' },
     { label: 'ADR', value: `\u2265 ${pct(CONSOL.minAdrPct)}`, why: 'Anti-chop. A 1.5% ADR name can look beautifully coiled while simply being dead.' },
     { label: 'Trend', value: 'Above 50 & 200, 50 > 200', why: 'Consolidation only counts inside an established uptrend.' },
@@ -207,10 +217,10 @@ export const EP9M_META: ScanConfigMeta = {
    VCP  \u2014  Volatility Contraction Pattern
    ========================================================================== */
 export const VCP = {
-  minPrice: 2,
+  minPrice: QUALITY_FLOOR.minPrice,   // $2 until 12 Oct 2026
   maxPrice: 10_000,
   minAvgVolume: 200_000,
-  minDollarVol: 5_000_000,
+  minDollarVol: QUALITY_FLOOR.minAvgDollarVol,   // $5M until 12 Oct 2026
 
   /* RS floor. 70 is Minervini's stated minimum; he prefers 80+ and is most
      interested above 90. Gating at 70 rather than 80 is deliberate \u2014 the
@@ -250,7 +260,7 @@ export const VCP_META: ScanConfigMeta = {
 export const HRS = {
   minPrice: 5,
   minAvgVolume: 200_000,
-  minDollarVol: 10_000_000,
+  minDollarVol: QUALITY_FLOOR.minAvgDollarVol,   // $10M until 12 Oct 2026
   minRsRating: 60,
   maxPctBelow52wHigh: 15,
   minWeakDayOutperformPct: 60,
@@ -298,7 +308,7 @@ export const TOPMOVERS_META: ScanConfigMeta = {
 export const MULTIBAGGER = {
   minMarketCap: 50_000_000,
   maxMarketCap: 10_000_000_000,
-  minPrice: 2,
+  minPrice: QUALITY_FLOOR.minPrice,   // $2 until 12 Oct 2026; no $ floor (small compounders)
   minAvgVolume: 50_000,
   universeSize: 1500,
   finalSize: 25,

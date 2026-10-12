@@ -34,6 +34,7 @@
 // when the 10-20M band was dropped from the card.)
 
 import { NextResponse } from 'next/server';
+import { QUALITY_FLOOR } from '@/lib/scanConfig';
 import { kv } from '@vercel/kv';
 import { runInBackground, isDetachedRun, BG_HEADERS } from '@/lib/background';
 import { computeStage } from '@/lib/indicators/stage';
@@ -72,7 +73,7 @@ const MIN_CHANGE_PCT = 4;
 
 /* Sub-$2 names clear the dollar floor on share count alone and bring spreads
    and halts with them. */
-const MIN_PRICE = 2;
+const MIN_PRICE = QUALITY_FLOOR.minPrice;   // $2 until 12 Oct 2026 (site-wide floor)
 
 /* Share-count floor, alongside the dollar floor. The two catch different
    things: $20M of dollar volume is one 10,000-share block in a $2,000 stock,

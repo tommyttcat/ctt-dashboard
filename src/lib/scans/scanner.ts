@@ -36,7 +36,10 @@ export function isDailyCandidate(changePct: number, price?: number, vwap?: numbe
 export interface ScannerRowGates {
   vol: number; dVol: number; changePct: number;
   atr: number; avgVol: number; adrPct: number | null;
+  price?: number;
 }
+/** The site-wide floor on the 20-day average dollar volume (scanConfig QUALITY_FLOOR). */
+const avgDollarOk = (r: ScannerRowGates) => r.price == null || r.avgVol * r.price >= SCANNER.minAvgDollarVol;
 
 /** Final SIP gate — adds the liquidity and range floors to the candidate test. */
 export function passesSipFinal(r: ScannerRowGates): boolean {
@@ -45,6 +48,7 @@ export function passesSipFinal(r: ScannerRowGates): boolean {
     && r.changePct >= SCANNER.minChange
     && r.atr >= SCANNER.minAtr
     && r.avgVol >= SCANNER.minAvgVol
+    && avgDollarOk(r)
     && r.adrPct != null && r.adrPct >= SCANNER.minAdrPct;
 }
 
@@ -53,6 +57,7 @@ export function passesDailyFinal(r: ScannerRowGates): boolean {
   return r.vol >= SCANNER.minVolume
     && r.dVol >= SCANNER.minDollarVol
     && r.changePct >= SCANNER.minChange
+    && avgDollarOk(r)
     && r.adrPct != null && r.adrPct >= SCANNER.minAdrPct;
 }
 
