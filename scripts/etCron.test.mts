@@ -30,8 +30,7 @@ const GUARDED: { match: string; hours: number[]; wants: string }[] = [
   { match: '/api/analyst/ledger/write', hours: [17], wants: '17:50' },
   { match: '/api/track/tick', hours: [20], wants: '20:10' },
   { match: '/api/track/epn', hours: [20], wants: '20:25' },
-  { match: '/api/momentum/nightly', hours: [18], wants: '18:10' },
-  { match: '/api/earnings/sue', hours: [18], wants: '18:40' },
+  // /api/momentum/nightly and /api/earnings/sue: crons removed 12 Oct 2026 (Momentum Leaders card gone).
   { match: '/api/exposure/nightly', hours: [18], wants: '18:20' },
   { match: '/api/system/nightly', hours: [18], wants: '18:15' },
   { match: '/api/analyst/ledger/score', hours: [20], wants: '20:40' },

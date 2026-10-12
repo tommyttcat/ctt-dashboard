@@ -15,7 +15,6 @@ import { noCacheHeaders } from '@/lib/httpCache';
 import { TRADE_LOG_KEY, MAX_TRADES, cleanTrade, scoreTrades, summarize, type Bars, type Trade, type TradeLog } from '@/lib/tradeLog';
 import { check, setMarketUp, setGroups } from '@/lib/scans/checklist';
 import { SCAN_RULES } from '@/lib/scans/edge';
-import { MOMENTUM_KEY } from '@/lib/momentum';
 import { EXPOSURE_KEY } from '@/lib/exposure';
 import { SYSTEM_SCORES_KEY } from '@/lib/system';
 
@@ -24,7 +23,7 @@ import { SYSTEM_SCORES_KEY } from '@/lib/system';
 const DAY_SRC: [string, string, (r: never) => unknown][] = [['stocks_in_play_v6', 'Stocks in Play', SCAN_RULES.edgeTier], ['ep9m_v1', 'EP9M', SCAN_RULES.ep9mTier]];
 const SWING_SRC: [string, string, (r: never) => unknown][] = [
   ['swing_candidates_v1', 'Swing', SCAN_RULES.swingTier], ['consol_1021_v1', '10/21', SCAN_RULES.consolidationTier], ['vcp_v1', 'VCP', SCAN_RULES.vcpTier],
-  ['daily_setups_v6', 'Daily', SCAN_RULES.edgeTier], ['dvol_rows_v1', 'DVol', SCAN_RULES.edgeTier], ['hrs_results_v1', 'HRS', SCAN_RULES.hrsTier], [MOMENTUM_KEY, 'Momentum Leaders', () => null],
+  ['daily_setups_v6', 'Daily', SCAN_RULES.edgeTier], ['dvol_rows_v1', 'DVol', SCAN_RULES.edgeTier], ['hrs_results_v1', 'HRS', SCAN_RULES.hrsTier],
 ];
 
 /** The ticker's checklist colour right now, from the scan rows in KV (one mget, admin saves only). */
