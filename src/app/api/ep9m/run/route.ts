@@ -133,6 +133,7 @@
 // ---------------------------------------------------------------------------
 
 import { NextResponse } from 'next/server';
+import { neglectOf } from '@/lib/scans/neglect';
 import { kv } from '@vercel/kv';
 import { computeRMV } from '@/lib/indicators/rmv';
 import { computeRMEDetail } from '@/lib/indicators/rme';
@@ -720,6 +721,9 @@ async function runScan(request: Request) {
           goldenCross: sma50 != null && sma200 != null ? sma50 > sma200 : null,
           pctOffHigh,
           rsRating,
+          /* NEGLECTED before today (lib/scans/neglect, the tested neglected-EP rules: hadn't
+             run, quiet base) — a tag on the card, from the bars already fetched. 12 Oct 2026. */
+          ...neglectOf(bars),
           stage: computeStage(closes, { price }),
           ema10: e10,
           ema21: e21,

@@ -222,6 +222,11 @@ interface Ep9mCandidate {
   scoreBreakdown?: Record<string, number>;
   plan?: TradePlanRow | null;
   epType?: 'growth' | 'turnaround' | 'delayed' | 'theme' | 'volume';
+  /** Neglected before today (lib/scans/neglect): hadn't run up, quiet base. */
+  neglected?: boolean | null;
+  preRun3m?: number | null;
+  preRun6m?: number | null;
+  range60?: number | null;
   epTheme?: string | null;
 }
 
@@ -1128,6 +1133,16 @@ export default function Ep9m() {
                                 <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">VS60D</span>
                                 <span className={`text-[9px] font-bold tabular-nums ${getVs60dColor(vs60d)}`}>{vs60d != null ? `${vs60d.toFixed(2)}×` : '—'}</span>
                               </span>
+                              {row.neglected && (
+                                <span
+                                  className="shrink-0 pr-2.5 cursor-help"
+                                  title={`NEGLECTED before today — up ${row.preRun3m ?? '–'}% over 3 months and ${row.preRun6m ?? '–'}% over 6 (limits +15% / +30%), in a 60-day range of ${row.range60 ?? '–'}% (under 60%). The one gap setup with a positive tested result: +0.93% a trade over 86 trades (2022-26) — too few to rule out luck. A tag, not a colour.`}
+                                >
+                                  <span className="inline-block px-1.5 py-[1px] rounded border text-[8px] font-bold tracking-wider text-sky-300 bg-sky-500/10 border-sky-500/25">
+                                    NEGLECTED
+                                  </span>
+                                </span>
+                              )}
                               {row.epType && row.epType !== 'volume' && (
                                 <span
                                   className="shrink-0 pr-2.5 cursor-help"
