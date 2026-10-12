@@ -1704,8 +1704,9 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
           const own = swingCheck({ ...r, ticker: r.t, stage: stg ?? undefined } as unknown as Record<string, unknown>);
           const edge: EdgeTier | null = edgeMap?.[r.t] ?? own?.tier ?? null;
           return (
-            <div key={r.t} className={`flex items-center whitespace-nowrap py-[1px] ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
-              title={edge ? `${r.n ?? r.t} · ${edgeMap?.[r.t] ? `${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : checkTip('swing', own)}` : (r.n ?? r.t)}>
+            /* Colour reasons in the InfoDot panel (12 Oct 2026: no native title tooltips). */
+            <InfoDot key={r.t} block className={`flex items-center whitespace-nowrap py-[1px] ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
+              text={edge ? `${r.n ?? r.t}\n${edgeMap?.[r.t] ? `${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : checkTip('swing', own)}` : (r.n ?? r.t)}>
               <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover>
               <span className="inline-block w-[20px] md:w-[22px] text-center ml-2 md:ml-1">{cnf != null
                 ? <span className={`${badge} ${cnfBadgeCls(cnf)}`}>{Math.round(cnf)}</span>
@@ -1727,7 +1728,7 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
                   <InfoDot content={<span>{news.tip}</span>}>{'★'.repeat(news.n)}</InfoDot>
                 </a>
               ) : <span className="inline-block w-[14px] md:w-[16px] ml-2 md:ml-1" />}
-            </div>
+            </InfoDot>
           );
         })}
       </div>

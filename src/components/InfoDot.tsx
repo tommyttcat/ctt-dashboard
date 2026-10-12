@@ -11,10 +11,13 @@ const MAX_H = 520;  // tallest the panel gets before it scrolls
 /* `children`, when given, replaces the "?" dot as the hover target — so a
    badge or a pill can open the same panel instead of falling back to the
    browser's native `title` tooltip. Without it nothing changes. */
-export default function InfoDot({ text, content, children }: { text?: string; content?: React.ReactNode; children?: React.ReactNode }) {
+/* `block` (12 Oct 2026): render the hover target as a block <div> carrying `className`, so a
+   whole row can open the panel without falling back to a native title. Clicks are not
+   swallowed in block mode, so the row stays clickable. */
+export default function InfoDot({ text, content, children, block, className }: { text?: string; content?: React.ReactNode; children?: React.ReactNode; block?: boolean; className?: string }) {
   const [show, setShow] = useState(false);
   const [pos, setPos] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number } | null>(null);
-  const dotRef = useRef<HTMLSpanElement>(null);
+  const dotRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (show && dotRef.current) {
@@ -55,10 +58,18 @@ export default function InfoDot({ text, content, children }: { text?: string; co
     document.body,
   );
 
+  if (block) {
+    return (
+      <div className={className} ref={dotRef as React.RefObject<HTMLDivElement>} onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
+        {children}
+        {popup}
+      </div>
+    );
+  }
   return (
     <span
       className={children ? 'relative inline-flex cursor-help' : 'relative ml-1 inline-flex'}
-      ref={dotRef}
+      ref={dotRef as React.RefObject<HTMLSpanElement>}
       onMouseEnter={() => setShow(true)}
       onMouseLeave={() => setShow(false)}
       onClick={(e) => { e.stopPropagation(); setShow(s => !s); }}

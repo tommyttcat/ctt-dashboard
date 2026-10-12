@@ -149,7 +149,11 @@ export default function TradeLogPage() {
                 <div key={r.id} className="rounded-lg border border-white/10 bg-[#141a2b] px-3 py-2">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
-                      {r.atEntry && <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${TIER_DOT[r.atEntry.tier]}`} title={`${r.atEntry.mode} checklist at entry (${r.atEntry.src}):\n${r.atEntry.checks.map(([l, ok]) => `${ok === true ? '✔' : ok === false ? '✖' : '–'} ${l}`).join('\n')}${r.atEntry.reds.length ? `\nRed because: ${r.atEntry.reds.join('; ')}` : ''}`} />}
+                      {r.atEntry && (
+                        <InfoDot text={`${r.atEntry.mode} checklist at entry (${r.atEntry.src}):\n${r.atEntry.checks.map(([l, ok]) => `${ok === true ? '✔' : ok === false ? '✖' : '–'} ${l}`).join('\n')}${r.atEntry.reds.length ? `\nRed because: ${r.atEntry.reds.join('; ')}` : ''}`}>
+                          <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${TIER_DOT[r.atEntry.tier]}`} />
+                        </InfoDot>
+                      )}
                       <span className="font-semibold text-slate-100">{r.t}</span>
                       <span className="text-slate-500 truncate">{r.src}{r.style === 'day' ? ' · day' : ''}</span>
                       {r.open && <span className="rounded px-1.5 py-0.5 bg-indigo-500/15 text-indigo-300">OPEN</span>}
