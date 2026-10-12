@@ -1,6 +1,8 @@
+import { getFilings } from '@/lib/fmpFundamentals';
 // lib/indicators/fundamentals.ts
 //
-// Shared fundamental analysis: parse Polygon SEC filings into revenue growth,
+// Shared fundamental analysis: parse annual filings (FMP since 12 Oct 2026, in the Polygon
+// SEC-filings shape — lib/fmpFundamentals) into revenue growth,
 // ROIC, D/E, P/E, FCF yield and score them on the 100-bagger rubric.
 // Used by multibagger/run and optionally by other scanner /run routes to
 // enrich candidates with fundamental data.
@@ -335,26 +337,18 @@ export async function enrichWithFundamentals(
     }
   }
 
-  if (needFetch.length === 0 || !polygonKey) return result;
+  if (needFetch.length === 0) return result;
+  void polygonKey;   // kept in the signature for callers; Polygon's financials endpoint is gone
 
-  // Batch-fetch financials from Polygon for remaining tickers
+  /* FMP annual statements (lib/fmpFundamentals) since 12 Oct 2026, read through the 7-day KV
+     cache: a scan run costs one mget plus at most 30 new companies (~90 FMP calls). */
+  const filingsBy = await getFilings(needFetch.map(c => c.ticker), 30);
   const BATCH = 25;
   for (let i = 0; i < needFetch.length; i += BATCH) {
     const batch = needFetch.slice(i, i + BATCH);
-    const results = await Promise.allSettled(
-      batch.map(c =>
-        fetchJson(
-          `https://api.polygon.io/vX/reference/financials?ticker=${c.ticker}&timeframe=annual&order=desc&limit=4&sort=period_of_report_date&apiKey=${polygonKey}`,
-          { results: [] },
-          15000,
-        )
-      )
-    );
-
-    for (let j = 0; j < results.length; j++) {
+    for (let j = 0; j < batch.length; j++) {
       const c = batch[j];
-      const r = results[j];
-      const filings = r.status === 'fulfilled' ? (r.value?.results || []) : [];
+      const filings = filingsBy.get(c.ticker.toUpperCase()) ?? [];
       if (filings.length === 0) continue;
 
       const mcap = c.marketCap ?? (c.price * 1e6);

@@ -7,7 +7,8 @@
 // valuation, and cash generation — the traits Peter Lynch, Chris Mayer,
 // and every study of 100-baggers found in common.
 //
-// DATA SOURCE: Polygon /vX/reference/financials (SEC filings, standardised).
+// DATA SOURCE: FMP annual statements (lib/fmpFundamentals) since 12 Oct 2026 — Polygon
+// /vX/reference/financials (SEC filings, standardised) was retired (410).
 // Polygon /v3/reference/tickers/{ticker} for market cap and company details.
 // Polygon /v2/snapshot for the current price universe.
 //
@@ -16,6 +17,7 @@
 // and skips re-runs within 12 hours unless forced.
 
 import { NextResponse } from 'next/server';
+import { getFilings } from '@/lib/fmpFundamentals';
 import { kv } from '@vercel/kv';
 import { runInBackground, isDetachedRun, BG_HEADERS } from '@/lib/background';
 import { MULTIBAGGER, MULTIBAGGER_META } from '@/lib/scanConfig';
@@ -401,24 +403,16 @@ async function executeScan(polygonKey: string) {
 
   console.log(`[multibagger] after mcap filter: ${mcapFiltered.length}`);
 
-  // 5. Fetch financials for filtered candidates
+  // 5. Financials for filtered candidates — FMP since 12 Oct 2026 (Polygon's financials
+  //    endpoint is gone), 7-day KV cache per company, up to 200 new companies a run
+  //    (lib/fmpFundamentals). The cache fills within a day of runs.
   const scored: any[] = [];
+  const filingsBy = await getFilings(mcapFiltered.map(c => c.ticker), 200);
   for (let i = 0; i < mcapFiltered.length; i += BATCH) {
     const batch = mcapFiltered.slice(i, i + BATCH);
-    const results = await Promise.allSettled(
-      batch.map(c =>
-        fetchJson(
-          `https://api.polygon.io/vX/reference/financials?ticker=${c.ticker}&timeframe=annual&order=desc&limit=4&sort=period_of_report_date&apiKey=${polygonKey}`,
-          { results: [] },
-          15000,
-        )
-      )
-    );
-
-    for (let j = 0; j < results.length; j++) {
+    for (let j = 0; j < batch.length; j++) {
       const c = batch[j];
-      const r = results[j];
-      const filings = r.status === 'fulfilled' ? (r.value?.results || []) : [];
+      const filings = filingsBy.get(c.ticker.toUpperCase()) ?? [];
 
       if (filings.length === 0) continue;
 
@@ -534,6 +528,8 @@ async function executeScan(polygonKey: string) {
 
   // 7. Persist to KV
   const meta = {
+    fundWanted: mcapFiltered.length,
+    fundCovered: filingsBy.size,
     universeSize: rawSnap.length,
     filtered: candidates.length,
     mcapFiltered: mcapFiltered.length,
@@ -572,11 +568,13 @@ export async function GET(request: Request) {
   if (!forceRefresh) {
     try {
       const lastScan = await kv.get<number>('multibagger_last_scan_v1');
-      if (lastScan && Date.now() - lastScan < 12 * 60 * 60 * 1000) {
-        const [candidates, meta] = await Promise.all([
-          kv.get<any[]>('multibagger_v1'),
-          kv.get<any>('multibagger_meta_v1'),
-        ]);
+      const [candidates, meta] = lastScan && Date.now() - lastScan < 12 * 60 * 60 * 1000
+        ? await Promise.all([kv.get<any[]>('multibagger_v1'), kv.get<any>('multibagger_meta_v1')])
+        : [null, null];
+      /* Only skip a run that left a usable list: an empty one (Polygon's financials going
+         away, 12 Oct 2026) or one still filling the FMP cache runs again next slot. */
+      const covered = meta?.fundCovered ?? 0, wanted = meta?.fundWanted ?? 0;
+      if (candidates && candidates.length > 0 && (!wanted || covered >= 0.8 * wanted)) {
         return NextResponse.json({
           success: true,
           fromCache: true,
