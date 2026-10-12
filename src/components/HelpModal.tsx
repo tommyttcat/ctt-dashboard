@@ -209,8 +209,8 @@ function ColourRules() {
         <strong className="text-slate-200">One colour per stock on every card, since 12 Oct 2026: green = go, yellow = look, red = stay away.</strong>{' '}
         It is the swing checklist (3–5 days, let runners run): green when the stock is in an uptrend (above a rising 21 EMA
         and the 50-day), within one average daily range of the 10 or 21 EMA (not chasing), RS 70+, its industry group
-        (2-digit SIC) is in the top third by 3-month return, the last five days are tight (within 1.5 daily ranges) on volume
-        drying up, and QQQ is above its 200-day; red when it is below the 50-day, more than three daily ranges above the 21
+        (2-digit SIC) is in the top third by 3-month return, volume has dried up over the last three days (tightness is shown but not
+        required — the 10/21 test found tight coils lost money), and QQQ is above its 200-day; red when it is below the 50-day, more than three daily ranges above the 21
         EMA, reports earnings within three days, or QQQ is below its 200-day. Yellow is in between. Day-trade signals —
         volume pace, catalyst, holding the range — show in the columns, not the colour. Hover a row to see which checks it
         passed. These are rules traders use, not a tested edge. Each scan&apos;s own red rule below still wins. Every scan

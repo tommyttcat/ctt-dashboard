@@ -77,10 +77,13 @@ export function swingCheck(r: Row | null | undefined, ruleRed = false, today?: s
   const dte = daysToEarnings(r, today);
   const mkt = marketUp;
   const grp = groupOf(r);
-  /* Tight and quiet: the last 5 sessions' high-low range within 1.5 ADRs and the last 3
-     sessions' volume at 0.8x its 20-day average or less (fields from the scan's own bars). */
+  /* Volume drying up: the last 3 sessions at 0.8x the 20-day average or less (fields from the
+     scan's own bars). Tightness (the 5-day range in ADRs) is shown but NOT required since
+     12 Oct 2026: the 10/21 backtest found tight coils (under 2.5x ATR) LOST money and wider
+     coils pressed at their highs won (lib/scans/edge CONSOLIDATION_TIP), so requiring it
+     blocked the names the evidence favours. */
   const t5 = num(r.tight5), vd = num(r.volDry);
-  const tight = t5 == null && vd == null ? null : (t5 == null || t5 <= 1.5) && (vd == null || vd <= 0.8);
+  const tight = vd == null ? null : vd <= 0.8;
 
   const checks: Check[] = [
     { label: 'Uptrend (rising 21 EMA, above the 50)', ok: uptrend },
@@ -88,7 +91,8 @@ export function swingCheck(r: Row | null | undefined, ruleRed = false, today?: s
     { label: rs != null ? `RS 70+ (${Math.round(rs)})` : 'RS 70+', ok: rs != null ? rs >= 70 : null },
     { label: 'QQQ above its 200-day', ok: mkt },
     { label: 'Industry group in the top third (3-month)', ok: grp == null ? null : grp === 0 },
-    { label: t5 != null || vd != null ? `Tight & quiet (5-day range ${t5 != null ? t5.toFixed(1) : '–'} ADR, volume ${vd != null ? vd.toFixed(1) : '–'}x)` : 'Tight & quiet (5-day range, volume drying up)', ok: tight },
+    { label: vd != null ? `Volume drying up (last 3 days ${vd.toFixed(1)}x usual)` : 'Volume drying up', ok: tight },
+    { label: t5 != null ? `5-day range ${t5.toFixed(1)} ADR (info only — tightness is not required)` : '5-day range (info only)', ok: null },
     { label: dte != null && dte >= 0 ? `No earnings within 3 days (${dte}d)` : 'No earnings within 3 days', ok: dte == null ? (earnings ? true : null) : !(dte >= 0 && dte <= 3) },
   ];
   const reds: string[] = [];
@@ -179,8 +183,8 @@ export function checkTip(mode: Mode, c: Checked | null): string {
 /** What each colour means, per checklist — the filter pills' help text. */
 export const CHECKLIST_TIP: Record<Mode, Record<EdgeTier, string>> = {
   swing: {
-    green: 'GO (swing, 3-5 days, let runners run): Stage 2 uptrend — above a rising 21 EMA and the 50 — within 1 ADR of the 10 or 21 EMA (not chasing), RS 70+, QQQ above its 200-day, industry group in the top third, tight and quiet the last few days, and no earnings within 3 days. A row that cannot be checked for stretch stays yellow. A checklist traders use, not a tested edge. Hover a row for its ✔ / ✖.',
-    yellow: 'LOOK (swing): in an uptrend but something is off — stretched 1-3 ADRs above the 21 EMA, RS 50-69, the 21 EMA not rising, a lagging industry group, or still wide and loud. Wait for it to tighten near the 10/21.',
+    green: 'GO (swing, 3-5 days, let runners run): Stage 2 uptrend — above a rising 21 EMA and the 50 — within 1 ADR of the 10 or 21 EMA (not chasing), RS 70+, QQQ above its 200-day, industry group in the top third, volume drying up the last few days, and no earnings within 3 days. A row that cannot be checked for stretch stays yellow. A checklist traders use, not a tested edge. Hover a row for its ✔ / ✖.',
+    yellow: 'LOOK (swing): in an uptrend but something is off — stretched 1-3 ADRs above the 21 EMA, RS 50-69, the 21 EMA not rising, a lagging industry group, or volume still heavy. Wait for it to quiet down near the 10/21.',
     red: "STAY AWAY (swing): below the 50-day, more than 3 ADRs above the 21 EMA (blow-off), earnings within 3 days, QQQ below its 200-day — or this scan's own red rule.",
   },
   day: {

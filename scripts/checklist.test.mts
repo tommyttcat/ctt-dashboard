@@ -63,7 +63,7 @@ eq('swing: bottom group = yellow', sw({ ticker: 'CCC' }), 'yellow');
 eq('swing: unclassified group does not block', sw({ ticker: 'ZZZ' }), 'green');
 setGroups(null);
 eq('swing: tight and quiet = green', sw({ tight5: 1.2, volDry: 0.6 }), 'green');
-eq('swing: wide (2 ADRs in 5 days) = yellow', sw({ tight5: 2, volDry: 0.6 }), 'yellow');
+eq('swing: a wide 5-day range no longer blocks green (10/21 evidence)', sw({ tight5: 2.8, volDry: 0.6 }), 'green');
 eq('swing: loud (volume 1.1x) = yellow', sw({ tight5: 1.2, volDry: 1.1 }), 'yellow');
 eq('day: specific catalyst = green', dy({ catalyst: 'Earnings Beat' }), 'green');
 eq('day: generic catalyst = yellow', dy({ catalyst: 'Technical Momentum' }), 'yellow');
