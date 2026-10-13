@@ -913,7 +913,7 @@ export default function Vcp() {
                           <td className={tdBase}>
                             <div className="flex items-center justify-start gap-1.5">
                               <WatchlistBtn symbol={row.symbol} />
-                              <TickerChartHover symbol={row.symbol}><span title={`${row.name || row.symbol} — ${vcpEdgeGrade(row) ?? 'no letter'}: ${VCP_EDGE_GRADE_TIP}`} className={tickerChipCls(vcpEdgeGrade(row))}>{row.symbol}</span></TickerChartHover>
+                              <TickerChartHover symbol={row.symbol}><span className={tickerChipCls(vcpEdgeGrade(row))}>{row.symbol}</span></TickerChartHover>
                             </div>
                           </td>
                           <td className={tdBase}><NewsStars row={row} /></td>

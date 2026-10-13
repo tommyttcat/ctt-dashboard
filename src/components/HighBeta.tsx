@@ -9,7 +9,7 @@ import { displaySector } from '@/lib/sectors';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import TickerChartHover, { useFreezeWhileChartOpen, WatchlistBtn } from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
-import { adrColor as getAdrColor, tickerChipForScore, tickerTitle, scoreCellCls} from '@/lib/indicators/columnColors';
+import { adrColor as getAdrColor, tickerChipForScore, scoreCellCls} from '@/lib/indicators/columnColors';
 import { SCAN, RsCell, ChgCell, VolCell, DollarVolCell, RvolCell, McapCell } from './scan/ScanTable';
 import { usePhoneTable } from './scan/usePhoneTable';
 import { poll } from '@/lib/poll';
@@ -226,7 +226,7 @@ export default function HighBeta() {
                       <td className={tdBase}>
                         <div className="flex items-center justify-start gap-1.5">
                           <WatchlistBtn symbol={row.ticker} />
-                          <TickerChartHover symbol={row.ticker}><span className={tickerChipForScore(row.conviction)} title={tickerTitle(row.name, row.ticker, row.conviction)}>{row.ticker}</span></TickerChartHover>
+                          <TickerChartHover symbol={row.ticker}><span className={tickerChipForScore(row.conviction)}>{row.ticker}</span></TickerChartHover>
                           <CatalystChip row={row} note={NEGATIVE_NOTE} />
                         </div>
                       </td>

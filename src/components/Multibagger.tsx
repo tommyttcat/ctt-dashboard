@@ -603,7 +603,7 @@ export default function Multibagger() {
                         <td className={tdBase}>
                           <div className="flex items-center justify-start gap-1.5">
                             <WatchlistBtn symbol={c.ticker} />
-                            <TickerChartHover symbol={c.ticker}><span className={tickerChipCls(c.grade)} title={`${c.name} — Grade ${c.grade} (${c.score})`}>{c.ticker}</span></TickerChartHover>
+                            <TickerChartHover symbol={c.ticker}><span className={tickerChipCls(c.grade)}>{c.ticker}</span></TickerChartHover>
                           </div>
                         </td>
 

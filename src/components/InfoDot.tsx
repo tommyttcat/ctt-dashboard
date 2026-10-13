@@ -64,7 +64,11 @@ export default function InfoDot({ text, content, children, block, className, as 
     const has = !!(content || text);
     const Tag = as;
     return (
-      <Tag className={className} ref={dotRef as React.RefObject<HTMLTableRowElement & HTMLDivElement>} onClick={onClick} onMouseEnter={() => has && setShow(true)} onMouseLeave={() => setShow(false)}>
+      <Tag className={className} ref={dotRef as React.RefObject<HTMLTableRowElement & HTMLDivElement>} onClick={onClick}
+        /* Over the ticker chip only its chart pop-up shows (13 Oct 2026): the row panel stands
+           down while the pointer is inside a [data-chart-hover] target, and comes back off it. */
+        onMouseOver={(e) => { if (!has) return; const onChart = !!(e.target as HTMLElement).closest?.('[data-chart-hover]'); setShow(!onChart); }}
+        onMouseLeave={() => setShow(false)}>
         {children}
         {popup}
       </Tag>

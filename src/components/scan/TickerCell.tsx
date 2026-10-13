@@ -9,7 +9,7 @@
 // what the render-equivalence check does.
 
 import React from 'react';
-import { tickerChipForScore, tickerTitle } from '@/lib/indicators/columnColors';
+import { tickerChipForScore } from '@/lib/indicators/columnColors';
 import TickerChartHover, { WatchlistBtn } from '../TickerChartHover';
 import { SCAN } from './ScanTable';
 
@@ -18,7 +18,7 @@ export function TickerCell({ symbol, name, score }: { symbol: string; name?: str
     <td className={SCAN.td}>
       <div className="flex items-center justify-start gap-1.5">
         <WatchlistBtn symbol={symbol} />
-        <TickerChartHover symbol={symbol}><span title={tickerTitle(name, symbol, score)} className={tickerChipForScore(score)}>{symbol}</span></TickerChartHover>
+        <TickerChartHover symbol={symbol}><span className={tickerChipForScore(score)}>{symbol}</span></TickerChartHover>
       </div>
     </td>
   );

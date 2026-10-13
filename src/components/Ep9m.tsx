@@ -1032,7 +1032,7 @@ export default function Ep9m() {
                           <td className={tdBase}>
                             <div className="flex items-center justify-start gap-1.5">
                               <WatchlistBtn symbol={row.ticker} />
-                              <TickerChartHover symbol={row.ticker}><span title={`${row.name || row.ticker} — ${epMoveOdds(row) ?? 'no letter'}: ${EP_MOVE_ODDS_TIP}`} className={tickerChipCls(epMoveOdds(row))}>{row.ticker}</span></TickerChartHover>
+                              <TickerChartHover symbol={row.ticker}><span className={tickerChipCls(epMoveOdds(row))}>{row.ticker}</span></TickerChartHover>
                             </div>
                           </td>
                           <td className={tdBase}><NewsStars row={row} /></td>

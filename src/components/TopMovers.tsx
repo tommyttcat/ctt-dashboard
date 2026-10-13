@@ -79,7 +79,7 @@ import { useMarketData } from './MarketDataContext';
 import { SCANNER } from '@/lib/scanConfig';
 import TickerChartHover, { useFreezeWhileChartOpen, WatchlistBtn } from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
-import { adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, tickerChipForScore, tickerTitle, scoreCellCls} from '@/lib/indicators/columnColors';
+import { adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, tickerChipForScore, scoreCellCls} from '@/lib/indicators/columnColors';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import { displaySector } from '@/lib/sectors';
 import { formatSetupName } from '@/lib/setupName';
@@ -440,7 +440,7 @@ export default function TopMovers() {
                         <td className={tdBase}>
                           <div className="flex items-center justify-start gap-1.5">
                             <WatchlistBtn symbol={row.ticker} />
-                            <TickerChartHover symbol={row.ticker}><span className={tickerChipForScore(row.conviction)} title={tickerTitle(row.name, row.ticker, row.conviction)}>{row.ticker}</span></TickerChartHover>
+                            <TickerChartHover symbol={row.ticker}><span className={tickerChipForScore(row.conviction)}>{row.ticker}</span></TickerChartHover>
                             <CatalystChip row={row} note={NEGATIVE_NOTE} />
                           </div>
                         </td>
