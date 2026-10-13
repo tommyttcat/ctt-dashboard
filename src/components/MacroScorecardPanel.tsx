@@ -52,6 +52,22 @@ import {
 } from '@/lib/indicators/marketScorecard';
 import { mfLabelShort, mfArrow } from '@/lib/indicators/moneyflow';
 
+/* S2 breadth — % of liquid US stocks in Weinstein Stage 2 (lib/stageBreadth), from the
+   CDN-cached /api/exposure/latest the Exposure strip already reads. One request per page. */
+type S2 = { asOf: string; pct: number; n: number; history: { d: string; pct: number }[] };
+let s2Pending: Promise<S2 | null> | null = null;
+function useStage2(): S2 | null {
+  const [v, setV] = React.useState<S2 | null>(null);
+  React.useEffect(() => {
+    let on = true;
+    s2Pending ??= fetch('/api/exposure/latest').then(r => (r.ok ? r.json() : null)).then(j => (j?.stage2 ?? null)).catch(() => null);
+    s2Pending.then(x => { if (on) setV(x); });
+    return () => { on = false; };
+  }, []);
+  return v;
+}
+const s2Tone = (pct: number): 'green' | 'amber' | 'red' => (pct >= 40 ? 'green' : pct >= 25 ? 'amber' : 'red');
+
 /* ---- Shared slot widths --------------------------------------------------
    The internals strips are one component shape rendered three times, so every
    slot has to measure the same or nothing lines up. Applied from sm up only;
@@ -245,6 +261,7 @@ export default function MacroScorecardPanel({
   tapeFlash,
   cellsOnly = false,
 }: MacroScorecardPanelProps) {
+  const s2 = useStage2();
   /* The raw daily leg, straight off the API. `chopVal` is the composite —
      daily base plus an intraday blend and a concordance adjustment — so it is
      the headline number, not the day's own reading. When the hourly leg is
@@ -557,6 +574,25 @@ export default function MacroScorecardPanel({
               {ttRow('≤ 20%', 'green', <>breakouts in 4 of 6 scans did better (4 yrs)</>)}
               {ttRow('20–80%', 'neutral', <>no reliable effect either way</>)}
               {ttRow('> 80%', 'red', <>worst for every scan — one episode (late 2021)</>)}
+            </>),
+          });
+        }
+
+        if (s2) {
+          const h = s2.history ?? [];
+          const back = h.length > 5 ? h[h.length - 6].pct : null;
+          const delta = back != null ? s2.pct - back : null;
+          cells.push({
+            label: 'STAGE 2 (S2)',
+            value: `${s2.pct.toFixed(0)}%`,
+            sub: delta != null ? `${delta >= 0 ? '\u25B2' : '\u25BC'} ${Math.abs(delta).toFixed(1)} in 5d` : `of ${s2.n.toLocaleString()}`,
+            color: s2Tone(s2.pct),
+            titleContent: ttWrap('Share of stocks in Weinstein Stage 2 (S2)', <>
+              {ttRow('Now', `${s2.pct.toFixed(1)}%`, <>of {s2.n.toLocaleString()} liquid US stocks, as of {s2.asOf}</>)}
+              {ttRow('≥ 40%', 'green', <>broad uptrend participation</>)}
+              {ttRow('25–40%', 'amber', <>mixed</>)}
+              {ttRow('< 25%', 'red', <>few stocks in uptrends</>)}
+              {ttRow('Note', '', <>a breadth reading (after S2-USA), not a tested signal; rebuilt each evening</>)}
             </>),
           });
         }

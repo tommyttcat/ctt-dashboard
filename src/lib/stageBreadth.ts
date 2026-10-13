@@ -1,0 +1,27 @@
+// lib/stageBreadth.ts — "S2": the share of liquid US stocks in Weinstein Stage 2 (12-13 Oct
+// 2026, the owner's ask, after the S2-USA breadth reading). Computed nightly by the System job
+// from closes it already holds (~2,000 names, $2+, $20M+/day, a year of bars), with the site's
+// own stage function (lib/indicators/stage, 2A/2B/2C all count). A breadth READING, not a
+// tested signal.
+
+import { computeStageDetail } from './indicators/stage';
+
+export const STAGE2_KEY = 'stage2_breadth_v1';
+
+export interface Stage2Point { d: string; pct: number; n: number }
+export interface Stage2State { asOf: string; pct: number; n: number; counts: Record<string, number>; history: Stage2Point[] }
+
+/** Share in Stage 2 at session index t, from each name's closes (oldest first; NaN = no bar). */
+export function stage2At(closes: Float64Array[], t: number): { pct: number; n: number; counts: Record<string, number> } {
+  const counts: Record<string, number> = { '1': 0, '2': 0, '3': 0, '4': 0 };
+  let n = 0;
+  for (const c of closes) {
+    const upto: number[] = [];
+    for (let j = Math.max(0, t - 260); j <= t; j++) if (Number.isFinite(c[j]) && c[j] > 0) upto.push(c[j]);
+    if (upto.length < 210 || !Number.isFinite(c[t])) continue;
+    const s = computeStageDetail(upto).label.replace(/^Stage\s*/i, '').trim().charAt(0);
+    if (!counts[s] && counts[s] !== 0) continue;
+    counts[s]++; n++;
+  }
+  return { pct: n ? +((100 * counts['2']) / n).toFixed(1) : 0, n, counts };
+}

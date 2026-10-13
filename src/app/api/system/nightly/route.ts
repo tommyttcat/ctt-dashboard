@@ -17,6 +17,7 @@ import { kv } from '@vercel/kv';
 import { authorized, authorizedOrAdmin } from '@/lib/apiAuth';
 import { etGate } from '@/lib/etCron';
 import { groupTerciles } from '@/lib/groups';
+import { stage2At, STAGE2_KEY, type Stage2State } from '@/lib/stageBreadth';
 import {
   SYSTEM_KEY, SYSTEM_SCORES_KEY, LEVERAGE, SHORTLIST_N, MIN_DVOL_PICK, featuresAt, rankFeatures, scoreRow, scoreGo, isLate, stepColours,
   type SystemState, type SystemPick, type SystemDay,
@@ -131,6 +132,19 @@ export async function GET(req: Request) {
   /* Industry-group terciles for the swing checklist (lib/groups): ~1,800 names x ~8 bytes
      in the same value the page already reads — no extra KV command. */
   const group = groupTerciles(meta.map((m, i) => ({ t: m.t, r63: rows[i][2] })));
+
+  /* S2 breadth (lib/stageBreadth): % of the scored names in Weinstein Stage 2 tonight, plus the
+     sessions back to the earliest with 210 bars when the history is short. 1 KV read + 1 write. */
+  try {
+    const cl = meta.map(m => data.get(m.t)![3]);
+    const prevS2 = await kv.get<Stage2State>(STAGE2_KEY);
+    const keep = (prevS2?.history ?? []).filter(h => h.d < days[T]);
+    const need = keep.length >= 30 ? [T] : Array.from({ length: Math.max(1, T - 209) }, (_, k) => 210 + k).filter(t => t <= T && !keep.some(h => h.d === days[t]));
+    const pts = need.map(t => ({ d: days[t], ...stage2At(cl, t) }));
+    const now = pts[pts.length - 1];
+    const history = [...keep, ...pts.map(p => ({ d: p.d, pct: p.pct, n: p.n }))].sort((a, b) => a.d.localeCompare(b.d)).slice(-260);
+    await kv.set(STAGE2_KEY, { asOf: now.d, pct: now.pct, n: now.n, counts: now.counts, history } satisfies Stage2State);
+  } catch (e) { console.error('STAGE2_ERROR', e); }
   await kv.set(SYSTEM_SCORES_KEY, { asOf, scores: scoreMap, group });
   return NextResponse.json({ success: true, asOf, universe: rows.length, ms: Date.now() - t0, core, top: picks.map(p => `${p.t}${p.late ? '*' : ''}`), historyDays: history.length });
 }
