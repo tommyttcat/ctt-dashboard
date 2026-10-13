@@ -18,6 +18,7 @@ import { authorized, authorizedOrAdmin } from '@/lib/apiAuth';
 import { etGate } from '@/lib/etCron';
 import { groupTerciles } from '@/lib/groups';
 import { stage2At, STAGE2_KEY, type Stage2State } from '@/lib/stageBreadth';
+import { netHLAt, mergeHistory, NET_HL_KEY, type NetHLState } from '@/lib/netHighsLows';
 import {
   SYSTEM_KEY, SYSTEM_SCORES_KEY, LEVERAGE, SHORTLIST_N, MIN_DVOL_PICK, featuresAt, rankFeatures, scoreRow, scoreGo, isLate, stepColours,
   type SystemState, type SystemPick, type SystemDay,
@@ -145,6 +146,15 @@ export async function GET(req: Request) {
     const history = [...keep, ...pts.map(p => ({ d: p.d, pct: p.pct, n: p.n }))].sort((a, b) => a.d.localeCompare(b.d)).slice(-260);
     await kv.set(STAGE2_KEY, { asOf: now.d, pct: now.pct, n: now.n, counts: now.counts, history } satisfies Stage2State);
   } catch (e) { console.error('STAGE2_ERROR', e); }
+
+  /* Net new 52-week highs − lows (lib/netHighsLows): tonight's point from the whole-market bars
+     already loaded (every CS/ADR, not just the scored names). 1 KV read + 1 write. */
+  try {
+    const all = [...data.entries()].filter(([t]) => t !== 'QQQ').map(([, a]) => a);
+    const pt = netHLAt(all.map(a => a[1]), all.map(a => a[2]), all.map(a => a[3]), T);
+    const prevHL = await kv.get<NetHLState>(NET_HL_KEY);
+    await kv.set(NET_HL_KEY, { asOf: days[T], history: mergeHistory(prevHL?.history, [{ d: days[T], ...pt }]) } satisfies NetHLState);
+  } catch (e) { console.error('NETHL_ERROR', e); }
   await kv.set(SYSTEM_SCORES_KEY, { asOf, scores: scoreMap, group });
   return NextResponse.json({ success: true, asOf, universe: rows.length, ms: Date.now() - t0, core, top: picks.map(p => `${p.t}${p.late ? '*' : ''}`), historyDays: history.length });
 }
