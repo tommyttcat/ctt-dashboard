@@ -235,6 +235,8 @@ interface ConsolidationCandidate {
   setupName?: string | null;
   /** 'U&R' rows: the level undercut and reclaimed. */
   undercutOf?: string | null;
+  /** 8/21 cross → break → retest (lib/scans/retest821). */
+  retest821?: { level: number; crossAgo: number; breakAgo: number; confirmed: boolean } | null;
   catalyst?: string | null;
   catalystUrl?: string | null;
   newsPublisher?: string | null;
@@ -1048,6 +1050,15 @@ export default function Consolidation1021() {
                           <td colSpan={17} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
                               <span className="shrink-0 w-[48px] px-0.5 text-center text-[#7c8bfa]/90 font-bold text-[7px] tracking-[0.04em] uppercase leading-none whitespace-nowrap">—</span>
+                              {row.retest821 && (
+                                <span className="shrink-0 pl-2.5">
+                                  <InfoDot text={`8/21 RETEST — the 8 EMA crossed above the 21 EMA ${row.retest821.crossAgo} session${row.retest821.crossAgo === 1 ? '' : 's'} ago, price broke the prior high of ${row.retest821.level} ${row.retest821.breakAgo} session${row.retest821.breakAgo === 1 ? '' : 's'} ago, and in the last 3 sessions it came back to test that level and the 8 EMA while holding above both it and the 21 EMA.${row.retest821.confirmed ? ' CONFIRMED: today closed above yesterday\'s high.' : ' Not confirmed yet: waiting for a close above the prior day\'s high.'}\n\nA tag, not a colour and not a tested edge — its close cousin (Kell\'s EMA crossback) lost to QQQ when bought on every stock.`}>
+                                    <span className={`inline-block px-1.5 py-[1px] rounded border text-[8px] font-bold tracking-wider ${row.retest821.confirmed ? 'text-blue-300 bg-blue-500/15 border-blue-400/40' : 'text-blue-300/70 bg-blue-500/5 border-blue-400/20'}`}>
+                                      8/21 RETEST{row.retest821.confirmed ? ' ✓' : ''}
+                                    </span>
+                                  </InfoDot>
+                                </span>
+                              )}
                               <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={newsTooltip(row) || headline || undefined}>
                                 {headline || tag ? (
                                   <>

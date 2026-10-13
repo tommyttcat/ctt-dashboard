@@ -36,6 +36,7 @@ export const SWING_HIGH_EXCLUDE_RECENT = 5;
 
 export interface Bar { t: number; o: number; h: number; l: number; c: number; v: number; }
 import { tightnessOf } from './tightness';
+import { retest821Of, type Retest821 } from './retest821';
 
 export interface SnapInfo {
   vwap: number | null;
@@ -66,6 +67,7 @@ export interface TradePlanOut {
 export interface Candidate {
   tight5?: number | null;   // last 5 bars' span in ADRs (lib/scans/tightness)
   volDry?: number | null;   // last 3 bars' volume vs the 20 before
+  retest821?: Retest821 | null;   // 8/21 cross → break → retest (lib/scans/retest821)
   symbol: string;
   name: string;
   sector: string;
@@ -460,6 +462,7 @@ export function analyzeConsolidation(
     name,
     sector,
     ...tightnessOf(bars),   // swing checklist: tight & quiet (lib/scans/tightness)
+    retest821: retest821Of(bars),   // 8/21 RETEST tag (lib/scans/retest821)
     /* 'U&R' rows: which level was undercut and reclaimed. */
     undercutOf: undercut ? UNDERCUT_LABEL[undercut.level] : null,
     price: +price.toFixed(2),
@@ -791,6 +794,7 @@ export function analyze(
     name,
     sector,
     ...tightnessOf(bars),   // swing checklist: tight & quiet (lib/scans/tightness)
+    retest821: retest821Of(bars),   // 8/21 RETEST tag (lib/scans/retest821)
     price: +price.toFixed(2),
     score,
     changePct: +changePct.toFixed(2),
