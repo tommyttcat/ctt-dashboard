@@ -47,12 +47,14 @@ export default function NetHighsLowsChart() {
         <span className={`font-bold px-2 py-[1px] rounded border ${rising ? 'text-emerald-300 bg-emerald-500/15 border-emerald-400/30' : 'text-rose-300 bg-rose-500/15 border-rose-400/30'}`}>{rising ? 'Rising' : 'Declining'}</span>
         <span className="text-slate-200 tabular-nums">{last.h} highs · {last.l} lows · net {last.net >= 0 ? '+' : ''}{last.net}</span>
         <span className="text-slate-600 ml-auto">52-week · EMA 8 / 20 · {last.d}</span>
-        <InfoDot text={"NET NEW 52-WEEK HIGHS − LOWS: each day, how many US stocks and ADRs ($3+) made a new 52-week high minus how many made a new 52-week low. Bars are the daily net; the coloured line is its 8-day EMA (green while above the 20-day, red below); the grey line is the 20-day EMA. RISING / DECLINING = the 8-day above / below the 20-day.\n\nA breadth DESCRIPTION, not a rule. Our own 2016–2026 test found weak breadth was followed by BETTER QQQ returns over the next 20 days (washouts were buying chances), so this does not say 'stand aside'. Rebuilt each evening."} />
+        <InfoDot text={"NET NEW 52-WEEK HIGHS − LOWS: each day, how many US stocks and ADRs ($3+) made a new 52-week high minus how many made a new 52-week low. Bars are the daily net — green when more stocks made new highs than new lows, red when more made new lows; the bright line is its 8-day EMA (green while above the 20-day, red below); the grey line is the 20-day EMA. RISING / DECLINING = the 8-day above / below the 20-day.\n\nA breadth DESCRIPTION, not a rule. Our own 2016–2026 test found weak breadth was followed by BETTER QQQ returns over the next 20 days (washouts were buying chances), so this does not say 'stand aside'. Rebuilt each evening."} />
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="w-full h-[120px] md:h-[140px]" role="img" aria-label="Net new 52-week highs minus lows">
         <line x1={0} x2={W} y1={mid} y2={mid} stroke="rgba(255,255,255,0.12)" strokeWidth={1} />
         {net.map((v, i) => (
-          <rect key={i} x={i * bw + bw * 0.1} width={bw * 0.8} y={Math.min(y(v), mid)} height={Math.abs(y(v) - mid)} fill="#eab308" opacity={0.75} />
+          /* More new highs than lows = green bar, more lows = red (13 Oct 2026); muted so the
+             EMA lines stay readable on top. */
+          <rect key={i} x={i * bw + bw * 0.1} width={bw * 0.8} y={Math.min(y(v), mid)} height={Math.abs(y(v) - mid)} fill={v >= 0 ? '#10b981' : '#f43f5e'} opacity={0.45} />
         ))}
         <path d={e20.map((v, i) => `${i ? 'L' : 'M'}${x(i)},${y(v)}`).join('')} fill="none" stroke="#94a3b8" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
         {segs.map((s, i) => <path key={i} d={s.d} fill="none" stroke={s.up ? '#22c55e' : '#ef4444'} strokeWidth={2} vectorEffect="non-scaling-stroke" />)}
