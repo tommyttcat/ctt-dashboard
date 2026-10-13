@@ -150,19 +150,24 @@ function calcSR(data: Bar[], maxLevels = 5): { price: number; type: 'S' | 'R'; t
 }
 
 
+/* 12 Oct 2026 (owner's spec): daily 10 / 21 / 50 EMA — green / yellow / blue; weekly
+   5 / 10 / 21 SMA — orange / green / yellow. Daily loads ~8 months so the 50 is warmed up,
+   and opens on the last ~3 months (DAILY_VISIBLE). */
 const MA_CONFIG: Record<string, { period: number; color: string; sma?: boolean }[]> = {
   daily: [
     { period: 10, color: '#22c55e' },
     { period: 21, color: '#eab308' },
+    { period: 50, color: '#3b82f6' },
   ],
   '3m': [
     { period: 10, color: '#22c55e' },
     { period: 21, color: '#eab308' },
+    { period: 50, color: '#3b82f6' },
   ],
   weekly: [
-    { period: 4, color: '#60a5fa', sma: true },
+    { period: 5, color: '#f97316', sma: true },
     { period: 10, color: '#22c55e', sma: true },
-    { period: 30, color: '#f97316', sma: true },
+    { period: 21, color: '#eab308', sma: true },
   ],
   monthly: [
     { period: 6, color: '#22c55e', sma: true },
@@ -175,6 +180,8 @@ const MA_CONFIG: Record<string, { period: number; color: string; sma?: boolean }
     { period: 50, color: '#f97316', sma: true },
   ],
 };
+
+const DAILY_VISIBLE = 63;
 
 function fmtVol(v: number): string {
   if (v >= 1e9) return (v / 1e9).toFixed(1) + 'B';
@@ -432,7 +439,9 @@ export default function MiniChart({ symbol, mode = 'candle', showTrend = false, 
     }
 
     if (trend) {
-      const trendData = calcTrendLine(bars, bars.length);
+      /* Trend and channel over the visible window only, as before the 50 EMA warm-up. */
+      const vis = (tf === 'daily' || tf === '3m') && bars.length > DAILY_VISIBLE ? bars.slice(-DAILY_VISIBLE) : bars;
+      const trendData = calcTrendLine(vis, vis.length);
       if (trendData.length > 1) {
         /* Drawn exactly like the channel's middle line — same weight, same
            dash — and kept white so it still reads as its own thing. */
@@ -449,7 +458,8 @@ export default function MiniChart({ symbol, mode = 'candle', showTrend = false, 
     }
 
     if (channel) {
-      const ch = calcChannel(bars, bars.length);
+      const visC = (tf === 'daily' || tf === '3m') && bars.length > DAILY_VISIBLE ? bars.slice(-DAILY_VISIBLE) : bars;
+      const ch = calcChannel(visC, visC.length);
       if (ch.mid.length > 1) {
         const midSeries = chart.addSeries(LineSeries, {
           color: '#94a3b8',
@@ -517,6 +527,10 @@ export default function MiniChart({ symbol, mode = 'candle', showTrend = false, 
     }
 
     chart.timeScale().fitContent();
+    /* Daily and 3M load extra history for the 50 EMA; show the last ~3 months of it. */
+    if ((tf === 'daily' || tf === '3m') && bars.length > DAILY_VISIBLE) {
+      chart.timeScale().setVisibleLogicalRange({ from: bars.length - DAILY_VISIBLE - 0.5, to: bars.length - 0.5 });
+    }
     chartRef.current = chart;
 
     return () => {

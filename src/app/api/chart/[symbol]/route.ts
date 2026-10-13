@@ -22,9 +22,9 @@ export async function GET(
   if (tf === 'ytd') {
     from.setMonth(0, 1);
   } else if (tf === '3m') {
-    from.setMonth(from.getMonth() - 3);
+    from.setDate(from.getDate() - 240);   // 3 months shown + warm-up for the 50 EMA (12 Oct 2026)
   } else {
-    from.setDate(from.getDate() - (tf === 'monthly' ? 1825 : tf === 'weekly' ? 730 : 90));
+    from.setDate(from.getDate() - (tf === 'monthly' ? 1825 : tf === 'weekly' ? 730 : 240));   // daily: 90 -> 240 for the 50 EMA
   }
   const fmt = (d: Date) => d.toISOString().slice(0, 10);
 
