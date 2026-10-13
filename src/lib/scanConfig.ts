@@ -109,7 +109,7 @@ export const SWING = {
   minPrice: QUALITY_FLOOR.minPrice,   // $2 until 12 Oct 2026
   maxPrice: 2000,
   minAvgDollarVol: QUALITY_FLOOR.minAvgDollarVol,   // $50M until 12 Oct 2026 (wider universe, lib/scans/swingWide)
-  minAtrPct: 1.5,
+  minAtrPct: 3.0,   // 1.5 until 13 Oct 2026: slow names (EWT 1.9%, WST 2.4%) cannot travel in 3-5 days
   maxAtrPct: 6.0,
   minPctOffHigh: 2,
   maxPctOffHigh: 20,

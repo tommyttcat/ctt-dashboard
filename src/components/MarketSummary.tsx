@@ -2243,8 +2243,9 @@ const formatBriefingText = (text: string) => {
    briefing built before a card existed must not hide it: insert the card's
    placeholder after the one it follows when the text lacks it. */
 const withInteractive = (paras: string[]): string[] =>
-  /* Chart Structure card removed 10 Oct 2026: drop its placeholder from briefings built before. */
-  paras.filter(p => !p.startsWith('Chart Structure:'));
+  /* Removed cards: drop their placeholders from briefings built before (Chart Structure
+     10 Oct 2026, Momentum Leaders 12 Oct 2026). */
+  paras.filter(p => !p.startsWith('Chart Structure:') && !p.startsWith('Momentum Leaders:'));
 
 const splitBriefingSection = (para: string): { label: string | null; color: string; blurb: string; body: string } => {
   for (const sec of BRIEFING_SECTIONS) {

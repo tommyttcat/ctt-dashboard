@@ -8,7 +8,7 @@
 // it only throws out names that could not pass them.
 //   |close / EMA21 - 1| <= 5%  (Swing: 4%)
 //   stochastic %K(10, 4) <= 45  (Swing: 35)
-//   14-day average range 1.2% - 7%  (Swing ATR: 1.5% - 6%)
+//   14-day average range 2.5% - 7%  (Swing ATR: 3% - 6% since 13 Oct 2026)
 
 export type LBar = { c: number; h: number; l: number; v: number };
 
@@ -30,5 +30,5 @@ export function swingPrecheck(bars: LBar[] | undefined): boolean {
   if (!(raw.reduce((a, b) => a + b, 0) / raw.length <= 45)) return false;
   let rng = 0; for (let i = n - 14; i < n; i++) rng += (bars[i].h - bars[i].l) / bars[i].c;
   const atrPct = (rng / 14) * 100;
-  return atrPct >= 1.2 && atrPct <= 7;
+  return atrPct >= 2.5 && atrPct <= 7;
 }
