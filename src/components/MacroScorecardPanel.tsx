@@ -35,8 +35,6 @@ import {
   toneCellTone,
   vixPctTone,
   breadthSignalTone,
-  highsPct as highsPctOf,
-  highsCellTone,
   t2108CellTone,
   mkmCellTone,
   marketMonitorOf,
@@ -235,9 +233,7 @@ export default function MacroScorecardPanel({
   chopDelta,
   divergence,
   chopTrend,
-  adTrend,
   hlTrend,
-  advPct,
   highsPct,
   intraVal,
   intraStale,
@@ -530,22 +526,6 @@ export default function MacroScorecardPanel({
           });
         }
 
-        if (breadth && (breadth.newHighs != null || breadth.newLows != null)) {
-          const h = breadth.newHighs ?? 0, l = breadth.newLows ?? 0;
-          const pct = highsPctOf(h, l);
-          cells.push({
-            label: 'HIGHS vs LOWS',
-            value: `${pct.toFixed(1)}%`,
-            sub: `${h} / ${l}`,
-            color: highsCellTone(pct),
-            titleContent: ttWrap('New 52-Week Highs / Lows', <>
-              {ttRow('Now', `${h.toLocaleString()} / ${l.toLocaleString()}`, <>highs vs lows</>)}
-              {ttRow('>65%', 'strength', <>names breaking out</>)}
-              {ttRow('<50%', 'defensive', <>bouncing inside ranges</>)}
-            </>),
-          });
-        }
-
         if (tVal != null) {
           cells.push({
             label: 'ABOVE 40-DAY',
@@ -641,61 +621,6 @@ export default function MacroScorecardPanel({
       })()}
 
       {!cellsOnly && (<>
-      {/* INTERNALS — advance/decline. PROPORTIONAL bar: the fill boundary
-          is the measurement, so the gradient only adds depth within each
-          side. See the note above ProportionalBar. */}
-      {breadth && (
-        <div
-          className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 mb-6 border border-white/5 bg-[#161c2a]/40 rounded-xl px-4 py-3 relative z-10"
-        >
-          <span className={`flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-slate-500 ${STRIP_LABEL_W}`}>
-            <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa] shrink-0"></span>
-            Up vs down
-            <InfoDot content={ttWrap('Stocks up vs down today', <>
-              {ttRow('Now', `${breadth.advancers.toLocaleString()} / ${breadth.decliners.toLocaleString()}`, <>{advPct.toFixed(0)}% advancing</>)}
-              {ttRow('4% movers', `${breadth.up4} / ${breadth.down4}`, <>up vs down</>)}
-              {ttRow('Up/down ratio', breadth.decliners > 0 ? (breadth.advancers / breadth.decliners).toFixed(2) : '—')}
-              {ttRow('>60%', 'buyers', <>in control</>)}
-              {ttRow('<40%', 'sellers', <>dominate</>)}
-            </>)} />
-          </span>
-
-          <span
-            className={`text-sm font-bold leading-none ${STRIP_ARROW_W} ${
-              adTrend === 'up' ? 'text-emerald-400' : adTrend === 'down' ? 'text-rose-400' : 'text-slate-600'
-            }`}
-          >
-            {adTrend === 'up' ? '▲' : adTrend === 'down' ? '▼' : '–'}
-          </span>
-
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <span className={`text-[11px] font-bold text-emerald-400 tabular-nums whitespace-nowrap ${STRIP_SIDE_W}`}>
-              UP {breadth.advancers.toLocaleString()}
-            </span>
-            <ProportionalBar
-              pct={advPct}
-              leftTitle={`${breadth.advancers.toLocaleString()} advancing`}
-              rightTitle={`${advPct.toFixed(0)}% advancing`}
-            />
-            <span className={`text-[11px] font-bold text-rose-400 tabular-nums whitespace-nowrap sm:text-right ${STRIP_SIDE_W}`}>
-              DOWN {breadth.decliners.toLocaleString()}
-            </span>
-          </div>
-
-          <div className={`flex items-center gap-4 ${STRIP_CLUSTER_W}`}>
-            <span className={`flex items-center gap-1.5 whitespace-nowrap ${STRIP_NOTE_W}`} title="Up/down ratio">
-              <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">UP/DOWN:</span>
-              <span className={`text-[11px] font-bold tabular-nums ${breadth.decliners > 0 && breadth.advancers / breadth.decliners >= 1 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {breadth.decliners > 0 ? (breadth.advancers / breadth.decliners).toFixed(2) : '—'}
-              </span>
-            </span>
-            <span className={`text-[10px] font-bold tabular-nums px-2 py-0.5 rounded border ${STRIP_BADGE_W} ${breadthPctBg(advPct)} ${breadthPctColor(advPct)}`}>
-              {advPct.toFixed(0)}%
-            </span>
-          </div>
-        </div>
-      )}
-
       {/* New 52-week highs vs new lows. Same proportional treatment. */}
       {breadth && ((breadth.newHighs ?? 0) > 0 || (breadth.newLows ?? 0) > 0) && (
         <div

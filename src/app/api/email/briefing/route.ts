@@ -18,15 +18,11 @@ import {
 import {
   marketTone,
   t2108ZoneLabel as t2108Zone,
-  advPct,
-  highsPct,
   toneCellTone,
   vixPctTone,
   breadthSignalTone,
-  advCellTone,
   t2108CellTone,
   mkmCellTone,
-  highsCellTone,
   marketMonitorOf,
   mmTodayTone,
   mmCellTone,
@@ -987,14 +983,6 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
         : partial ? `${mm.days}/5d` : '',
       color: mmTodayTone(mm.up4, mm.down4),
     });
-  }
-  if (bData) {
-    const ad = advPct(bData.advancers, bData.decliners);
-    scCells.push({ label: 'UP vs DOWN', value: `${ad.toFixed(1)}%`, sub: `${bData.advancers ?? 0} / ${bData.decliners ?? 0}`, color: advCellTone(ad) });
-  }
-  if (bData && (bData.newHighs != null || bData.newLows != null)) {
-    const hp = highsPct(bData.newHighs, bData.newLows);
-    scCells.push({ label: 'HIGHS vs LOWS', value: `${hp.toFixed(1)}%`, sub: `${bData.newHighs ?? 0} / ${bData.newLows ?? 0}`, color: highsCellTone(hp) });
   }
   if (tVal != null) {
     scCells.push({ label: 'ABOVE 40-DAY', value: `${tVal.toFixed(0)}%`, sub: t2108Zone(tVal), color: t2108CellTone(tVal) });

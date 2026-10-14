@@ -2,8 +2,6 @@ import { ImageResponse } from 'next/og';
 import {
   marketTone, toneCellTone,
   t2108ZoneLabel, t2108CellTone,
-  advPct, advCellTone,
-  highsPct, highsCellTone,
   marketMonitorOf, mmTodayTone, mmCellTone, mmRatioLabel,
   mkmCellTone, vixPctTone, breadthSignalTone,
   tapeDirSetup, tapeDirSignal, tapeDirCellTone,
@@ -383,14 +381,6 @@ export async function GET(req: Request) {
             : partial ? `${mm.days}/5d` : '',
           color: mmTodayTone(mm.up4, mm.down4),
         });
-      }
-      if (bData) {
-        const ad = advPct(bData.advancers, bData.decliners);
-        cells.push({ label: 'UP vs DOWN', value: `${ad.toFixed(1)}%`, sub: `${bData.advancers ?? 0} / ${bData.decliners ?? 0}`, color: advCellTone(ad) });
-      }
-      if (bData && (bData.newHighs != null || bData.newLows != null)) {
-        const hp = highsPct(bData.newHighs, bData.newLows);
-        cells.push({ label: 'HIGHS vs LOWS', value: `${hp.toFixed(1)}%`, sub: `${bData.newHighs ?? 0} / ${bData.newLows ?? 0}`, color: highsCellTone(hp) });
       }
       if (tVal != null) {
         cells.push({ label: 'ABOVE 40-DAY', value: `${tVal.toFixed(0)}%`, sub: t2108ZoneLabel(tVal), color: t2108CellTone(tVal) });
