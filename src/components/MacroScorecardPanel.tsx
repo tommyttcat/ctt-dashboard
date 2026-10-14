@@ -35,8 +35,6 @@ import {
   toneCellTone,
   vixPctTone,
   breadthSignalTone,
-  advPct as advPctOf,
-  advCellTone,
   highsPct as highsPctOf,
   highsCellTone,
   t2108CellTone,
@@ -528,22 +526,6 @@ export default function MacroScorecardPanel({
               )}
               {mm.ratio5 != null && ttRow('Ratio', mm.ratio5.toFixed(2), <>&gt;1.0 buyers · &gt;1.5 thrust</>)}
               {mm.quarter25 != null && ttRow('25%/qtr', `${mm.quarter25}`, <>names up 25%+ in 65 sessions</>)}
-            </>),
-          });
-        }
-
-        if (breadth) {
-          const adv = breadth.advancers ?? 0, dec = breadth.decliners ?? 0;
-          const pct = advPctOf(adv, dec);
-          cells.push({
-            label: 'UP vs DOWN',
-            value: `${pct.toFixed(1)}%`,
-            sub: `${adv} / ${dec}`,
-            color: advCellTone(pct),
-            titleContent: ttWrap('Stocks up vs down today', <>
-              {ttRow('Now', `${adv.toLocaleString()} / ${dec.toLocaleString()}`, <>all US equities &gt;$1</>)}
-              {ttRow('>60%', 'buyers', <>in control</>)}
-              {ttRow('<50%', 'sellers', <>have it</>)}
             </>),
           });
         }
