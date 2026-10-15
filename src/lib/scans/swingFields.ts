@@ -7,7 +7,7 @@ import { tightnessOf } from './tightness';
 export type SFBar = { h: number; l: number; c: number; v: number };
 
 export function swingFieldsOf(bars: SFBar[]): {
-  ema50?: number; distToEma21?: number; distToEma10?: number; ema21Rising?: boolean; adrPct?: number; tight5?: number | null; volDry?: number | null;
+  ema50?: number; distToEma21?: number; distToEma10?: number; ema21Rising?: boolean; adrPct?: number; tight5?: number | null; volDry?: number | null; lowerHigh?: number | null;
 } {
   const n = bars.length; if (n < 55) return {};
   const ema = (k: number, upto: number) => { let e = bars[0].c; for (let i = 1; i <= upto; i++) e = bars[i].c * (2 / (k + 1)) + e * (1 - 2 / (k + 1)); return e; };

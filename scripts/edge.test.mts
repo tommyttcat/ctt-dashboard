@@ -98,6 +98,8 @@ eq('an unknown source falls back to daily', tierForScan('nonsense', cheap)?.tier
 const good = { price: 100, ema50: 90, ema21Rising: true, distToEma21: 2, distToEma10: 1, adrPct: 4, rsRating: 85, stage: 'Stage 2A', volDry: 0.6 };
 eq('vcp: checklist green but middle bucket = yellow', tierForScan('vcp', { ...good, atrPct: 3, finalDepthPct: 6, stopPct: 8 })?.tier, 'yellow');
 eq('vcp: checklist green and the measured bucket = green', tierForScan('vcp', { ...good, atrPct: 4, finalDepthPct: 12, stopPct: 8 })?.tier, 'green');
+eq('vcp: a lower high does not hold VCP back (it is the pattern)', tierForScan('vcp', { ...good, atrPct: 4, finalDepthPct: 12, stopPct: 8, lowerHigh: 104 })?.tier, 'green');
+eq('coil: a lower high holds green back', tierForScan('coil', { ...good, coilRatio: 3.2, stochK: 80, pctOffHigh: 5, lowerHigh: 104 })?.tier, 'yellow');
 eq('coil: wide coil not pressed = yellow', tierForScan('coil', { ...good, coilRatio: 3.2, stochK: 50, pctOffHigh: 5 })?.tier, 'yellow');
 eq('coil: wide coil pressed at the high = green', tierForScan('coil', { ...good, coilRatio: 3.2, stochK: 80, pctOffHigh: 5 })?.tier, 'green');
 eq('coil: undercut & rally is not held back', tierForScan('coil', { ...good, setupName: 'U&R', coilRatio: 2 })?.tier, 'green');

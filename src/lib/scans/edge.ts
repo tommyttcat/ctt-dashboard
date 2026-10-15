@@ -366,7 +366,9 @@ export function checkedFor(source: string, row: any): Checked | null {
   const entry = TIER_BY_SOURCE[source] ?? TIER_BY_SOURCE.daily;
   const mode = modeFor(entry.mode);
   const rule = entry.rule(row);
-  const c = check(mode, row, rule === 'red');
+  /* VCP is exempt from the lower-high check: a base of shallower, slightly lower highs IS the
+     pattern, and its green already needs the measured bucket below. */
+  const c = check(mode, source === 'vcp' && row ? { ...row, lowerHigh: null } : row, rule === 'red');
   if (!c) return null;
   const need = MEASURED_GREEN[source];
   if (need && rule != null) {

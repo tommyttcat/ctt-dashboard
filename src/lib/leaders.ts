@@ -31,9 +31,10 @@ export interface LeaderHist {
   adv: number;         // 20-session average share volume
   prof: number[];      // average cumulative share volume at the end of each half hour (BUCKETS)
   /* Swing-checklist inputs at the last close (12 Oct 2026), from 70 sessions of whole-market
-     bars: [EMA10, EMA21, EMA21 a session earlier, EMA50, ADR %, tight5, volDry]. The live
-     update compares the live price with these, so every row gets the universal colour. */
-  chk?: [number, number, number, number, number | null, number | null, number | null];
+     bars: [EMA10, EMA21, EMA21 a session earlier, EMA50, ADR %, tight5, volDry, lowerHigh]. The
+     live update compares the live price with these, so every row gets the universal colour.
+     lowerHigh added 15 Oct 2026; older state carries seven entries and reads it as unchecked. */
+  chk?: [number, number, number, number, number | null, number | null, number | null, (number | null)?];
 }
 export interface LeadersState { date: string; builtAt: string; names: Record<string, LeaderHist> }
 
@@ -41,7 +42,7 @@ export interface LeadersState { date: string; builtAt: string; names: Record<str
 export interface LeaderRow {
   t: string; n?: string; price: number; chg: number; track: number | null; raw: number | null; vol?: number; rs?: number | null;
   /* swing checklist fields (lib/scans/checklist), live price against last night's EMAs */
-  rsRating?: number | null; ema50?: number; distToEma21?: number; distToEma10?: number; ema21Rising?: boolean; adrPct?: number | null; tight5?: number | null; volDry?: number | null;
+  rsRating?: number | null; ema50?: number; distToEma21?: number; distToEma10?: number; ema21Rising?: boolean; adrPct?: number | null; tight5?: number | null; volDry?: number | null; lowerHigh?: number | null;
 }
 /* Gainers and Volume, quality first (12 Oct 2026): a gainer needs RS 70+ (FICO +10.9% on RS 2
    was a bounce in a broken stock); heavy volume must be on an UP day with RS 50+ (heavy
@@ -93,12 +94,12 @@ export interface Quote { t: string; price: number; prevClose: number; vol: numbe
 /** The checklist fields for a live row: live price against last night's EMAs. */
 export function checkFields(h: LeaderHist, price: number, rs: number | null): Partial<LeaderRow> {
   if (!h.chk || !(price > 0)) return {};
-  const [e10, e21, e21p, e50, adr, t5, vd] = h.chk;
+  const [e10, e21, e21p, e50, adr, t5, vd, lh] = h.chk;
   if (!(e10 > 0 && e21 > 0 && e50 > 0)) return {};
   return {
     rsRating: rs, ema50: e50, ema21Rising: e21 > e21p,
     distToEma21: +((price / e21 - 1) * 100).toFixed(2), distToEma10: +((price / e10 - 1) * 100).toFixed(2),
-    adrPct: adr, tight5: t5, volDry: vd,
+    adrPct: adr, tight5: t5, volDry: vd, lowerHigh: lh ?? null,
   };
 }
 
@@ -110,7 +111,7 @@ export function chkOf(bars: { h: number; l: number; c: number; v: number }[]): L
   const last20 = bars.slice(-20).filter(b => b.l > 0 && b.h > 0);
   const adr = last20.length >= 15 ? +((last20.reduce((a, b) => a + b.h / b.l - 1, 0) / last20.length) * 100).toFixed(2) : null;
   const t = tightnessOf(bars.map(b => ({ ...b })));
-  return [r(ema(10, n - 1)), r(ema(21, n - 1)), r(ema(21, n - 2)), r(ema(50, n - 1)), adr, t.tight5, t.volDry];
+  return [r(ema(10, n - 1)), r(ema(21, n - 1)), r(ema(21, n - 2)), r(ema(50, n - 1)), adr, t.tight5, t.volDry, t.lowerHigh];
 }
 
 export function buildLive(state: LeadersState, quotes: Quote[], spyPrice: number, clockEt: number, asOf: number, idx: Pick<LeadersLive, 'spy' | 'qqq'>, rsOf?: (t: string) => number | null): LeadersLive {

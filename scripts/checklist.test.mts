@@ -1,6 +1,6 @@
 /* scripts/checklist.test.mts — the day and swing checklists (lib/scans/checklist). */
 import { swingCheck, dayCheck, setMarketUp, checkTip, daysToEarnings, paceOf, setEarnings, setGroups } from '../src/lib/scans/checklist.ts';
-import { tightnessOf } from '../src/lib/scans/tightness.ts';
+import { tightnessOf, lowerHighOf } from '../src/lib/scans/tightness.ts';
 import { neglectOf } from '../src/lib/scans/neglect.ts';
 import { swingPrecheck } from '../src/lib/scans/swingWide.ts';
 import { groupTerciles } from '../src/lib/groups.ts';
@@ -39,6 +39,22 @@ eq('swing: down on 2x volume = yellow', sw({ changePct: -2, rvol: 2 }), 'yellow'
 eq('swing: down on quiet volume = green', sw({ changePct: -2, rvol: 0.7 }), 'green');
 eq('swing: no volume dry-up data = yellow (unchecked never greens)', sw({ volDry: undefined }), 'yellow');
 eq('swing: stage label without EMAs no longer greens', sw({ ema50: undefined, ema21Rising: undefined, stage: 'Stage 2A' }), 'yellow');
+// ---- 15 Oct: lower high
+eq('swing: under a failed bounce high = yellow', sw({ lowerHigh: 104 }), 'yellow');
+eq('swing: price back above the bounce high = green', sw({ lowerHigh: 98 }), 'green');
+eq('swing: no lower high (0) = green', sw({ lowerHigh: 0 }), 'green');
+ok('swing: lower high named in the tip', /✖ No lower high \(last bounce failed at 104/.test(checkTip('swing', swingCheck({ price: 100, ema50: 90, ema21Rising: true, distToEma21: 2, distToEma10: 1, adrPct: 4, rsRating: 85, volDry: 0.6, lowerHigh: 104 }, false, T, 965))));
+{
+  // 30 flat bars, a peak at 120, a bounce to 112 that fails, then drift: lower high at 112.
+  const B = (h: number, c = h - 1) => ({ h, l: c - 1, c, v: 1000 });
+  const base = Array.from({ length: 30 }, () => B(101, 100));
+  const run = [B(105), B(110), B(116), B(120, 118), B(114, 112), B(109, 107), B(108, 106), B(112, 110), B(109, 107), B(107, 105), B(106, 104)];
+  eq('lowerHighOf: failed bounce under the peak', lowerHighOf([...base, ...run]), 112);
+  eq('lowerHighOf: a close back above the bounce clears it', lowerHighOf([...base, ...run, B(114, 113)]), 0);
+  eq('lowerHighOf: straight pullback, no bounce yet = 0', lowerHighOf([...base, B(110), B(120, 118), B(116, 114), B(113, 111), B(111, 109)]), 0);
+  eq('lowerHighOf: too few bars = null', lowerHighOf(base.slice(0, 20)), null);
+  eq('lowerHighOf: bounce within half an ADR of the peak = 0', lowerHighOf([...base, B(110), B(120, 118), B(116, 114), B(119.9, 117), B(116, 114), B(115, 113), B(114, 112)]), 0);
+}
 setMarketUp(false);
 eq('swing: QQQ below its 200-day = red', sw({}), 'red');
 setMarketUp(null);

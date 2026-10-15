@@ -13,7 +13,7 @@
 //   GREEN  every core check PASSED, none merely unchecked: uptrend (above a rising 21 EMA and
 //          the 50) · 10 EMA above the 21 · holding the 21 and within 1 ADR of the 10 or 21 ·
 //          RS 70+ · volume drying up. Also, when known: within 25% of the 52-week high, no
-//          heavy-volume selling today, industry group top third, QQQ above its 200-day
+//          lower high (a bounce that failed under the recent peak), no heavy-volume selling today, industry group top third, QQQ above its 200-day
 //   RED    below the 50 (or Stage 3/4) · under the 21 with the 10 below it or the 21 falling ·
 //          RS under 50 · more than 3 ADRs above the 21 EMA · earnings within 3 days · QQQ
 //          below its 200-day
@@ -98,6 +98,11 @@ export function swingCheck(r: Row | null | undefined, ruleRed = false, today?: s
   const chg = num(r.changePct);
   const pace = paceOf(num(r.rvol), etMin);
   const heavySelling = chg != null && pace != null ? chg < 0 && pace >= 1.5 : null;
+  /* Lower high (lib/scans/tightness lowerHighOf): the row carries the failed bounce high, or 0
+     for none. Tested against the row's own (live) price, so getting back above it today clears
+     it. */
+  const lhAt = num(r.lowerHigh);
+  const lowerHigh = lhAt == null ? null : lhAt > 0 && price != null ? price < lhAt : false;
   const dte = daysToEarnings(r, today);
   const mkt = marketUp;
   const grp = groupOf(r);
@@ -115,6 +120,7 @@ export function swingCheck(r: Row | null | undefined, ruleRed = false, today?: s
     { label: stretch != null ? `Holding the 21 EMA, within 1 ADR of the 10/21 (${stretch >= 0 ? '+' : ''}${stretch.toFixed(1)} ADR from the 21)` : 'Holding the 21 EMA, within 1 ADR of the 10/21', ok: near },
     { label: rs != null ? `RS 70+ (${Math.round(rs)})` : 'RS 70+', ok: rs != null ? rs >= 70 : null },
     { label: offHigh != null ? `Within 25% of the 52-week high (${offHigh.toFixed(0)}% off)` : 'Within 25% of the 52-week high', ok: offHigh != null ? offHigh <= 25 : null },
+    { label: lowerHigh ? `No lower high (last bounce failed at ${lhAt}, under the recent peak)` : 'No lower high (last bounce got back to the peak)', ok: lowerHigh == null ? null : !lowerHigh },
     { label: chg != null && pace != null ? `No heavy selling today (${chg >= 0 ? '+' : ''}${chg.toFixed(1)}% on ${pace.toFixed(1)}x volume pace)` : 'No heavy selling today', ok: heavySelling == null ? null : !heavySelling },
     { label: 'QQQ above its 200-day', ok: mkt },
     { label: 'Industry group in the top third (3-month)', ok: grp == null ? null : grp === 0 },
@@ -138,7 +144,7 @@ export function swingCheck(r: Row | null | undefined, ruleRed = false, today?: s
      rows missing half their fields went green. Distance from the high and today's selling
      block green when known; a row that does not carry them is not held back by them. */
   const core = uptrend === true && tenOver21 === true && near === true && rs != null && rs >= 70 && tight === true;
-  const clear = (offHigh == null || offHigh <= 25) && heavySelling !== true && mkt !== false && grp !== 1 && grp !== 2;
+  const clear = (offHigh == null || offHigh <= 25) && heavySelling !== true && lowerHigh !== true && mkt !== false && grp !== 1 && grp !== 2;
   const tier: EdgeTier = reds.length ? 'red' : core && clear ? 'green' : 'yellow';
   return { tier, checks, reds };
 }
@@ -218,8 +224,8 @@ export function checkTip(mode: Mode, c: Checked | null): string {
 /** What each colour means, per checklist — the filter pills' help text. */
 export const CHECKLIST_TIP: Record<Mode, Record<EdgeTier, string>> = {
   swing: {
-    green: 'GO (swing, 3-5 days, let runners run): uptrend — above a rising 21 EMA and the 50 — with the 10 EMA above the 21, price holding the 21 and within 1 ADR of the 10 or 21 (a pullback, not a chase, not a breakdown), RS 70+, volume drying up, within 25% of the 52-week high, no heavy selling today, industry group in the top third, QQQ above its 200-day, no earnings within 3 days. Every core check must actually pass — a row missing the data stays yellow. A checklist traders use, not a tested edge. Hover a row for its ✔ / ✖.',
-    yellow: 'LOOK (swing): in an uptrend but something is off — stretched 1-3 ADRs above the 21 EMA, dipped under the 21 while the 10 still leads, RS 50-69, more than 25% off the high, volume still heavy, a lagging industry group — or not enough data to check. Wait for it to set up.',
+    green: 'GO (swing, 3-5 days, let runners run): uptrend — above a rising 21 EMA and the 50 — with the 10 EMA above the 21, price holding the 21 and within 1 ADR of the 10 or 21 (a pullback, not a chase, not a breakdown), RS 70+, volume drying up, within 25% of the 52-week high, no lower high (the last bounce did not fail under the recent peak), no heavy selling today, industry group in the top third, QQQ above its 200-day, no earnings within 3 days. Every core check must actually pass — a row missing the data stays yellow. A checklist traders use, not a tested edge. Hover a row for its ✔ / ✖.',
+    yellow: 'LOOK (swing): in an uptrend but something is off — stretched 1-3 ADRs above the 21 EMA, dipped under the 21 while the 10 still leads, RS 50-69, more than 25% off the high, a lower high under the recent peak, volume still heavy, a lagging industry group — or not enough data to check. Wait for it to set up.',
     red: "STAY AWAY (swing): below the 50-day, under the 21 with the 10 below it or the 21 falling (short-term downtrend), RS under 50, more than 3 ADRs above the 21 EMA (blow-off), earnings within 3 days, QQQ below its 200-day — or this scan's own red rule.",
   },
   day: {
