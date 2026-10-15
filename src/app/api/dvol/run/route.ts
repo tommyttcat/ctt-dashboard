@@ -42,6 +42,7 @@ import { loadRsRatings } from '@/lib/indicators/rs';
 import { rawRsScore, percentileRank } from '@/lib/indicators/vcp';
 import { fetchBenzingaNewsIndex, pickBestNews } from '@/lib/indicators/news';
 import { fromAscending } from '@/lib/indicators/barMetrics';
+import { swingFieldsOf } from '@/lib/scans/swingFields';
 import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
 import { computeCnfScore } from '@/lib/indicators/confluence';
 import { cleanSectorDescription } from '@/lib/sectors';
@@ -395,6 +396,11 @@ async function runScan(req: Request) {
         row.atrPct = m.atrPct;
         row.pctOffHigh = m.pctOffHigh;
         row.goldenCross = m.goldenCross;
+        /* The swing checklist's own inputs (50 EMA, rising 21, 10 EMA, volume dry-up), off
+           the same bars (15 Oct 2026). Without them every dvol row was judged on stage and
+           one distance, and a missing check read as a pass. */
+        const sf = swingFieldsOf((bars as any[]).filter(b => b && b.h > 0 && b.l > 0 && b.c > 0).map(b => ({ h: b.h, l: b.l, c: b.c, v: b.v ?? 0 })));
+        Object.assign(row, sf, { distToEma21: m.distToEma21 ?? sf.distToEma21 ?? null });
 
         if (bars.length >= 21) {
           row.mf = computeMoneyFlow(bars as any[], { order: 'asc', length: 21 });

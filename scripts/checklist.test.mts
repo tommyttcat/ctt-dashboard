@@ -7,7 +7,7 @@ import { groupTerciles } from '../src/lib/groups.ts';
 import { eq, ok, done } from './testkit.mts';
 
 const T = '2026-10-12';
-const sw = (o: Record<string, unknown>) => swingCheck({ price: 100, ema50: 90, ema21Rising: true, distToEma21: 2, distToEma10: 1, adrPct: 4, rsRating: 85, ...o }, false, T)!.tier;
+const sw = (o: Record<string, unknown>) => swingCheck({ price: 100, ema50: 90, ema21Rising: true, distToEma21: 2, distToEma10: 1, adrPct: 4, rsRating: 85, volDry: 0.6, ...o }, false, T, 965)!.tier;
 setMarketUp(true);
 eq('swing: all four = green', sw({}), 'green');
 eq('swing: RS 69 = yellow', sw({ rsRating: 69 }), 'yellow');
@@ -26,6 +26,19 @@ eq('swing: a known Stage 3 is not an uptrend', sw({ stage: 'Stage 3A' }), 'yello
 eq('swing: Stage 2 with EMAs is green', sw({ stage: 'Stage 2B' }), 'green');
 eq('swing: stage 3 with no EMAs = red', sw({ ema50: undefined, ema21Rising: undefined, distToEma21: undefined, stage: 'Stage 3' }), 'red');
 eq('swing: rs field (momentum rows) counts', sw({ rsRating: undefined, rs: 75 }), 'green');
+// ---- 15 Oct: tightened after TWLO went green closing under its 10 and 21
+eq('swing: TWLO (under the 10 and the 21, 10 still over 21) = yellow, not green', sw({ distToEma10: -2.1, distToEma21: -0.4, adrPct: 5.8, rsRating: 98, volDry: 0.4 }), 'yellow');
+eq('swing: under the 21 with the 10 below it = red', sw({ distToEma10: -1, distToEma21: -2 }), 'red');
+eq('swing: under the 21 with the 21 falling = red', sw({ distToEma10: -2, distToEma21: -1, ema21Rising: false }), 'red');
+eq('swing: dip under the 10 while holding the 21 = green', sw({ distToEma10: -0.5, distToEma21: 1.5 }), 'green');
+eq('swing: 10 EMA under the 21 above both = yellow', sw({ distToEma10: 3, distToEma21: 2 }), 'yellow');
+eq('swing: RS 49 = red', sw({ rsRating: 49 }), 'red');
+eq('swing: 30% off the high = yellow', sw({ pctOffHigh: -30 }), 'yellow');
+eq('swing: 10% off the high (either sign) = green', sw({ pctOffHigh: 10 }), 'green');
+eq('swing: down on 2x volume = yellow', sw({ changePct: -2, rvol: 2 }), 'yellow');
+eq('swing: down on quiet volume = green', sw({ changePct: -2, rvol: 0.7 }), 'green');
+eq('swing: no volume dry-up data = yellow (unchecked never greens)', sw({ volDry: undefined }), 'yellow');
+eq('swing: stage label without EMAs no longer greens', sw({ ema50: undefined, ema21Rising: undefined, stage: 'Stage 2A' }), 'yellow');
 setMarketUp(false);
 eq('swing: QQQ below its 200-day = red', sw({}), 'red');
 setMarketUp(null);

@@ -95,7 +95,7 @@ ok('and so does sip', /swing checklist/.test(tierForScan('sip', day)?.tip ?? '')
 ok('daily uses the swing checklist', /swing checklist/.test(tierForScan('daily', day)?.tip ?? ''));
 eq('an unknown source falls back to daily', tierForScan('nonsense', cheap)?.tier, 'red');
 // Require both (VCP, 10/21): the checklist AND the scan's measured green bucket.
-const good = { price: 100, ema50: 90, ema21Rising: true, distToEma21: 2, distToEma10: 1, adrPct: 4, rsRating: 85, stage: 'Stage 2A' };
+const good = { price: 100, ema50: 90, ema21Rising: true, distToEma21: 2, distToEma10: 1, adrPct: 4, rsRating: 85, stage: 'Stage 2A', volDry: 0.6 };
 eq('vcp: checklist green but middle bucket = yellow', tierForScan('vcp', { ...good, atrPct: 3, finalDepthPct: 6, stopPct: 8 })?.tier, 'yellow');
 eq('vcp: checklist green and the measured bucket = green', tierForScan('vcp', { ...good, atrPct: 4, finalDepthPct: 12, stopPct: 8 })?.tier, 'green');
 eq('coil: wide coil not pressed = yellow', tierForScan('coil', { ...good, coilRatio: 3.2, stochK: 50, pctOffHigh: 5 })?.tier, 'yellow');

@@ -9,12 +9,15 @@
 // data lost to holding QQQ (scripts/backtest/*). The red rules each scan already had were
 // measured and still win.
 //
-// SWING (every card except the intraday ones):
-//   GREEN  uptrend (above a rising 21 EMA and the 50) · within 1 ADR of the 10 or 21 EMA
-//          · RS 70+ · QQQ above its 200-day
-//   RED    below the 50 (or Stage 3/4) · more than 3 ADRs above the 21 EMA · earnings within
-//          3 days · QQQ below its 200-day
-//   YELLOW anything else (stretched 1-3 ADRs, RS 50-69, 21 EMA flat or falling)
+// SWING (every card; tightened 15 Oct 2026 after TWLO went green closing under its 10 and 21):
+//   GREEN  every core check PASSED, none merely unchecked: uptrend (above a rising 21 EMA and
+//          the 50) · 10 EMA above the 21 · holding the 21 and within 1 ADR of the 10 or 21 ·
+//          RS 70+ · volume drying up. Also, when known: within 25% of the 52-week high, no
+//          heavy-volume selling today, industry group top third, QQQ above its 200-day
+//   RED    below the 50 (or Stage 3/4) · under the 21 with the 10 below it or the 21 falling ·
+//          RS under 50 · more than 3 ADRs above the 21 EMA · earnings within 3 days · QQQ
+//          below its 200-day
+//   YELLOW anything else: in an uptrend with one thing off, or not enough data to say
 // DAY (Stocks in Play, EP9M, Early Movers):
 //   GREEN  neglected before today (lib/scans/neglect) · up today · volume pace 2x+ usual (RVOL scaled to the share of the session gone) · price in the top half of today's range · above the
 //          open · ADR 4%+ · $20M+ traded
@@ -61,19 +64,40 @@ export function daysToEarnings(r: Row, today: string = new Date().toISOString().
   return Math.round((Date.parse(d) - Date.parse(today)) / 864e5);
 }
 
-export function swingCheck(r: Row | null | undefined, ruleRed = false, today?: string): Checked | null {
+export function swingCheck(r: Row | null | undefined, ruleRed = false, today?: string, etMin: number = etMinuteNow()): Checked | null {
   if (!r) return null;
   const price = num(r.price), e50 = num(r.ema50), rising = typeof r.ema21Rising === 'boolean' ? r.ema21Rising : null;
   const stage = stageOf(r), adr = adrOf(r), d21 = num(r.distToEma21), d10 = num(r.distToEma10);
   const rs = num(r.rsRating) ?? num(r.rs);
 
+  /* Uptrend needs the EMAs themselves (15 Oct 2026). A stage label alone used to pass it, so
+     rows missing the 50 and the 21's slope could go green on one distance. */
   let uptrend: boolean | null = null;
   if (rising != null && price != null && e50 != null) uptrend = rising && price > e50;
-  else if (stage) uptrend = stage.startsWith('2');
   if (uptrend && stage && !stage.startsWith('2')) uptrend = false;   // a known Stage 1/3/4 is not an uptrend
+  if (uptrend == null && stage && !stage.startsWith('2')) uptrend = false;
   const below50 = price != null && e50 != null ? price < e50 : stage ? /^[34]/.test(stage) : false;
   const stretch = d21 != null && adr != null && adr > 0 ? d21 / adr : null;
-  const near = stretch != null ? Math.min(Math.abs(d21 as number), d10 != null ? Math.abs(d10) : Infinity) / (adr as number) <= 1 : null;
+  /* Holding the 21 (15 Oct 2026): "near" used to be distance either side, so a stock that had
+     just closed BELOW its 10 and 21 (TWLO) read the same as one bouncing off them. Now price
+     must be at or above the 21; a dip under the 10 while the 21 holds is still a pullback. */
+  const above21 = d21 != null ? d21 >= 0 : null;
+  const near = stretch == null ? null
+    : above21 === false ? false
+    : Math.min(d21 as number, d10 != null ? Math.abs(d10) : Infinity) / (adr as number) <= 1;
+  /* 10 EMA over the 21: the short-term trend still pointing up. Read from the EMAs or
+     backed out of the two distances (same price). */
+  const e10 = num(r.ema10) ?? (price != null && d10 != null ? price / (1 + d10 / 100) : null);
+  const e21 = num(r.ema21) ?? (price != null && d21 != null ? price / (1 + d21 / 100) : null);
+  const tenOver21 = e10 != null && e21 != null ? e10 >= e21 : null;
+  /* Leaders trade near their highs; 25% off the 52-week high is the usual line. Scans sign
+     this field differently, hence the abs. */
+  const offRaw = num(r.pctOffHigh) ?? num(r.pctBelow52wHigh);
+  const offHigh = offRaw != null ? Math.abs(offRaw) : null;
+  /* Selling today: down on 1.5x+ the usual volume pace — distribution, not a quiet pullback. */
+  const chg = num(r.changePct);
+  const pace = paceOf(num(r.rvol), etMin);
+  const heavySelling = chg != null && pace != null ? chg < 0 && pace >= 1.5 : null;
   const dte = daysToEarnings(r, today);
   const mkt = marketUp;
   const grp = groupOf(r);
@@ -87,8 +111,11 @@ export function swingCheck(r: Row | null | undefined, ruleRed = false, today?: s
 
   const checks: Check[] = [
     { label: 'Uptrend (rising 21 EMA, above the 50)', ok: uptrend },
-    { label: stretch != null ? `Near the 10/21 EMA (${stretch >= 0 ? '+' : ''}${stretch.toFixed(1)} ADR from the 21)` : 'Near the 10/21 EMA', ok: near },
+    { label: '10 EMA above the 21 (short-term trend up)', ok: tenOver21 },
+    { label: stretch != null ? `Holding the 21 EMA, within 1 ADR of the 10/21 (${stretch >= 0 ? '+' : ''}${stretch.toFixed(1)} ADR from the 21)` : 'Holding the 21 EMA, within 1 ADR of the 10/21', ok: near },
     { label: rs != null ? `RS 70+ (${Math.round(rs)})` : 'RS 70+', ok: rs != null ? rs >= 70 : null },
+    { label: offHigh != null ? `Within 25% of the 52-week high (${offHigh.toFixed(0)}% off)` : 'Within 25% of the 52-week high', ok: offHigh != null ? offHigh <= 25 : null },
+    { label: chg != null && pace != null ? `No heavy selling today (${chg >= 0 ? '+' : ''}${chg.toFixed(1)}% on ${pace.toFixed(1)}x volume pace)` : 'No heavy selling today', ok: heavySelling == null ? null : !heavySelling },
     { label: 'QQQ above its 200-day', ok: mkt },
     { label: 'Industry group in the top third (3-month)', ok: grp == null ? null : grp === 0 },
     { label: vd != null ? `Volume drying up (last 3 days ${vd.toFixed(1)}x usual)` : 'Volume drying up', ok: tight },
@@ -98,13 +125,21 @@ export function swingCheck(r: Row | null | undefined, ruleRed = false, today?: s
   const reds: string[] = [];
   if (ruleRed) reds.push("this scan's own red rule");
   if (below50) reds.push('below the 50-day');
+  /* Lost the 21 with the short-term trend turned (15 Oct 2026): under the 21 and either the
+     10 has crossed below it or the 21 itself is falling. Not a pullback any more. */
+  if (above21 === false && (tenOver21 === false || rising === false)) reds.push('below the 21 EMA with the 10 under it or the 21 falling — short-term downtrend');
+  if (rs != null && rs < 50) reds.push(`RS ${Math.round(rs)} — lagging the market`);
   if (stretch != null && stretch > 3) reds.push(`${stretch.toFixed(1)} ADRs above the 21 EMA — blow-off`);
   if (dte != null && dte >= 0 && dte <= 3) reds.push(`earnings in ${dte} day${dte === 1 ? '' : 's'}`);
   if (mkt === false) reds.push('QQQ below its 200-day');
 
-  const tier: EdgeTier = reds.length ? 'red'
-    : uptrend === true && near === true && rs != null && rs >= 70 && mkt !== false && grp !== 2 && grp !== 1 && tight !== false ? 'green'   // 'not checked' stretch never makes green
-    : 'yellow';
+  /* Green needs the core checks actually PASSED (15 Oct 2026) — trend, 10 over 21, holding
+     the 21, RS, volume drying up. A check that could not be run used to count as a pass, so
+     rows missing half their fields went green. Distance from the high and today's selling
+     block green when known; a row that does not carry them is not held back by them. */
+  const core = uptrend === true && tenOver21 === true && near === true && rs != null && rs >= 70 && tight === true;
+  const clear = (offHigh == null || offHigh <= 25) && heavySelling !== true && mkt !== false && grp !== 1 && grp !== 2;
+  const tier: EdgeTier = reds.length ? 'red' : core && clear ? 'green' : 'yellow';
   return { tier, checks, reds };
 }
 
@@ -183,9 +218,9 @@ export function checkTip(mode: Mode, c: Checked | null): string {
 /** What each colour means, per checklist — the filter pills' help text. */
 export const CHECKLIST_TIP: Record<Mode, Record<EdgeTier, string>> = {
   swing: {
-    green: 'GO (swing, 3-5 days, let runners run): Stage 2 uptrend — above a rising 21 EMA and the 50 — within 1 ADR of the 10 or 21 EMA (not chasing), RS 70+, QQQ above its 200-day, industry group in the top third, volume drying up the last few days, and no earnings within 3 days. A row that cannot be checked for stretch stays yellow. A checklist traders use, not a tested edge. Hover a row for its ✔ / ✖.',
-    yellow: 'LOOK (swing): in an uptrend but something is off — stretched 1-3 ADRs above the 21 EMA, RS 50-69, the 21 EMA not rising, a lagging industry group, or volume still heavy. Wait for it to quiet down near the 10/21.',
-    red: "STAY AWAY (swing): below the 50-day, more than 3 ADRs above the 21 EMA (blow-off), earnings within 3 days, QQQ below its 200-day — or this scan's own red rule.",
+    green: 'GO (swing, 3-5 days, let runners run): uptrend — above a rising 21 EMA and the 50 — with the 10 EMA above the 21, price holding the 21 and within 1 ADR of the 10 or 21 (a pullback, not a chase, not a breakdown), RS 70+, volume drying up, within 25% of the 52-week high, no heavy selling today, industry group in the top third, QQQ above its 200-day, no earnings within 3 days. Every core check must actually pass — a row missing the data stays yellow. A checklist traders use, not a tested edge. Hover a row for its ✔ / ✖.',
+    yellow: 'LOOK (swing): in an uptrend but something is off — stretched 1-3 ADRs above the 21 EMA, dipped under the 21 while the 10 still leads, RS 50-69, more than 25% off the high, volume still heavy, a lagging industry group — or not enough data to check. Wait for it to set up.',
+    red: "STAY AWAY (swing): below the 50-day, under the 21 with the 10 below it or the 21 falling (short-term downtrend), RS under 50, more than 3 ADRs above the 21 EMA (blow-off), earnings within 3 days, QQQ below its 200-day — or this scan's own red rule.",
   },
   day: {
     green: 'GO (day trade): up today on 2x+ its usual volume pace with a real catalyst (specific news), neglected before today (hadn\'t already run: 3-month ≤ +15%, 6-month ≤ +30%, quiet 60-day range), holding the top half of today\'s range and above the open, ADR 4%+ and $20M+ traded. A checklist traders use, not a tested edge. Hover a row for its ✔ / ✖.',

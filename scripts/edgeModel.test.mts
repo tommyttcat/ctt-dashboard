@@ -4,7 +4,7 @@ import { setModelScores } from '../src/lib/modelScoreStore.ts';
 import { eq, done } from './testkit.mts';
 
 // With the checklists on (12 Oct 2026) model scores never colour a row; the checklist does.
-const row = { ticker: 'CCC', adrPct: 3, price: 50, closeStrength: 0.95, ema50: 45, ema21Rising: true, distToEma21: 1, rsRating: 80, stage: 'Stage 2A' };
+const row = { ticker: 'CCC', adrPct: 3, price: 50, closeStrength: 0.95, ema50: 45, ema21Rising: true, distToEma21: 1, distToEma10: 0.5, rsRating: 80, stage: 'Stage 2A', volDry: 0.6 };
 if (!CHECKLIST_COLOURS) eq('no scores: the old rule stands', edgeTier({ ticker: 'AAA', adrPct: 3, price: 50, closeStrength: 0.95 } as any), 'green');
 setModelScores({ AAA: 0.9, BBB: 0.5, CCC: 0.1, WILD: 0.95 });
 if (MODEL_COLOURS) {
