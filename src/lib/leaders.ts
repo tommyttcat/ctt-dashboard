@@ -35,6 +35,9 @@ export interface LeaderHist {
      live update compares the live price with these, so every row gets the universal colour.
      lowerHigh added 15 Oct 2026; older state carries seven entries and reads it as unchecked. */
   chk?: [number, number, number, number, number | null, number | null, number | null, (number | null)?];
+  /* Highest high of the last 5 sessions through `date` (15 Oct 2026) — the Oversold Bounce
+     card's reference: oversold = trading 1.5 ADRs or more under it. */
+  wkHi?: number;
 }
 export interface LeadersState { date: string; builtAt: string; names: Record<string, LeaderHist> }
 
@@ -49,6 +52,37 @@ export interface LeaderRow {
    selling is not leadership). Unrated names are left out of both. */
 export const GAINER_MIN_RS = 70;
 export const VOLUME_MIN_RS = 50;
+/* Oversold Bounce (15 Oct 2026), modelled on Monis (x.com/mmonis): a liquid name with an ADR of
+   6-15% that has traded down to 1.5 ADRs under its 5-session high. Rows are sorted by how far
+   they have come off today's low — his "TopD". Backtest scripts/backtest/oversold-bounce.ts
+   (2015-2026): as a same-day trade it lost (-0.04% a trade, 49% wins, n 18,493); held 5 days it
+   paid +4.64% a trade (66% wins, n 2,699) only when the market was washed out (20% or fewer
+   stocks above their 40-day) and +0.20% otherwise — hence the GO / WATCH light. */
+export const OVERSOLD = { minAdr: 6, maxAdr: 15, adrs: 1.5, washout: 20, max: 40 } as const;
+export interface OversoldRow extends LeaderRow {
+  adr: number;      // 20-day ADR, %
+  level: number;    // 5-session high less 1.5 ADR
+  wkHi: number;     // the 5-session high
+  lo: number;       // today's low
+  offLow: number;   // % above today's low (TopD sort)
+  deep: number;     // how far today's low got under the 5-session high, in ADRs
+}
+/** The oversold-bounce row for one name, or null when it does not qualify. */
+export function oversoldOf(h: LeaderHist, q: Quote, base: LeaderRow): OversoldRow | null {
+  const adr = h.chk?.[4];
+  if (adr == null || !(adr >= OVERSOLD.minAdr && adr <= OVERSOLD.maxAdr)) return null;
+  if (!(h.wkHi && h.wkHi > 0) || !(q.lo && q.lo > 0) || !(q.price > 0)) return null;
+  const level = h.wkHi * (1 - (OVERSOLD.adrs * adr) / 100);
+  if (q.lo > level) return null;
+  return {
+    ...base, adr, level: +level.toFixed(2), wkHi: h.wkHi, lo: q.lo,
+    offLow: +((q.price / q.lo - 1) * 100).toFixed(2),
+    deep: +(((h.wkHi - q.lo) / h.wkHi) * 100 / adr).toFixed(2),
+  };
+}
+/** Market washout reading (t2108_v1: % of stocks above their 40-day, last close). */
+export type Washout = { value: number | null; updatedAt: string | null };
+
 export interface LeadersLive {
   asOf: number;
   clockEt: number;              // the minute the (delayed) data describes, ET minutes after midnight
@@ -59,7 +93,9 @@ export interface LeadersLive {
   priceHigh: LeaderRow[];
   gainers: LeaderRow[];
   volume: LeaderRow[];
-  counts: { rsHigh: number; priceHigh: number; heavy: number };
+  oversold?: OversoldRow[];      // absent on payloads written before 15 Oct 2026
+  washout?: Washout | null;
+  counts: { rsHigh: number; priceHigh: number; heavy: number; oversold?: number };
 }
 
 /** Expected cumulative volume by `etMin` from a half-hour profile (linear within a bucket). */
@@ -88,7 +124,7 @@ export function profileOf(sessions: number[][]): number[] {
   return out.map(v => v / use.length);
 }
 
-export interface Quote { t: string; price: number; prevClose: number; vol: number }
+export interface Quote { t: string; price: number; prevClose: number; vol: number; lo?: number }
 
 /** The four lists from one snapshot. `clockEt` is the minute the data describes. */
 /** The checklist fields for a live row: live price against last night's EMAs. */
@@ -114,8 +150,9 @@ export function chkOf(bars: { h: number; l: number; c: number; v: number }[]): L
   return [r(ema(10, n - 1)), r(ema(21, n - 1)), r(ema(21, n - 2)), r(ema(50, n - 1)), adr, t.tight5, t.volDry, t.lowerHigh];
 }
 
-export function buildLive(state: LeadersState, quotes: Quote[], spyPrice: number, clockEt: number, asOf: number, idx: Pick<LeadersLive, 'spy' | 'qqq'>, rsOf?: (t: string) => number | null): LeadersLive {
+export function buildLive(state: LeadersState, quotes: Quote[], spyPrice: number, clockEt: number, asOf: number, idx: Pick<LeadersLive, 'spy' | 'qqq'>, rsOf?: (t: string) => number | null, washout: Washout | null = null): LeadersLive {
   const rows: (LeaderRow & { isRs: boolean; isHi: boolean })[] = [];
+  const oversold: OversoldRow[] = [];
   for (const q of quotes) {
     const h = state.names[q.t];
     if (!h || !(q.price > 0) || !(q.prevClose > 0)) continue;
@@ -130,7 +167,11 @@ export function buildLive(state: LeadersState, quotes: Quote[], spyPrice: number
       isRs: spyPrice > 0 && q.price / spyPrice >= h.maxRs,
       isHi: q.price >= h.maxClose,
     });
+    const { isRs: _r0, isHi: _h0, ...base } = rows[rows.length - 1];
+    const os = oversoldOf(h, q, base);
+    if (os) oversold.push(os);
   }
+  oversold.sort((a, b) => b.offLow - a.offLow);
   const strip = ({ isRs: _r, isHi: _h, ...r }: LeaderRow & { isRs: boolean; isHi: boolean }): LeaderRow => r;
   const byChg = (a: LeaderRow, b: LeaderRow) => b.chg - a.chg;
   const rsHigh = rows.filter(r => r.isRs).sort(byChg);
@@ -141,6 +182,7 @@ export function buildLive(state: LeadersState, quotes: Quote[], spyPrice: number
     priceHigh: priceHigh.map(strip),
     gainers: rows.filter(r => (r.rs ?? 0) >= GAINER_MIN_RS).sort(byChg).slice(0, 50).map(strip),
     volume: rows.filter(r => r.track != null && r.chg > 0 && (r.rs ?? 0) >= VOLUME_MIN_RS).sort((a, b) => (b.track ?? 0) - (a.track ?? 0)).slice(0, 100).map(strip),
-    counts: { rsHigh: rsHigh.length, priceHigh: priceHigh.length, heavy: rows.filter(r => (r.track ?? -100) >= 100).length },
+    oversold: oversold.slice(0, OVERSOLD.max), washout,
+    counts: { rsHigh: rsHigh.length, priceHigh: priceHigh.length, heavy: rows.filter(r => (r.track ?? -100) >= 100).length, oversold: oversold.length },
   };
 }

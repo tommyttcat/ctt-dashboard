@@ -6,6 +6,8 @@
 // SPY and QQQ, judged against LEADERS_STATE_KEY with lib/leaders buildLive,
 // written to LEADERS_LIVE_KEY (tens of KB). The page reads that through the
 // CDN-cached /api/leaders/latest, so the cost is flat in users.
+// The market washout reading (t2108_v1) rides along for the Oversold Bounce card's GO /
+// WATCH light (15 Oct 2026): read in the same MGET as the state, so no extra KV command.
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
@@ -14,7 +16,7 @@ import { etGate } from '@/lib/etCron';
 import { isTradingDay } from '@/lib/marketCalendar';
 import { etMinute } from '@/lib/orb';
 import { loadRsRatings } from '@/lib/indicators/rs';
-import { LEADERS_STATE_KEY, LEADERS_LIVE_KEY, buildLive, type LeadersState, type Quote } from '@/lib/leaders';
+import { LEADERS_STATE_KEY, LEADERS_LIVE_KEY, buildLive, type LeadersState, type Quote, type Washout } from '@/lib/leaders';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -43,8 +45,12 @@ export async function GET(req: Request) {
   if (now < OPEN + DELAY_MIN || now > CLOSE + 30) return NextResponse.json({ success: true, skipped: 'outside the window' });
   if (!KEY) return NextResponse.json({ success: false, error: 'no data key' }, { status: 500 });
 
-  // Two KV reads a run: the universe and the RS map (one GET via the shared lookup).
-  const [state, rsLookup] = await Promise.all([kv.get<LeadersState>(LEADERS_STATE_KEY), loadRsRatings()]);
+  // Two KV commands a run: the universe + washout reading (one MGET) and the RS map (one GET via the shared lookup).
+  const [[state, t2108], rsLookup] = await Promise.all([
+    kv.mget<[LeadersState | null, { value?: number; updatedAt?: string } | null]>(LEADERS_STATE_KEY, 't2108_v1'),
+    loadRsRatings(),
+  ]);
+  const washout: Washout | null = t2108 ? { value: typeof t2108.value === 'number' ? t2108.value : null, updatedAt: t2108.updatedAt ?? null } : null;
   if (!state?.names || !Object.keys(state.names).length) return NextResponse.json({ success: true, skipped: 'no universe yet (the nightly job builds it)' });
 
   const tickers = [...Object.keys(state.names), 'SPY', 'QQQ'];
@@ -52,13 +58,13 @@ export async function GET(req: Request) {
   const quotes: Quote[] = [];
   let spyQ: Quote | null = null, qqqQ: Quote | null = null;
   for (const s of snaps) {
-    const q: Quote = { t: s.ticker, price: s.lastTrade?.p || s.min?.c || s.day?.c || 0, prevClose: s.prevDay?.c || 0, vol: s.day?.v || 0 };
+    const q: Quote = { t: s.ticker, price: s.lastTrade?.p || s.min?.c || s.day?.c || 0, prevClose: s.prevDay?.c || 0, vol: s.day?.v || 0, lo: s.day?.l || undefined };
     if (q.t === 'SPY') spyQ = q; else if (q.t === 'QQQ') qqqQ = q; else quotes.push(q);
   }
   if (!spyQ || !(spyQ.price > 0)) return NextResponse.json({ success: false, error: 'no SPY quote' }, { status: 502 });
   const idx = (q: Quote | null) => (q && q.prevClose > 0 ? { price: q.price, chg: +((q.price / q.prevClose - 1) * 100).toFixed(2) } : null);
   const clock = Math.min(CLOSE, now - DELAY_MIN);
-  const live = buildLive(state, quotes, spyQ.price, clock, Date.now(), { spy: idx(spyQ), qqq: idx(qqqQ) }, rsLookup.available ? rsLookup.get : undefined);
+  const live = buildLive(state, quotes, spyQ.price, clock, Date.now(), { spy: idx(spyQ), qqq: idx(qqqQ) }, rsLookup.available ? rsLookup.get : undefined, washout);
   await kv.set(LEADERS_LIVE_KEY, live);
   return NextResponse.json({ success: true, universe: live.universe, counts: live.counts, clockEt: clock, quotes: quotes.length, rs: rsLookup.available ? rsLookup.asOf : rsLookup.reason });
 }

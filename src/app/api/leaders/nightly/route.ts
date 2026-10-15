@@ -136,6 +136,10 @@ export async function GET(req: Request) {
     const bars = asc.map(d => d.bars.get(t)).filter((b): b is { c: number; v: number; h: number; l: number } => !!b && b.c > 0);
     const chk = chkOf(bars);
     if (chk) { out[t].chk = chk; chkDone++; } else delete out[t].chk;
+    /* The 5-session high (Oversold Bounce, lib/leaders oversoldOf), off the same grouped bars. */
+    const hi5 = days.slice(0, 5).map(d => d.bars.get(t)?.h ?? 0);
+    const wk = Math.max(...hi5);
+    if (wk > 0) out[t].wkHi = wk; else delete out[t].wkHi;
   }
 
   // 4. Usual volume by half hour, from 20 sessions of 30-minute bars.

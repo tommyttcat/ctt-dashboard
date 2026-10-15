@@ -118,7 +118,7 @@ import InfoDot from './InfoDot';
 import { etMinute, type OrbWatchStatus, type OrbWatchState } from '@/lib/orb';
 import { earlyMovers, EARLY_MIN_PCT, EARLY_MIN_PACE } from '@/lib/summary/earlyMovers';
 import { swingCheck, checkTip } from '@/lib/scans/checklist';
-import type { LeadersLive, LeaderRow } from '@/lib/leaders';
+import { OVERSOLD, type LeadersLive, type LeaderRow, type OversoldRow } from '@/lib/leaders';
 import { bullShare, type SentimentLive } from '@/lib/sentiment';
 import { EARLY_PASS_N, type EarlySummary } from '@/lib/earlyTrack';
 
@@ -1639,20 +1639,31 @@ const leaderSortVal = (r: LeaderRow, k: LeaderSortKey, cnfMap?: Record<string, n
   return k === 'chg' ? r.chg : k === 'price' ? r.price : k === 'rvol' ? r.track : k === 'vol' ? (r.vol ?? null)
     : k === 'dvol' ? leaderDollars(r) : (r.rs ?? null);
 };
+/* One poll of /api/leaders/latest shared by Liquid Leaders and Oversold Bounce (15 Oct 2026),
+   so a second card on the same payload costs no extra requests. */
+let leadersCache: LeadersLive | null = null;
+const leadersSubs = new Set<(l: LeadersLive) => void>();
+let leadersStop: (() => void) | null = null;
+const useLeadersLive = (): LeadersLive | null => {
+  const [live, setLive] = React.useState<LeadersLive | null>(leadersCache);
+  React.useEffect(() => {
+    leadersSubs.add(setLive);
+    if (!leadersStop) {
+      const load = () => fetch('/api/leaders/latest').then(r => (r.ok ? r.json() : null))
+        .then(j => { if (j?.live) { leadersCache = j.live; leadersSubs.forEach(f => f(j.live)); } }).catch(() => {});
+      load();
+      leadersStop = poll(load, pollMs.marketHours(120_000, 900_000));
+    }
+    return () => { leadersSubs.delete(setLive); if (!leadersSubs.size && leadersStop) { leadersStop(); leadersStop = null; } };
+  }, []);
+  return live;
+};
 const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
   edgeMap?: Record<string, EdgeTier>; cnfMap?: Record<string, number>; stageMap?: Record<string, string>; newsMap?: Record<string, ScanNews>;
 }) => {
-  const [live, setLive] = React.useState<LeadersLive | null>(null);
+  const live = useLeadersLive();
   // Per list; both open on % change, high to low.
   const [sorts, setSorts] = React.useState<Record<string, { key: LeaderSortKey; dir: SortDir }>>({});
-  React.useEffect(() => {
-    let on = true;
-    const load = () => fetch('/api/leaders/latest').then(r => (r.ok ? r.json() : null))
-      .then(j => { if (on && j?.live) setLive(j.live); }).catch(() => {});
-    load();
-    const stop = poll(load, pollMs.marketHours(120_000, 900_000));
-    return () => { on = false; stop(); };
-  }, []);
   if (!live) return <p className="text-[10px] text-slate-500">The list builds after the first nightly run (about 5:40 PM ET) and updates every 5 minutes in market hours.</p>;
   const tile = (label: string, value: React.ReactNode, sub: string) => (
     <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] px-2.5 py-2 min-w-0">
@@ -1751,6 +1762,96 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
       </div>
       <p className="text-[10px] text-slate-500 font-medium mt-2">
         {live.universe} liquid names · 5-year highs · data 15 min delayed, as of {clock} ET
+      </p>
+    </div>
+  );
+};
+
+/* ---- Oversold Bounce (15 Oct 2026) ------------------------------------------
+   Modelled on Monis (x.com/mmonis), on the Liquid Leaders universe and payload (lib/leaders
+   oversoldOf): ADR 6-15% names whose low today reached 1.5 ADRs under their 5-session high,
+   sorted by how far they have come back off the low (his "TopD"). The GO / WATCH light is the
+   market washout reading from the last close: the backtest only paid when 20% or fewer stocks
+   were above their 40-day. Rows are deliberately NOT tinted with the swing checklist — every
+   oversold name fails it by design, so the tint would only repeat "red". */
+type OsSortKey = 'off' | 'deep' | 'chg' | 'adr' | 'rs' | 'cnf';
+const OS_TIP = "OVERSOLD BOUNCE — Monis-style (x.com/mmonis): liquid names ($10+, $100M+ a day) that move a lot (ADR 6–15%) and traded down today to 1.5 ADRs or more under their 5-session high. Sorted by how far they have come back off today's low, as he sorts his \"TopD\" list.\n\nGO / WATCH — the share of all stocks above their 40-day average at the last close. GO at 20% or less (a market washout), WATCH above it.\n\nWHAT THE TEST SAID (2015–2026, every such name, bought at the oversold level, 0.10% costs; scripts/backtest/oversold-bounce.ts):\n• As a same-day trade it LOST: −0.04% a trade, 49% wins, 18,493 trades. A half-ADR stop made it worse (−0.12%, 44%).\n• Held 5 days in a washout: +4.64% a trade, 66% wins (2,699 trades; about +3.1% without 2020; positive in 9 of 11 years).\n• Held 5 days any other time: +0.20%, 48% wins — about nothing.\n• Caveats: any of these stocks bought on washout days made +3.98% (64%), so most of the edge is the washout, not the pick. The trades bunch into a handful of sell-offs, so there is less independent evidence than the count suggests. His key-level and near-the-low timing cannot be tested on daily bars.\n\nOFF LOW — % above today's low. DEEP — how far today's low got under the 5-session high, in ADRs. ADR — 20-day average daily range. LEVEL (hover) — the 1.5-ADR line. Common stock only (no leveraged ETFs). Data 15 minutes delayed.";
+const OversoldBounce = ({ cnfMap, stageMap, newsMap }: {
+  cnfMap?: Record<string, number>; stageMap?: Record<string, string>; newsMap?: Record<string, ScanNews>;
+}) => {
+  const live = useLeadersLive();
+  const [sort, setSort] = React.useState<{ key: OsSortKey; dir: SortDir }>({ key: 'off', dir: 'desc' });
+  if (!live) return <p className="text-[10px] text-slate-500">Builds with Liquid Leaders: after the nightly run, updated every 5 minutes in market hours.</p>;
+  if (!live.oversold) return <p className="text-[10px] text-slate-500">{"Starts with the first Liquid Leaders update after tonight's nightly run."}</p>;
+  const w = live.washout?.value ?? null;
+  const go = w != null && w <= OVERSOLD.washout;
+  const val = (r: OversoldRow, k: OsSortKey): number | null =>
+    k === 'off' ? r.offLow : k === 'deep' ? r.deep : k === 'chg' ? r.chg : k === 'adr' ? r.adr : k === 'rs' ? (r.rs ?? null) : (cnfMap?.[r.t] ?? null);
+  const rows = [...live.oversold].sort((a, b) => {
+    const av = val(a, sort.key), bv = val(b, sort.key);
+    if (av == null || bv == null) return av == null ? (bv == null ? 0 : 1) : -1;
+    return sort.dir === 'desc' ? bv - av : av - bv;
+  });
+  const onSort = (k: OsSortKey) => setSort(cur => (cur.key !== k ? { key: k, dir: 'desc' } : { key: k, dir: cur.dir === 'desc' ? 'asc' : 'desc' }));
+  const arrow = (k: OsSortKey) => (sort.key === k ? (sort.dir === 'desc' ? ' ↓' : ' ↑') : '');
+  const H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
+  const S = 'cursor-pointer hover:text-slate-400 transition-colors select-none';
+  const badge = 'inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center';
+  const dash = <span className={`${badge} text-slate-600 border-slate-700/40 bg-slate-800/30`}>-</span>;
+  const clock = `${Math.floor(live.clockEt / 60) % 12 || 12}:${String(live.clockEt % 60).padStart(2, '0')}`;
+  return (
+    <div>
+      <div className="flex items-start gap-2 mb-2.5">
+        <div className={`flex-1 rounded-lg border px-2.5 py-2 ${go ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-amber-500/10 border-amber-500/25'}`}>
+          <div className="flex items-center gap-2">
+            <span className={`text-[11px] font-bold tracking-widest ${go ? 'text-emerald-400' : 'text-amber-400'}`}>{go ? 'GO' : 'WATCH'}</span>
+            <span className="text-[10px] text-slate-300">{w == null ? 'washout reading unavailable' : `${w.toFixed(1)}% of stocks above their 40-day`}</span>
+          </div>
+          <div className="text-[9px] text-slate-500 mt-0.5">{go
+            ? 'Market washed out — in the test, held ~5 days: +4.6% a trade, 66% wins. Not a same-day trade.'
+            : `GO at ${OVERSOLD.washout}% or less. Outside a washout the test found about nothing (+0.2% a trade held 5 days).`}</div>
+        </div>
+        <InfoDot text={OS_TIP} />
+      </div>
+      <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
+        <span className={`${H} shrink-0 w-[38px] md:w-[44px] text-center mx-0.5`}>Ticker</span>
+        <span className={`${H} ${S} w-[20px] md:w-[22px] text-center ml-2 md:ml-1`} onClick={() => onSort('cnf')}>CNF{arrow('cnf')}</span>
+        <span className={`${H} ${S} w-[46px] md:w-[52px] text-right ml-1`} onClick={() => onSort('chg')}>Chg%{arrow('chg')}</span>
+        <span className={`${H} hidden md:inline-block w-[42px] text-right ml-1`}>Prc</span>
+        <span className={`${H} ${S} w-[44px] md:w-[50px] text-right ml-2 md:ml-1`} onClick={() => onSort('off')}>Off low{arrow('off')}</span>
+        <span className={`${H} ${S} w-[34px] md:w-[38px] text-right ml-2 md:ml-1`} onClick={() => onSort('deep')}>Deep{arrow('deep')}</span>
+        <span className={`${H} ${S} hidden md:inline-block w-[34px] text-right ml-1`} onClick={() => onSort('adr')}>ADR{arrow('adr')}</span>
+        <span className={`${H} ${S} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`} onClick={() => onSort('rs')}>RS{arrow('rs')}</span>
+        <span className={`${H} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`}>Stg</span>
+        <span className={`${H} w-[14px] md:w-[16px] text-center ml-2 md:ml-1`}>N</span>
+      </div>
+      <div className="max-h-[300px] overflow-y-auto space-y-0.5">
+        {rows.length === 0 ? <p className="text-[9px] text-slate-500 py-1">Nothing has reached 1.5 ADRs under its 5-session high today.</p> : rows.map(r => {
+          const cnf = cnfMap?.[r.t] ?? null, stg = stageMap?.[r.t] ?? null, news = newsMap?.[r.t] ?? null;
+          return (
+            <InfoDot key={r.t} block className="flex items-center whitespace-nowrap py-[1px]"
+              text={`${r.n ?? r.t}\n5-session high ${r.wkHi.toFixed(2)} · oversold level ${r.level.toFixed(2)} (1.5 × ${r.adr.toFixed(1)}% ADR)\nToday's low ${r.lo.toFixed(2)} — ${r.deep.toFixed(1)} ADRs under the high · now ${r.offLow.toFixed(1)}% off the low`}>
+              <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover>
+              <span className="inline-block w-[20px] md:w-[22px] text-center ml-2 md:ml-1">{cnf != null ? <span className={`${badge} ${cnfBadgeCls(cnf)}`}>{Math.round(cnf)}</span> : dash}</span>
+              <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ml-1 ${r.chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{r.chg >= 0 ? '+' : ''}{r.chg.toFixed(2)}%</span>
+              <span className="text-[9px] tabular-nums hidden md:inline-block w-[42px] text-right text-slate-300 ml-1">{r.price.toFixed(2)}</span>
+              <span className={`text-[9px] tabular-nums font-semibold inline-block w-[44px] md:w-[50px] text-right ml-2 md:ml-1 ${r.offLow >= 3 ? 'text-emerald-400' : r.offLow >= 1 ? 'text-white' : 'text-slate-400'}`}>+{r.offLow.toFixed(1)}%</span>
+              <span className="text-[9px] tabular-nums inline-block w-[34px] md:w-[38px] text-right text-slate-300 ml-2 md:ml-1">{r.deep.toFixed(1)}</span>
+              <span className="text-[9px] tabular-nums hidden md:inline-block w-[34px] text-right text-slate-400 ml-1">{r.adr.toFixed(1)}%</span>
+              <span className="inline-block w-[22px] md:w-[24px] text-center ml-2 md:ml-1">{r.rs != null ? <span className={`${badge} ${rsBadge(r.rs)}`}>{r.rs}</span> : dash}</span>
+              <span className="inline-block w-[22px] md:w-[24px] text-center ml-2 md:ml-1">{stg ? <span className={`${badge} ${stageBadge(stg)}`}>{stg}</span> : dash}</span>
+              {news ? (
+                <a href={news.url || '#'} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+                  className={`inline-block w-[14px] md:w-[16px] text-center ml-2 md:ml-1 ${news.n >= 2 ? 'text-amber-400' : 'text-slate-500'} hover:brightness-125 font-bold text-[7px] leading-none`}>
+                  <InfoDot content={<span>{news.tip}</span>}>{'★'.repeat(news.n)}</InfoDot>
+                </a>
+              ) : <span className="inline-block w-[14px] md:w-[16px] ml-2 md:ml-1" />}
+            </InfoDot>
+          );
+        })}
+      </div>
+      <p className="text-[10px] text-slate-500 font-medium mt-2">
+        {live.counts.oversold ?? rows.length} oversold of {live.universe} liquid names{(live.counts.oversold ?? 0) > rows.length ? ` · top ${rows.length} shown` : ''} · data 15 min delayed, as of {clock} ET
       </p>
     </div>
   );
@@ -2165,6 +2266,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves now. Volume-confirmed is tradeable; a thin gap is a fade.' },
   { label: 'Social Sentiment', color: 'violet', blurb: 'What StockTwits, Reddit and Bluesky are talking about most, and which way they lean. The crowd, not a signal.' },
   { label: 'Liquid Leaders', color: 'cyan', blurb: 'The ~1,000 most traded stocks: which are outrunning the market most, and which trade the heaviest volume.' },
+  { label: 'Oversold Bounce', color: 'emerald', blurb: 'Monis-style: liquid, fast-moving names that dropped 1.5 ADRs under their 5-day high. GO only in a market washout — the only time it tested well.' },
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, and who is on air.' },
   { label: '$Vol Summary', color: 'teal', blurb: 'Top 20 by dollar volume among names with RS 50+ and not in Stage 3/4 — where the money is going into strength today.' },
   { label: 'Daily Setups Thesis', color: 'cyan', blurb: 'Day trades vs multi-day swing holds from the daily scanner — sorted by blended score.' },
@@ -2242,10 +2344,17 @@ const formatBriefingText = (text: string) => {
 /* Interactive cards render from their own data, not the briefing text, so a
    briefing built before a card existed must not hide it: insert the card's
    placeholder after the one it follows when the text lacks it. */
-const withInteractive = (paras: string[]): string[] =>
+const withInteractive = (paras: string[]): string[] => {
   /* Removed cards: drop their placeholders from briefings built before (Chart Structure
      10 Oct 2026, Momentum Leaders 12 Oct 2026). */
-  paras.filter(p => !p.startsWith('Chart Structure:') && !p.startsWith('Momentum Leaders:'));
+  const out = paras.filter(p => !p.startsWith('Chart Structure:') && !p.startsWith('Momentum Leaders:'));
+  /* Oversold Bounce (15 Oct 2026) follows Liquid Leaders in briefings built before it existed. */
+  if (!out.some(p => p.startsWith('Oversold Bounce:'))) {
+    const i = out.findIndex(p => p.startsWith('Liquid Leaders:'));
+    if (i >= 0) out.splice(i + 1, 0, 'Oversold Bounce: interactive');
+  }
+  return out;
+};
 
 const splitBriefingSection = (para: string): { label: string | null; color: string; blurb: string; body: string } => {
   for (const sec of BRIEFING_SECTIONS) {
@@ -2462,7 +2571,7 @@ export default function MarketSummary() {
   const [thesisEdge, setThesisEdge] = useState<Record<string, EdgeTier | null>>({});
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() =>
     new Set([
-      ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Best Setups Today' && l !== 'Top Movers' && l !== 'Liquid Leaders' && l !== 'Momentum Leaders'),
+      ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Best Setups Today' && l !== 'Top Movers' && l !== 'Liquid Leaders' && l !== 'Oversold Bounce' && l !== 'Momentum Leaders'),
       'hrsTop', 'topSetups',
     ])
   );
@@ -2518,7 +2627,7 @@ export default function MarketSummary() {
     if (!mi?.briefing) return;
     if (!k) {
       setCollapsedSections(new Set([
-        ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Best Setups Today' && l !== 'Top Movers' && l !== 'Liquid Leaders' && l !== 'Momentum Leaders'),
+        ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Best Setups Today' && l !== 'Top Movers' && l !== 'Liquid Leaders' && l !== 'Oversold Bounce' && l !== 'Momentum Leaders'),
         'hrsTop', 'topSetups',
       ]));
       return;
@@ -3094,6 +3203,8 @@ export default function MarketSummary() {
                                 <SocialSentiment edgeMap={modelEdgeMap} cnfMap={sentCnfMap} />
                               ) : isOpen && label === 'Liquid Leaders' ? (
                                 <LiquidLeaders edgeMap={modelEdgeMap} cnfMap={sentCnfMap} stageMap={macroInsights?.stageMap} newsMap={scanNewsMap} />
+                              ) : isOpen && label === 'Oversold Bounce' ? (
+                                <OversoldBounce cnfMap={sentCnfMap} stageMap={macroInsights?.stageMap} newsMap={scanNewsMap} />
                               ) : isOpen && label === 'Top Movers' && moverView === 'early' ? (
                                 <EarlyMovers pool={macroInsights?.earlyPool ?? []} night={earlyNight} onVisibleChange={onMoverVisible} />
                               ) : isOpen && label === 'Sector Performance' ? (

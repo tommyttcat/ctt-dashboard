@@ -1,6 +1,6 @@
 /* scripts/leaders.test.mts — Liquid Leaders arithmetic (lib/leaders). */
 
-import { expectedCum, trackingPct, profileOf, buildLive, chkOf, checkFields, BUCKETS, type LeadersState } from '../src/lib/leaders.ts';
+import { expectedCum, trackingPct, profileOf, buildLive, chkOf, checkFields, oversoldOf, BUCKETS, OVERSOLD, type LeadersState } from '../src/lib/leaders.ts';
 import { eq, near, ok, done } from './testkit.mts';
 
 // A flat day: 100 shares every half hour -> cumulative 100, 200, ... 1300.
@@ -42,4 +42,29 @@ ok('live distance to the 21 EMA from last night\'s EMA', f.distToEma21 != null &
 eq('live row carries the rating for the checklist', f.rsRating, 85);
 eq('no chk = no fields', Object.keys(checkFields({ maxClose: 1, maxRs: 1, adv: 1, prof: [] }, 170, 85)).length, 0);
 
+// ---- Oversold Bounce (15 Oct 2026): ADR 6-15%, today's low 1.5 ADRs or more under the 5-session high
+{
+  const chk = (adr: number) => [10, 10, 10, 10, adr, null, null, 0] as any;
+  const base = { t: 'X', price: 90, chg: -3, track: null, raw: null };
+  const h = (adr: number, wkHi = 100) => ({ maxClose: 200, maxRs: 1, adv: 1, prof: [], chk: chk(adr), wkHi });
+  // ADR 8%: level = 100 x (1 - 0.12) = 88.
+  eq('low at the level qualifies', oversoldOf(h(8), { t: 'X', price: 90, prevClose: 93, vol: 1, lo: 88 }, base)?.level, 88);
+  eq('low above the level does not', oversoldOf(h(8), { t: 'X', price: 90, prevClose: 93, vol: 1, lo: 88.5 }, base), null);
+  eq('ADR under 6% does not', oversoldOf(h(5), { t: 'X', price: 80, prevClose: 93, vol: 1, lo: 80 }, base), null);
+  eq('ADR over 15% does not', oversoldOf(h(16), { t: 'X', price: 70, prevClose: 93, vol: 1, lo: 70 }, base), null);
+  eq('no 5-session high, no row', oversoldOf({ ...h(8), wkHi: undefined }, { t: 'X', price: 90, prevClose: 93, vol: 1, lo: 80 }, base), null);
+  const r = oversoldOf(h(8), { t: 'X', price: 88, prevClose: 93, vol: 1, lo: 80 }, base)!;
+  eq('off the low, %', r.offLow, 10);
+  eq('depth in ADRs (20% under / 8%)', r.deep, 2.5);
+  const st: LeadersState = { date: 'd', builtAt: '', names: { A: { ...h(8), prof }, B: { ...h(8), prof }, C: { ...h(8), prof } } };
+  const lv = buildLive(st, [
+    { t: 'A', price: 85, prevClose: 95, vol: 1, lo: 84 },   // +1.2% off the low
+    { t: 'B', price: 88, prevClose: 95, vol: 1, lo: 80 },   // +10% off the low
+    { t: 'C', price: 99, prevClose: 99, vol: 1, lo: 98 },   // not oversold
+  ], 500, 600, 1, { spy: null, qqq: null }, undefined, { value: 18, updatedAt: null });
+  eq('sorted by bounce off the low (TopD)', lv.oversold!.map(x => x.t).join(), 'B,A');
+  eq('count', lv.counts.oversold, 2);
+  eq('washout reading carried', lv.washout?.value, 18);
+  ok('washout line is 20%', OVERSOLD.washout === 20);
+}
 done('liquid leaders');
