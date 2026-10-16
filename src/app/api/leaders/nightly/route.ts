@@ -23,7 +23,7 @@ import { etGate } from '@/lib/etCron';
 import { etToday } from '@/lib/orb';
 import { etMinute } from '@/lib/orb';
 import {
-  LEADERS_STATE_KEY, LEADERS_MIN_PRICE, LEADERS_MIN_DVOL, BUCKETS, profileOf, chkOf,
+  LEADERS_STATE_KEY, LEADERS_MIN_PRICE, LEADERS_MIN_DVOL, BUCKETS, profileOf, chkOf, isLeveragedBull,
   type LeadersState, type LeaderHist,
 } from '@/lib/leaders';
 
@@ -78,6 +78,17 @@ export async function GET(req: Request) {
     }
   }
   if (names.size < 1000) return NextResponse.json({ success: false, error: `reference too small (${names.size})` }, { status: 502 });
+  /* 1b. Leveraged bull ETFs (15 Oct 2026), for the Oversold Bounce card only: every active ETF,
+     kept by fund name (lib/leaders isLeveragedBull). ~5 reference pages a night. */
+  const etfs = new Map<string, string>();
+  {
+    let next: string | null = '/v3/reference/tickers?type=ETF&market=stocks&active=true&limit=1000';
+    for (let p = 0; next && p < 10; p++) {
+      const j: { results?: { ticker: string; name?: string }[]; next_url?: string } | null = await pg(next);
+      for (const r of j?.results ?? []) if (r.name && isLeveragedBull(r.name) && !names.has(r.ticker)) etfs.set(r.ticker, r.name);
+      next = j?.next_url ?? null;
+    }
+  }
 
   /* 2. The last 70 sessions of grouped bars (20 until 12 Oct 2026): 20 for the universe and
      usual volume, 70 for the swing checklist's EMAs, ADR and tightness (lib/leaders chkOf).
@@ -97,13 +108,13 @@ export async function GET(req: Request) {
   const spyToday = today.bars.get('SPY')?.c;
   if (!spyToday) return NextResponse.json({ success: false, error: 'no SPY close' }, { status: 502 });
 
-  const universe: { t: string; adv: number }[] = [];
-  for (const [t] of names) {
+  const universe: { t: string; adv: number; etf?: boolean }[] = [];
+  for (const [t] of [...names, ...etfs]) {
     const last = today.bars.get(t); if (!last || last.c < LEADERS_MIN_PRICE) continue;
     let dv = 0, v = 0, n = 0;
     for (const day of recent) { const b = day.bars.get(t); if (b) { dv += b.c * b.v; v += b.v; n++; } }
     if (n < 15 || dv / n < LEADERS_MIN_DVOL) continue;
-    universe.push({ t, adv: v / n });
+    universe.push({ t, adv: v / n, ...(etfs.has(t) ? { etf: true } : {}) });
   }
 
   const prior = await kv.get<LeadersState>(LEADERS_STATE_KEY);
@@ -115,6 +126,8 @@ export async function GET(req: Request) {
   const spyBy = new Map((spyHist?.results ?? []).map(r => [etDay(r.t), r.c]));
   const needHist: { t: string; adv: number }[] = [];
   for (const u of universe) {
+    /* ETFs carry no 5-year highs or profile: they are only on the Oversold Bounce card. */
+    if (u.etf) { out[u.t] = { n: etfs.get(u.t), maxClose: 0, maxRs: 0, adv: u.adv, prof: [], etf: true }; continue; }
     const p = prior?.names?.[u.t];
     const c = today.bars.get(u.t)!.c;
     if (p && prior!.date < today.d) out[u.t] = { ...p, n: names.get(u.t), adv: u.adv, maxClose: Math.max(p.maxClose, c), maxRs: Math.max(p.maxRs, c / spyToday) };
@@ -144,7 +157,7 @@ export async function GET(req: Request) {
 
   // 4. Usual volume by half hour, from 20 sessions of 30-minute bars.
   const from30 = ymd(Date.now() - 32 * 864e5);
-  const withHist = Object.keys(out);
+  const withHist = Object.keys(out).filter(t => !out[t].etf);
   const profDone = await inBatches(withHist, 25, deadline, async t => {
     const j = await pg<{ results?: { t: number; v: number }[] }>(`/v2/aggs/ticker/${encodeURIComponent(t)}/range/30/minute/${from30}/${today.d}?adjusted=true&sort=asc&limit=50000`);
     const byDay = new Map<string, number[]>();
@@ -161,7 +174,7 @@ export async function GET(req: Request) {
   const state: LeadersState = { date: today.d, builtAt: new Date().toISOString(), names: out };
   await kv.set(LEADERS_STATE_KEY, state);
   return NextResponse.json({
-    success: true, date: today.d, reference: names.size, universe: universe.length, stored: Object.keys(out).length,
+    success: true, date: today.d, reference: names.size, leveragedEtfs: `${universe.filter(u => u.etf).length} of ${etfs.size}`, universe: universe.length, stored: Object.keys(out).length,
     backfilled: `${histDone} of ${needHist.length}`, checklist: `${chkDone} of ${Object.keys(out).length}`, sessions: days.length, profiles: `${profDone} of ${withHist.length}`, ms: Date.now() - t0, forToday: etToday(),
   });
 }

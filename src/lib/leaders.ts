@@ -38,6 +38,9 @@ export interface LeaderHist {
   /* Highest high of the last 5 sessions through `date` (15 Oct 2026) — the Oversold Bounce
      card's reference: oversold = trading 1.5 ADRs or more under it. */
   wkHi?: number;
+  /* A leveraged bull ETF (15 Oct 2026): carried for the Oversold Bounce card only — kept out of
+     the Liquid Leaders lists and universe count, and given no 5-year highs or volume profile. */
+  etf?: boolean;
 }
 export interface LeadersState { date: string; builtAt: string; names: Record<string, LeaderHist> }
 
@@ -59,12 +62,18 @@ export const VOLUME_MIN_RS = 50;
    paid +4.64% a trade (66% wins, n 2,699) only when the market was washed out (20% or fewer
    stocks above their 40-day) and +0.20% otherwise — hence the GO / WATCH light. */
 export const OVERSOLD = { minAdr: 6, maxAdr: 15, adrs: 1.5, washout: 20, max: 40 } as const;
+/* Leveraged BULL ETFs by fund name (15 Oct 2026; the backtest included ETFs): "Bull 3X", "2X Long",
+   "UltraPro", "Leveraged". Inverse funds (Bear, Short, Inverse) are left out — they are
+   "oversold" when the market rips, the opposite of the washout this card waits for. */
+export const isLeveragedBull = (name: string): boolean =>
+  /\b[23](?:\.\d)?x\b|\bultra|\bbull\b|leveraged/i.test(name) && !/\bbear\b|\bshort\b|inverse|ultrashort|-[123]x/i.test(name);
 export interface OversoldRow extends LeaderRow {
   adr: number;      // 20-day ADR, %
   level: number;    // 5-session high less 1.5 ADR
   wkHi: number;     // the 5-session high
   lo: number;       // today's low
   offLow: number;   // % above today's low (TopD sort)
+  etf?: boolean;    // a leveraged bull ETF
   deep: number;     // how far today's low got under the 5-session high, in ADRs
 }
 /** The oversold-bounce row for one name, or null when it does not qualify. */
@@ -157,6 +166,11 @@ export function buildLive(state: LeadersState, quotes: Quote[], spyPrice: number
     const h = state.names[q.t];
     if (!h || !(q.price > 0) || !(q.prevClose > 0)) continue;
     const chg = (q.price / q.prevClose - 1) * 100;
+    if (h.etf) {
+      const os = oversoldOf(h, q, { t: q.t, n: h.n, price: q.price, chg: +chg.toFixed(2), track: null, raw: null, vol: q.vol, rs: rsOf ? rsOf(q.t) : null });
+      if (os) oversold.push({ ...os, etf: true });
+      continue;
+    }
     const track = trackingPct(q.vol, h.prof, clockEt);
     const raw = h.adv > 0 && q.vol > 0 ? (q.vol / h.adv - 1) * 100 : null;
     rows.push({

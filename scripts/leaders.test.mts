@@ -1,6 +1,6 @@
 /* scripts/leaders.test.mts — Liquid Leaders arithmetic (lib/leaders). */
 
-import { expectedCum, trackingPct, profileOf, buildLive, chkOf, checkFields, oversoldOf, BUCKETS, OVERSOLD, type LeadersState } from '../src/lib/leaders.ts';
+import { expectedCum, trackingPct, profileOf, buildLive, chkOf, checkFields, oversoldOf, isLeveragedBull, BUCKETS, OVERSOLD, type LeadersState } from '../src/lib/leaders.ts';
 import { eq, near, ok, done } from './testkit.mts';
 
 // A flat day: 100 shares every half hour -> cumulative 100, 200, ... 1300.
@@ -66,5 +66,24 @@ eq('no chk = no fields', Object.keys(checkFields({ maxClose: 1, maxRs: 1, adv: 1
   eq('count', lv.counts.oversold, 2);
   eq('washout reading carried', lv.washout?.value, 18);
   ok('washout line is 20%', OVERSOLD.washout === 20);
+}
+// ---- Leveraged bull ETFs (15 Oct 2026)
+for (const n of ['Direxion Daily Semiconductor Bull 3X Shares', 'ProShares UltraPro QQQ', 'GraniteShares 2x Long NVDA Daily ETF', 'T-Rex 2X Long MSTR Daily Target ETF', 'ProShares Ultra Bitcoin ETF', 'Direxion Daily TSLA Bull 2X Shares'])
+  ok(`leveraged bull: ${n}`, isLeveragedBull(n));
+for (const n of ['Direxion Daily Semiconductor Bear 3X Shares', 'ProShares UltraPro Short QQQ', 'ProShares UltraShort S&P500', 'Direxion Daily S&P 500 Bear 1X Shares', 'SPDR S&P 500 ETF Trust', 'Invesco QQQ Trust', 'Tradr 2X Short TSLA Daily ETF', 'MicroSectors FANG+ -3X Inverse Leveraged ETN'])
+  ok(`not leveraged bull: ${n}`, !isLeveragedBull(n));
+{
+  const chk = [10, 10, 10, 10, 8, null, null, 0] as any;
+  const st: LeadersState = { date: 'd', builtAt: '', names: {
+    SOXL: { n: 'Direxion Daily Semiconductor Bull 3X Shares', maxClose: 0, maxRs: 0, adv: 1, prof: [], chk, wkHi: 100, etf: true },
+    STK: { maxClose: 50, maxRs: 0.01, adv: 1, prof, chk, wkHi: 100 },
+  } };
+  const lv = buildLive(st, [
+    { t: 'SOXL', price: 86, prevClose: 95, vol: 1, lo: 80 },
+    { t: 'STK', price: 86, prevClose: 95, vol: 1, lo: 80 },
+  ], 500, 600, 1, { spy: null, qqq: null });
+  eq('ETF on the oversold list, flagged', lv.oversold!.filter(r => r.etf).map(r => r.t).join(), 'SOXL');
+  eq('ETF kept out of the universe count', lv.universe, 1);
+  ok('ETF kept out of the Liquid Leaders lists', ![...lv.rsHigh, ...lv.priceHigh, ...lv.gainers, ...lv.volume].some(r => r.t === 'SOXL'));
 }
 done('liquid leaders');

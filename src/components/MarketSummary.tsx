@@ -1074,6 +1074,10 @@ const SETUP_SOURCE_FILTERS: SetupFilter[] = [
     match: s => posture(s) != null && posture(s) !== 'below-21' && posture(s) !== 'extended' },
   { key: 'mb',    label: '100',   cls: 'text-fuchsia-400 bg-fuchsia-500/10 border-fuchsia-500/20',
     match: s => s._source === 'mb' },
+  /* Oversold Bounce (15 Oct 2026): the OSB card's names, from the Liquid Leaders payload. A name
+     another scan already carries keeps that scan's row and colour, flagged _osb. */
+  { key: 'osb',   label: 'OSB',   cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+    match: s => s._source === 'osb' || !!s._osb },
 ];
 
 const ALL_SETUP_FILTERS = [...SETUP_PATTERN_FILTERS, ...SETUP_SOURCE_FILTERS];
@@ -1772,10 +1776,11 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
    oversoldOf): ADR 6-15% names whose low today reached 1.5 ADRs under their 5-session high,
    sorted by how far they have come back off the low (his "TopD"). The GO / WATCH light is the
    market washout reading from the last close: the backtest only paid when 20% or fewer stocks
-   were above their 40-day. Rows are deliberately NOT tinted with the swing checklist — every
-   oversold name fails it by design, so the tint would only repeat "red". */
+   were above their 40-day. Rows are NOT tinted with the swing checklist — every oversold name
+   fails it by design — but with the light itself: green on GO, yellow on WATCH (lib/scans/edge
+   osbTierRule, the same colour the OSB rows carry in the Setups Summary). */
 type OsSortKey = 'off' | 'deep' | 'chg' | 'adr' | 'rs' | 'cnf';
-const OS_TIP = "OVERSOLD BOUNCE — Monis-style (x.com/mmonis): liquid names ($10+, $100M+ a day) that move a lot (ADR 6–15%) and traded down today to 1.5 ADRs or more under their 5-session high. Sorted by how far they have come back off today's low, as he sorts his \"TopD\" list.\n\nGO / WATCH — the share of all stocks above their 40-day average at the last close. GO at 20% or less (a market washout), WATCH above it.\n\nWHAT THE TEST SAID (2015–2026, every such name, bought at the oversold level, 0.10% costs; scripts/backtest/oversold-bounce.ts):\n• As a same-day trade it LOST: −0.04% a trade, 49% wins, 18,493 trades. A half-ADR stop made it worse (−0.12%, 44%).\n• Held 5 days in a washout: +4.64% a trade, 66% wins (2,699 trades; about +3.1% without 2020; positive in 9 of 11 years).\n• Held 5 days any other time: +0.20%, 48% wins — about nothing.\n• Caveats: any of these stocks bought on washout days made +3.98% (64%), so most of the edge is the washout, not the pick. The trades bunch into a handful of sell-offs, so there is less independent evidence than the count suggests. His key-level and near-the-low timing cannot be tested on daily bars.\n\nOFF LOW — % above today's low. DEEP — how far today's low got under the 5-session high, in ADRs. ADR — 20-day average daily range. LEVEL (hover) — the 1.5-ADR line. Common stock only (no leveraged ETFs). Data 15 minutes delayed.";
+const OS_TIP = "OVERSOLD BOUNCE — Monis-style (x.com/mmonis): liquid names ($10+, $100M+ a day) that move a lot (ADR 6–15%) and traded down today to 1.5 ADRs or more under their 5-session high. Sorted by how far they have come back off today's low, as he sorts his \"TopD\" list.\n\nGO / WATCH — the share of all stocks above their 40-day average at the last close. GO at 20% or less (a market washout), WATCH above it.\n\nWHAT THE TEST SAID (2015–2026, every such name, bought at the oversold level, 0.10% costs; scripts/backtest/oversold-bounce.ts):\n• As a same-day trade it LOST: −0.04% a trade, 49% wins, 18,493 trades. A half-ADR stop made it worse (−0.12%, 44%).\n• Held 5 days in a washout: +4.64% a trade, 66% wins (2,699 trades; about +3.1% without 2020; positive in 9 of 11 years).\n• Held 5 days any other time: +0.20%, 48% wins — about nothing.\n• Caveats: any of these stocks bought on washout days made +3.98% (64%), so most of the edge is the washout, not the pick. The trades bunch into a handful of sell-offs, so there is less independent evidence than the count suggests. His key-level and near-the-low timing cannot be tested on daily bars.\n\nOFF LOW — % above today's low. DEEP — how far today's low got under the 5-session high, in ADRs. ADR — 20-day average daily range. LEVEL (hover) — the 1.5-ADR line. Leveraged BULL ETFs (SOXL, TQQQ, 2X single-stock funds) are included; inverse funds are not — they are oversold when the market rips, the opposite of a washout. ROW COLOUR — green on GO, yellow on WATCH (not the swing checklist, which every oversold name fails). Data 15 minutes delayed.";
 const OversoldBounce = ({ cnfMap, stageMap, newsMap }: {
   cnfMap?: Record<string, number>; stageMap?: Record<string, string>; newsMap?: Record<string, ScanNews>;
 }) => {
@@ -1829,8 +1834,8 @@ const OversoldBounce = ({ cnfMap, stageMap, newsMap }: {
         {rows.length === 0 ? <p className="text-[9px] text-slate-500 py-1">Nothing has reached 1.5 ADRs under its 5-session high today.</p> : rows.map(r => {
           const cnf = cnfMap?.[r.t] ?? null, stg = stageMap?.[r.t] ?? null, news = newsMap?.[r.t] ?? null;
           return (
-            <InfoDot key={r.t} block className="flex items-center whitespace-nowrap py-[1px]"
-              text={`${r.n ?? r.t}\n5-session high ${r.wkHi.toFixed(2)} · oversold level ${r.level.toFixed(2)} (1.5 × ${r.adr.toFixed(1)}% ADR)\nToday's low ${r.lo.toFixed(2)} — ${r.deep.toFixed(1)} ADRs under the high · now ${r.offLow.toFixed(1)}% off the low`}>
+            <InfoDot key={r.t} block className={`flex items-center whitespace-nowrap py-[1px] ${EDGE_TINT[go ? 'green' : 'yellow']} rounded-sm`}
+              text={`${r.n ?? r.t}${r.etf ? ' (leveraged ETF)' : ''}\n5-session high ${r.wkHi.toFixed(2)} · oversold level ${r.level.toFixed(2)} (1.5 × ${r.adr.toFixed(1)}% ADR)\nToday's low ${r.lo.toFixed(2)} — ${r.deep.toFixed(1)} ADRs under the high · now ${r.offLow.toFixed(1)}% off the low`}>
               <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover>
               <span className="inline-block w-[20px] md:w-[22px] text-center ml-2 md:ml-1">{cnf != null ? <span className={`${badge} ${cnfBadgeCls(cnf)}`}>{Math.round(cnf)}</span> : dash}</span>
               <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ml-1 ${r.chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{r.chg >= 0 ? '+' : ''}{r.chg.toFixed(2)}%</span>
@@ -1982,7 +1987,8 @@ const SetupSummaryHelp = () => {
   };
 
   const gates = [
-    { label: 'Sources', value: 'DAY · SIP · DVOL · SWING · VCP · EP9 · 100B' },
+    { label: 'Sources', value: 'DAY · SIP · DVOL · SWING · VCP · EP9 · 100B · OSB' },
+    { label: 'OSB', value: 'Oversold Bounce card names — green only when the market is washed out (≤20% of stocks above their 40-day), yellow otherwise' },
     { label: 'Overlap (×)', value: 'Tickers in 2+ scanners simultaneously' },
     { label: 'Streak (#)', value: 'Consecutive 15-min scans a ticker has appeared' },
     { label: 'CNF', value: 'Confluence score from the primary scanner' },
@@ -2615,6 +2621,30 @@ export default function MarketSummary() {
     }
     return m;
   }, [macroInsights?.setupPool]);
+  /* OSB in the Setups Summary (15 Oct 2026): the Oversold Bounce rows join the pool from the
+     shared Liquid Leaders poll — no extra request. Names already in the pool are flagged _osb;
+     the rest are added in the scan-row shape the summary reads, coloured by the washout light. */
+  const leadersLive = useLeadersLive();
+  const setupPoolOsb = React.useMemo(() => {
+    const pool = macroInsights?.setupPool ?? [];
+    const os = leadersLive?.oversold ?? [];
+    if (!os.length) return pool;
+    const w = leadersLive?.washout?.value ?? null;
+    const byT = new Map(os.map(r => [r.t, r]));
+    const out = pool.map(s => (byT.has(String(s?.ticker ?? '').toUpperCase()) ? { ...s, _osb: true } : s));
+    const have = new Set(out.map(s => String(s?.ticker ?? '').toUpperCase()));
+    for (const r of os) {
+      if (have.has(r.t)) continue;
+      out.push({
+        ticker: r.t, name: r.n, price: r.price, changePct: r.chg, vol: r.vol, volume: r.vol,
+        rvol: r.track == null ? null : Math.max(0, 1 + r.track / 100), rsRating: r.rs ?? null,
+        stage: macroInsights?.stageMap?.[r.t], adrPct: r.adr, _source: 'osb', _washout: w,
+        setupName: 'Oversold Bounce',
+        thesis: `Oversold: today's low ${r.deep.toFixed(1)} ADRs under the 5-session high (${r.wkHi.toFixed(2)}), now +${r.offLow.toFixed(1)}% off the low${r.etf ? ' · leveraged ETF' : ''}.`,
+      });
+    }
+    return out;
+  }, [macroInsights?.setupPool, macroInsights?.stageMap, leadersLive]);
   const macroRef = useRef<MacroInsights | null>(null);
   macroRef.current = macroInsights;
   const handleScanFilter = useCallback((k: ScanFilterKey) => {
@@ -3184,7 +3214,7 @@ export default function MarketSummary() {
                                   are read ACROSS, so the rows have to agree. */}
                               {isOpen && label === 'Setups Summary' ? (
                                 <SetupSummary
-                                  pool={macroInsights?.setupPool ?? []}
+                                  pool={setupPoolOsb}
                                   gradeMap={macroInsights?.gradeMap}
                                   dotMap={macroInsights?.dotMap}
                                   postureMap={macroInsights?.postureMap}

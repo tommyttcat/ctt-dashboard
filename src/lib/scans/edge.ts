@@ -378,6 +378,23 @@ export function checkedFor(source: string, row: any): Checked | null {
   return c;
 }
 
+/* ---- Oversold Bounce (OSB, 15 Oct 2026) ------------------------------------
+   Not the swing checklist: every oversold name fails it by design. The colour is the market
+   washout light the row carries (_washout, the share of stocks above their 40-day at the last
+   close; lib/leaders OVERSOLD.washout): GREEN at 20% or less — the only time the backtest paid
+   (scripts/backtest/oversold-bounce.ts: held 5 days, +4.64% a trade, 66% wins) — YELLOW
+   otherwise (+0.20%, 48%). No red: no bucket of the scan lost in both halves when held. */
+function osbTierRule(row: { _washout?: number | null } | null | undefined): EdgeTier | null {
+  if (!row) return null;
+  const w = num(row._washout);
+  return w != null && w <= 20 ? 'green' : 'yellow';
+}
+export const OSB_TIP: Record<EdgeTier, string> = {
+  green: 'GO (Oversold Bounce): the market is washed out — 20% or fewer stocks above their 40-day at the last close. In the 2015-2026 test, oversold names bought then and held ~5 days made +4.64% a trade with 66% wins; any liquid high-ADR name bought those days made +3.98%, so most of it is the washout. Not a same-day trade (that lost).',
+  yellow: 'WATCH (Oversold Bounce): oversold, but the market is not washed out. Held 5 days outside a washout the test found about nothing (+0.20% a trade, 48% wins). Goes GO at 20% or fewer stocks above their 40-day.',
+  red: 'unused on Oversold Bounce',
+};
+
 const TIER_BY_SOURCE: Record<string, { fn: (r: any) => EdgeTier | null; rule: (r: any) => EdgeTier | null; tip: Record<EdgeTier, string>; mode: Mode }> = {
   daily: { fn: edgeTier, rule: r => edgeTierRule(r), tip: EDGE_FILTER_TIP, mode: 'swing' },
   sip: { fn: edgeTierDay, rule: r => edgeTierRule(r), tip: EDGE_FILTER_TIP, mode: 'day' },
@@ -389,9 +406,11 @@ const TIER_BY_SOURCE: Record<string, { fn: (r: any) => EdgeTier | null; rule: (r
   coil: { fn: consolidationTier, rule: r => consolidationTierRule(r), tip: CONSOLIDATION_TIP, mode: 'swing' },
   mb: { fn: multibaggerTier, rule: r => multibaggerTierRule(r), tip: MULTIBAGGER_TIP, mode: 'swing' },
   hrs: { fn: hrsTier, rule: r => hrsTierRule(r), tip: HRS_TIP, mode: 'swing' },
+  osb: { fn: osbTierRule, rule: osbTierRule, tip: OSB_TIP, mode: 'swing' },
 };
 
 export function tierForScan(source: string | null | undefined, row: any): { tier: EdgeTier; tip: string } | null {
+  if (source === 'osb') { const tier = osbTierRule(row); return tier ? { tier, tip: OSB_TIP[tier] } : null; }
   const entry = TIER_BY_SOURCE[String(source ?? '')] ?? TIER_BY_SOURCE.daily;
   const tier = entry.fn(row);
   if (!tier) return null;
@@ -458,5 +477,5 @@ if (CHECKLIST_COLOURS) {
 /** Each scan's own measured rule, before the checklist (tests pin these thresholds). */
 export const SCAN_RULES = {
   edgeTier: edgeTierRule, ep9mTier: ep9mTierRule, vcpTier: vcpTierRule, swingTier: swingTierRule,
-  consolidationTier: consolidationTierRule, multibaggerTier: multibaggerTierRule, hrsTier: hrsTierRule,
+  consolidationTier: consolidationTierRule, multibaggerTier: multibaggerTierRule, hrsTier: hrsTierRule, osbTier: osbTierRule,
 };
