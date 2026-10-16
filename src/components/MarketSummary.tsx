@@ -118,7 +118,8 @@ import InfoDot from './InfoDot';
 import { etMinute, type OrbWatchStatus, type OrbWatchState } from '@/lib/orb';
 import { earlyMovers, EARLY_MIN_PCT, EARLY_MIN_PACE } from '@/lib/summary/earlyMovers';
 import { swingCheck, checkTip } from '@/lib/scans/checklist';
-import { OVERSOLD, type LeadersLive, type LeaderRow, type OversoldRow } from '@/lib/leaders';
+import { type LeadersLive, type LeaderRow, type OversoldRow } from '@/lib/leaders';
+import { chartLevelsGlobal } from '@/lib/chartLevels';
 import { bullShare, type SentimentLive } from '@/lib/sentiment';
 import { EARLY_PASS_N, type EarlySummary } from '@/lib/earlyTrack';
 
@@ -1654,7 +1655,13 @@ const useLeadersLive = (): LeadersLive | null => {
     leadersSubs.add(setLive);
     if (!leadersStop) {
       const load = () => fetch('/api/leaders/latest').then(r => (r.ok ? r.json() : null))
-        .then(j => { if (j?.live) { leadersCache = j.live; leadersSubs.forEach(f => f(j.live)); } }).catch(() => {});
+        .then(j => {
+          if (!j?.live) return;
+          leadersCache = j.live;
+          /* Oversold Bounce key levels onto the pop-up chart (16 Oct 2026), for any card the ticker is hovered on. */
+          for (const r of (j.live as LeadersLive).oversold ?? []) if (r.lvs?.length) chartLevelsGlobal.set(r.t, r.lvs.map(price => ({ price, type: 'S' as const })));
+          leadersSubs.forEach(f => f(j.live));
+        }).catch(() => {});
       load();
       leadersStop = poll(load, pollMs.marketHours(120_000, 900_000));
     }
@@ -1771,92 +1778,105 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
   );
 };
 
-/* ---- Oversold Bounce (15 Oct 2026) ------------------------------------------
+/* ---- Oversold Bounce (15 Oct 2026; reworked 16 Oct) -----------------------------
    Modelled on Monis (x.com/mmonis), on the Liquid Leaders universe and payload (lib/leaders
-   oversoldOf): ADR 6-15% names whose low today reached 1.5 ADRs under their 5-session high,
-   sorted by how far they have come back off the low (his "TopD"). The GO / WATCH light is the
-   market washout reading from the last close: the backtest only paid when 20% or fewer stocks
-   were above their 40-day. Rows are NOT tinted with the swing checklist — every oversold name
-   fails it by design — but with the light itself: green on GO, yellow on WATCH (lib/scans/edge
-   osbTierRule, the same colour the OSB rows carry in the Setups Summary). */
-type OsSortKey = 'off' | 'deep' | 'chg' | 'adr' | 'rs' | 'cnf';
-const OS_TIP = "OVERSOLD BOUNCE — Monis-style (x.com/mmonis): liquid names ($10+, $100M+ a day) that move a lot (ADR 6–15%) and traded down today to 1.5 ADRs or more under their 5-session high. Sorted by how far they have come back off today's low, as he sorts his \"TopD\" list.\n\nGO / WATCH — the share of all stocks above their 40-day average at the last close. GO at 20% or less (a market washout), WATCH above it.\n\nWHAT THE TEST SAID (2015–2026, every such name, bought at the oversold level, 0.10% costs; scripts/backtest/oversold-bounce.ts):\n• As a same-day trade it LOST: −0.04% a trade, 49% wins, 18,493 trades. A half-ADR stop made it worse (−0.12%, 44%).\n• Held 5 days in a washout: +4.64% a trade, 66% wins (2,699 trades; about +3.1% without 2020; positive in 9 of 11 years).\n• Held 5 days any other time: +0.20%, 48% wins — about nothing.\n• Caveats: any of these stocks bought on washout days made +3.98% (64%), so most of the edge is the washout, not the pick. The trades bunch into a handful of sell-offs, so there is less independent evidence than the count suggests. His key-level and near-the-low timing cannot be tested on daily bars.\n\nOFF LOW — % above today's low. DEEP — how far today's low got under the 5-session high, in ADRs. ADR — 20-day average daily range. LEVEL (hover) — the 1.5-ADR line. Leveraged BULL ETFs (SOXL, TQQQ, 2X single-stock funds) are included; inverse funds are not — they are oversold when the market rips, the opposite of a washout. ROW COLOUR — green on GO, yellow on WATCH (not the swing checklist, which every oversold name fails). Data 15 minutes delayed.";
+   oversoldOf): ADR 6-15% names (stocks and leveraged bull ETFs) whose low today reached 1.5
+   ADRs under their 5-session high. Top 20, as two lists of 10 side by side (stacked on a
+   phone), Reclaimed first and then by how far they have come back off the low (his "TopD").
+   His entry is a dip under a key level and back above it: the levels are drawn on the ticker's
+   pop-up chart (chartLevelsGlobal, set by useLeadersLive) and the status colours the row —
+   no extra column. Untested: the owner dropped the market-washout gate and the daily-bar test
+   on 16 Oct. PHONE: every cell is shrink-0 and CNF / Stg are hidden below md, so the header
+   stays on the data (a shrinking flex row drifted the columns apart on a 375px screen). */
+type OsSortKey = 'off' | 'deep' | 'chg' | 'rs' | 'cnf';
+const OS_STATUS: Record<string, { tint: EdgeTier; word: string; why: string }> = {
+  reclaimed: { tint: 'green', word: 'RECLAIMED', why: 'dipped under the key level today and is back above it (his entry)' },
+  testing: { tint: 'yellow', word: 'TESTING', why: 'trading at the key level now' },
+  holding: { tint: 'yellow', word: 'HOLDING', why: 'above its key levels, not testing one' },
+  lost: { tint: 'red', word: 'LOST', why: 'below its nearest key level' },
+};
+const OS_TIP = "OVERSOLD BOUNCE — Monis-style (x.com/mmonis): liquid names ($10+, $100M+ a day) that move a lot (ADR 6–15%), stocks and leveraged bull ETFs, that traded down today to 1.5 ADRs or more under their 5-session high. Top 20: Reclaimed first, then by how far they have come back off today's low, as he sorts his \"TopD\" list.\n\nKEY LEVELS — the swing lows and old highs of the last 60 sessions under last night's close, drawn as green lines on the ticker's pop-up chart. ROW COLOUR — green RECLAIMED (dipped under a key level today and back above it — his entry), yellow TESTING (at a level) or HOLDING (above them), red LOST (under the nearest one). Hover a row for the level.\n\nOFF LOW — % above today's low. DEEP — how far today's low got under the 5-session high, in ADRs. Inverse ETFs are left out. Untested. Data 15 minutes delayed.";
 const OversoldBounce = ({ cnfMap, stageMap, newsMap }: {
   cnfMap?: Record<string, number>; stageMap?: Record<string, string>; newsMap?: Record<string, ScanNews>;
 }) => {
   const live = useLeadersLive();
-  const [sort, setSort] = React.useState<{ key: OsSortKey; dir: SortDir }>({ key: 'off', dir: 'desc' });
+  const [sort, setSort] = React.useState<{ key: OsSortKey | null; dir: SortDir }>({ key: null, dir: 'desc' });
   if (!live) return <p className="text-[10px] text-slate-500">Builds with Liquid Leaders: after the nightly run, updated every 5 minutes in market hours.</p>;
   if (!live.oversold) return <p className="text-[10px] text-slate-500">{"Starts with the first Liquid Leaders update after tonight's nightly run."}</p>;
-  const w = live.washout?.value ?? null;
-  const go = w != null && w <= OVERSOLD.washout;
   const val = (r: OversoldRow, k: OsSortKey): number | null =>
-    k === 'off' ? r.offLow : k === 'deep' ? r.deep : k === 'chg' ? r.chg : k === 'adr' ? r.adr : k === 'rs' ? (r.rs ?? null) : (cnfMap?.[r.t] ?? null);
-  const rows = [...live.oversold].sort((a, b) => {
-    const av = val(a, sort.key), bv = val(b, sort.key);
+    k === 'off' ? r.offLow : k === 'deep' ? r.deep : k === 'chg' ? r.chg : k === 'rs' ? (r.rs ?? null) : (cnfMap?.[r.t] ?? null);
+  /* Default: the payload's order (Reclaimed first, then off the low). A header click sorts the 20. */
+  const top = live.oversold.slice(0, 20);
+  const rows = !sort.key ? top : [...top].sort((a, b) => {
+    const av = val(a, sort.key!), bv = val(b, sort.key!);
     if (av == null || bv == null) return av == null ? (bv == null ? 0 : 1) : -1;
     return sort.dir === 'desc' ? bv - av : av - bv;
   });
-  const onSort = (k: OsSortKey) => setSort(cur => (cur.key !== k ? { key: k, dir: 'desc' } : { key: k, dir: cur.dir === 'desc' ? 'asc' : 'desc' }));
+  const onSort = (k: OsSortKey) => setSort(cur => (cur.key !== k ? { key: k, dir: 'desc' } : cur.dir === 'desc' ? { key: k, dir: 'asc' } : { key: null, dir: 'desc' }));
   const arrow = (k: OsSortKey) => (sort.key === k ? (sort.dir === 'desc' ? ' ↓' : ' ↑') : '');
-  const H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
+  const H = 'inline-block shrink-0 text-[7px] font-bold tracking-widest uppercase text-slate-600';
   const S = 'cursor-pointer hover:text-slate-400 transition-colors select-none';
+  const C = 'inline-block shrink-0';
   const badge = 'inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center';
   const dash = <span className={`${badge} text-slate-600 border-slate-700/40 bg-slate-800/30`}>-</span>;
   const clock = `${Math.floor(live.clockEt / 60) % 12 || 12}:${String(live.clockEt % 60).padStart(2, '0')}`;
+  const header = (
+    <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
+      <span className={`${H} w-[38px] md:w-[44px] text-center mx-0.5`}>Ticker</span>
+      <span className={`${H} ${S} hidden md:inline-block w-[22px] text-center ml-1`} onClick={() => onSort('cnf')}>CNF{arrow('cnf')}</span>
+      <span className={`${H} ${S} w-[46px] md:w-[52px] text-right ml-1`} onClick={() => onSort('chg')}>Chg%{arrow('chg')}</span>
+      <span className={`${H} hidden md:inline-block w-[42px] text-right ml-1`}>Prc</span>
+      <span className={`${H} ${S} w-[46px] md:w-[50px] text-right ml-2 md:ml-1`} onClick={() => onSort('off')}>Off low{arrow('off')}</span>
+      <span className={`${H} ${S} w-[36px] md:w-[38px] text-right ml-2 md:ml-1`} onClick={() => onSort('deep')}>Deep{arrow('deep')}</span>
+      <span className={`${H} ${S} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`} onClick={() => onSort('rs')}>RS{arrow('rs')}</span>
+      <span className={`${H} hidden md:inline-block w-[24px] text-center ml-1`}>Stg</span>
+      <span className={`${H} w-[14px] md:w-[16px] text-center ml-2 md:ml-1`}>N</span>
+    </div>
+  );
+  const row = (r: OversoldRow, i: number) => {
+    const cnf = cnfMap?.[r.t] ?? null, stg = stageMap?.[r.t] ?? null, news = newsMap?.[r.t] ?? null;
+    const st = r.status ? OS_STATUS[r.status] : null;
+    return (
+      <InfoDot key={r.t} block className={`flex items-center whitespace-nowrap py-[1px] ${st ? `${EDGE_TINT[st.tint]} rounded-sm` : ''}`}
+        text={`#${i + 1} ${r.n ?? r.t}${r.etf ? ' (leveraged ETF)' : ''}\n${st && r.key != null ? `${st.word} — ${st.why}: key level ${r.key.toFixed(2)}` : 'No key level under last night\'s close'}\nToday's low ${r.lo.toFixed(2)}, ${r.deep.toFixed(1)} ADRs under the 5-session high (${r.wkHi.toFixed(2)}) · now ${r.offLow.toFixed(1)}% off the low · ADR ${r.adr.toFixed(1)}%`}>
+        <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover>
+        <span className={`${C} hidden md:inline-block w-[22px] text-center ml-1`}>{cnf != null ? <span className={`${badge} ${cnfBadgeCls(cnf)}`}>{Math.round(cnf)}</span> : dash}</span>
+        <span className={`${C} text-[9px] tabular-nums font-semibold w-[46px] md:w-[52px] text-right ml-1 ${r.chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{r.chg >= 0 ? '+' : ''}{r.chg.toFixed(2)}%</span>
+        <span className={`${C} text-[9px] tabular-nums hidden md:inline-block w-[42px] text-right text-slate-300 ml-1`}>{r.price.toFixed(2)}</span>
+        <span className={`${C} text-[9px] tabular-nums font-semibold w-[46px] md:w-[50px] text-right ml-2 md:ml-1 ${r.offLow >= 3 ? 'text-emerald-400' : r.offLow >= 1 ? 'text-white' : 'text-slate-400'}`}>+{r.offLow.toFixed(1)}%</span>
+        <span className={`${C} text-[9px] tabular-nums w-[36px] md:w-[38px] text-right text-slate-300 ml-2 md:ml-1`}>{r.deep.toFixed(1)}</span>
+        <span className={`${C} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`}>{r.rs != null ? <span className={`${badge} ${rsBadge(r.rs)}`}>{r.rs}</span> : dash}</span>
+        <span className={`${C} hidden md:inline-block w-[24px] text-center ml-1`}>{stg ? <span className={`${badge} ${stageBadge(stg)}`}>{stg}</span> : dash}</span>
+        {news ? (
+          <a href={news.url || '#'} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+            className={`${C} w-[14px] md:w-[16px] text-center ml-2 md:ml-1 ${news.n >= 2 ? 'text-amber-400' : 'text-slate-500'} hover:brightness-125 font-bold text-[7px] leading-none`}>
+            <InfoDot content={<span>{news.tip}</span>}>{'★'.repeat(news.n)}</InfoDot>
+          </a>
+        ) : <span className={`${C} w-[14px] md:w-[16px] ml-2 md:ml-1`} />}
+      </InfoDot>
+    );
+  };
+  const list = (part: OversoldRow[], from: number) => (
+    <div className="min-w-0">
+      {header}
+      <div className="space-y-0.5">{part.map((r, j) => row(r, from + j))}</div>
+    </div>
+  );
+  const total = live.counts.oversold ?? live.oversold.length;
   return (
     <div>
-      <div className="flex items-start gap-2 mb-2.5">
-        <div className={`flex-1 rounded-lg border px-2.5 py-2 ${go ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-amber-500/10 border-amber-500/25'}`}>
-          <div className="flex items-center gap-2">
-            <span className={`text-[11px] font-bold tracking-widest ${go ? 'text-emerald-400' : 'text-amber-400'}`}>{go ? 'GO' : 'WATCH'}</span>
-            <span className="text-[10px] text-slate-300">{w == null ? 'washout reading unavailable' : `${w.toFixed(1)}% of stocks above their 40-day`}</span>
-          </div>
-          <div className="text-[9px] text-slate-500 mt-0.5">{go
-            ? 'Market washed out — in the test, held ~5 days: +4.6% a trade, 66% wins. Not a same-day trade.'
-            : `GO at ${OVERSOLD.washout}% or less. Outside a washout the test found about nothing (+0.2% a trade held 5 days).`}</div>
-        </div>
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-[9px] text-slate-500 flex-1">Reclaimed first (green), then off the low. Key levels on each ticker&apos;s chart. Untested.</span>
         <InfoDot text={OS_TIP} />
       </div>
-      <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
-        <span className={`${H} shrink-0 w-[38px] md:w-[44px] text-center mx-0.5`}>Ticker</span>
-        <span className={`${H} ${S} w-[20px] md:w-[22px] text-center ml-2 md:ml-1`} onClick={() => onSort('cnf')}>CNF{arrow('cnf')}</span>
-        <span className={`${H} ${S} w-[46px] md:w-[52px] text-right ml-1`} onClick={() => onSort('chg')}>Chg%{arrow('chg')}</span>
-        <span className={`${H} hidden md:inline-block w-[42px] text-right ml-1`}>Prc</span>
-        <span className={`${H} ${S} w-[44px] md:w-[50px] text-right ml-2 md:ml-1`} onClick={() => onSort('off')}>Off low{arrow('off')}</span>
-        <span className={`${H} ${S} w-[34px] md:w-[38px] text-right ml-2 md:ml-1`} onClick={() => onSort('deep')}>Deep{arrow('deep')}</span>
-        <span className={`${H} ${S} hidden md:inline-block w-[34px] text-right ml-1`} onClick={() => onSort('adr')}>ADR{arrow('adr')}</span>
-        <span className={`${H} ${S} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`} onClick={() => onSort('rs')}>RS{arrow('rs')}</span>
-        <span className={`${H} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`}>Stg</span>
-        <span className={`${H} w-[14px] md:w-[16px] text-center ml-2 md:ml-1`}>N</span>
-      </div>
-      <div className="max-h-[300px] overflow-y-auto space-y-0.5">
-        {rows.length === 0 ? <p className="text-[9px] text-slate-500 py-1">Nothing has reached 1.5 ADRs under its 5-session high today.</p> : rows.map(r => {
-          const cnf = cnfMap?.[r.t] ?? null, stg = stageMap?.[r.t] ?? null, news = newsMap?.[r.t] ?? null;
-          return (
-            <InfoDot key={r.t} block className={`flex items-center whitespace-nowrap py-[1px] ${EDGE_TINT[go ? 'green' : 'yellow']} rounded-sm`}
-              text={`${r.n ?? r.t}${r.etf ? ' (leveraged ETF)' : ''}\n5-session high ${r.wkHi.toFixed(2)} · oversold level ${r.level.toFixed(2)} (1.5 × ${r.adr.toFixed(1)}% ADR)\nToday's low ${r.lo.toFixed(2)} — ${r.deep.toFixed(1)} ADRs under the high · now ${r.offLow.toFixed(1)}% off the low`}>
-              <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover>
-              <span className="inline-block w-[20px] md:w-[22px] text-center ml-2 md:ml-1">{cnf != null ? <span className={`${badge} ${cnfBadgeCls(cnf)}`}>{Math.round(cnf)}</span> : dash}</span>
-              <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ml-1 ${r.chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{r.chg >= 0 ? '+' : ''}{r.chg.toFixed(2)}%</span>
-              <span className="text-[9px] tabular-nums hidden md:inline-block w-[42px] text-right text-slate-300 ml-1">{r.price.toFixed(2)}</span>
-              <span className={`text-[9px] tabular-nums font-semibold inline-block w-[44px] md:w-[50px] text-right ml-2 md:ml-1 ${r.offLow >= 3 ? 'text-emerald-400' : r.offLow >= 1 ? 'text-white' : 'text-slate-400'}`}>+{r.offLow.toFixed(1)}%</span>
-              <span className="text-[9px] tabular-nums inline-block w-[34px] md:w-[38px] text-right text-slate-300 ml-2 md:ml-1">{r.deep.toFixed(1)}</span>
-              <span className="text-[9px] tabular-nums hidden md:inline-block w-[34px] text-right text-slate-400 ml-1">{r.adr.toFixed(1)}%</span>
-              <span className="inline-block w-[22px] md:w-[24px] text-center ml-2 md:ml-1">{r.rs != null ? <span className={`${badge} ${rsBadge(r.rs)}`}>{r.rs}</span> : dash}</span>
-              <span className="inline-block w-[22px] md:w-[24px] text-center ml-2 md:ml-1">{stg ? <span className={`${badge} ${stageBadge(stg)}`}>{stg}</span> : dash}</span>
-              {news ? (
-                <a href={news.url || '#'} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
-                  className={`inline-block w-[14px] md:w-[16px] text-center ml-2 md:ml-1 ${news.n >= 2 ? 'text-amber-400' : 'text-slate-500'} hover:brightness-125 font-bold text-[7px] leading-none`}>
-                  <InfoDot content={<span>{news.tip}</span>}>{'★'.repeat(news.n)}</InfoDot>
-                </a>
-              ) : <span className="inline-block w-[14px] md:w-[16px] ml-2 md:ml-1" />}
-            </InfoDot>
-          );
-        })}
-      </div>
+      {rows.length === 0 ? <p className="text-[9px] text-slate-500 py-1">Nothing has reached 1.5 ADRs under its 5-session high today.</p> : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-3">
+          {list(rows.slice(0, 10), 0)}
+          {rows.length > 10 && list(rows.slice(10, 20), 10)}
+        </div>
+      )}
       <p className="text-[10px] text-slate-500 font-medium mt-2">
-        {live.counts.oversold ?? rows.length} oversold of {live.universe} liquid names{(live.counts.oversold ?? 0) > rows.length ? ` · top ${rows.length} shown` : ''} · data 15 min delayed, as of {clock} ET
+        Top {rows.length} of {total} oversold · {live.universe} liquid names · data 15 min delayed, as of {clock} ET
       </p>
     </div>
   );
@@ -1988,7 +2008,7 @@ const SetupSummaryHelp = () => {
 
   const gates = [
     { label: 'Sources', value: 'DAY · SIP · DVOL · SWING · VCP · EP9 · 100B · OSB' },
-    { label: 'OSB', value: 'Oversold Bounce card names — green only when the market is washed out (≤20% of stocks above their 40-day), yellow otherwise' },
+    { label: 'OSB', value: 'Oversold Bounce card names — green when the dip under a key level has been reclaimed, yellow testing or holding, red lost' },
     { label: 'Overlap (×)', value: 'Tickers in 2+ scanners simultaneously' },
     { label: 'Streak (#)', value: 'Consecutive 15-min scans a ticker has appeared' },
     { label: 'CNF', value: 'Confluence score from the primary scanner' },
@@ -2629,7 +2649,6 @@ export default function MarketSummary() {
     const pool = macroInsights?.setupPool ?? [];
     const os = leadersLive?.oversold ?? [];
     if (!os.length) return pool;
-    const w = leadersLive?.washout?.value ?? null;
     const byT = new Map(os.map(r => [r.t, r]));
     const out = pool.map(s => (byT.has(String(s?.ticker ?? '').toUpperCase()) ? { ...s, _osb: true } : s));
     const have = new Set(out.map(s => String(s?.ticker ?? '').toUpperCase()));
@@ -2638,7 +2657,7 @@ export default function MarketSummary() {
       out.push({
         ticker: r.t, name: r.n, price: r.price, changePct: r.chg, vol: r.vol, volume: r.vol,
         rvol: r.track == null ? null : Math.max(0, 1 + r.track / 100), rsRating: r.rs ?? null,
-        stage: macroInsights?.stageMap?.[r.t], adrPct: r.adr, _source: 'osb', _washout: w,
+        stage: macroInsights?.stageMap?.[r.t], adrPct: r.adr, _source: 'osb', _status: r.status ?? null, _key: r.key ?? null,
         setupName: 'Oversold Bounce',
         thesis: `Oversold: today's low ${r.deep.toFixed(1)} ADRs under the 5-session high (${r.wkHi.toFixed(2)}), now +${r.offLow.toFixed(1)}% off the low${r.etf ? ' · leveraged ETF' : ''}.`,
       });

@@ -38,6 +38,8 @@ export interface LeaderHist {
   /* Highest high of the last 5 sessions through `date` (15 Oct 2026) — the Oversold Bounce
      card's reference: oversold = trading 1.5 ADRs or more under it. */
   wkHi?: number;
+  /* Key levels under the last close (16 Oct 2026, keyLevelsOf), nearest first. */
+  lv?: number[];
   /* A leveraged bull ETF (15 Oct 2026): carried for the Oversold Bounce card only — kept out of
      the Liquid Leaders lists and universe count, and given no 5-year highs or volume profile. */
   etf?: boolean;
@@ -57,14 +59,14 @@ export const GAINER_MIN_RS = 70;
 export const VOLUME_MIN_RS = 50;
 /* Oversold Bounce (15 Oct 2026), modelled on Monis (x.com/mmonis): a liquid name with an ADR of
    6-15% that has traded down to 1.5 ADRs under its 5-session high. Rows are sorted by how far
-   they have come off today's low — his "TopD". Backtest scripts/backtest/oversold-bounce.ts
-   (2015-2026): as a same-day trade it lost (-0.04% a trade, 49% wins, n 18,493); held 5 days it
-   paid +4.64% a trade (66% wins, n 2,699) only when the market was washed out (20% or fewer
-   stocks above their 40-day) and +0.20% otherwise — hence the GO / WATCH light. */
-export const OVERSOLD = { minAdr: 6, maxAdr: 15, adrs: 1.5, washout: 20, max: 40 } as const;
-/* Leveraged BULL ETFs by fund name (15 Oct 2026; the backtest included ETFs): "Bull 3X", "2X Long",
-   "UltraPro", "Leveraged". Inverse funds (Bear, Short, Inverse) are left out — they are
-   "oversold" when the market rips, the opposite of the washout this card waits for. */
+   they have come off today's low — his "TopD". His entry (16 Oct, from his charts) is a dip
+   under a key level and back above it, so each row carries its key levels and a live status
+   (keyLevelsOf / levelStatusOf). Untested: the owner dropped the market-washout gate and the
+   daily-bar backtest on 16 Oct ("stocks enter oversold when the market is good"). */
+export const OVERSOLD = { minAdr: 6, maxAdr: 15, adrs: 1.5, max: 40 } as const;
+/* Leveraged BULL ETFs by fund name (15 Oct 2026): "Bull 3X", "2X Long", "UltraPro", "Leveraged".
+   Inverse funds (Bear, Short, Inverse) are left out — they go "oversold" when the market rips,
+   which is a bet against the bounce this card is for. */
 export const isLeveragedBull = (name: string): boolean =>
   /\b[23](?:\.\d)?x\b|\bultra|\bbull\b|leveraged/i.test(name) && !/\bbear\b|\bshort\b|inverse|ultrashort|-[123]x/i.test(name);
 export interface OversoldRow extends LeaderRow {
@@ -75,6 +77,51 @@ export interface OversoldRow extends LeaderRow {
   offLow: number;   // % above today's low (TopD sort)
   etf?: boolean;    // a leveraged bull ETF
   deep: number;     // how far today's low got under the 5-session high, in ADRs
+  key?: number | null;          // the key level the status is about
+  lvs?: number[];               // all key levels, for the pop-up chart
+  status?: LevelStatus;
+}
+/* Key levels (16 Oct 2026, from Monis's SOXL entry chart: a horizontal level, the dip under it
+   circled). Swing points of the last 60 sessions — a low, or a high price has since cleared,
+   with 3 bars either side — that sit under the last close, nearest first, merged when within
+   1% of each other. Up to 3. */
+export function keyLevelsOf(bars: { h: number; l: number; c: number }[], k = 3, look = 60, max = 3): number[] {
+  const n = bars.length;
+  if (n < 2 * k + 5) return [];
+  const close = bars[n - 1].c;
+  const pts: number[] = [];
+  for (let i = Math.max(k, n - look); i < n - k; i++) {
+    let lo = true, hi = true;
+    for (let j = i - k; j <= i + k; j++) {
+      if (j === i) continue;
+      if (bars[j].l <= bars[i].l) lo = false;
+      if (bars[j].h >= bars[i].h) hi = false;
+    }
+    if (lo && bars[i].l < close) pts.push(bars[i].l);
+    if (hi && bars[i].h < close) pts.push(bars[i].h);
+  }
+  pts.sort((a, b) => b - a);
+  const out: number[] = [];
+  for (const p of pts) {
+    if (out.length && Math.abs(out[out.length - 1] - p) / p < 0.01) continue;
+    out.push(+p.toFixed(2));
+    if (out.length >= max) break;
+  }
+  return out;
+}
+/* RECLAIMED — today's low went under a key level and the price is back above it (his entry).
+   TESTING — the price is within a quarter ADR of a level. LOST — under the nearest level.
+   HOLDING — above the levels, not near one. */
+export type LevelStatus = 'reclaimed' | 'testing' | 'holding' | 'lost' | null;
+export function levelStatusOf(levels: number[] | undefined, price: number, lo: number, adrPct: number): { status: LevelStatus; key: number | null } {
+  if (!levels?.length || !(price > 0) || !(lo > 0)) return { status: null, key: null };
+  const back = levels.filter(L => lo < L && price > L);
+  if (back.length) return { status: 'reclaimed', key: Math.max(...back) };
+  const band = price * (adrPct / 100) * 0.25;
+  const near = levels.find(L => Math.abs(price - L) <= band);
+  if (near != null) return { status: 'testing', key: near };
+  if (price < levels[0]) return { status: 'lost', key: Math.min(...levels.filter(L => L > price)) };
+  return { status: 'holding', key: levels[0] };
 }
 /** The oversold-bounce row for one name, or null when it does not qualify. */
 export function oversoldOf(h: LeaderHist, q: Quote, base: LeaderRow): OversoldRow | null {
@@ -83,14 +130,13 @@ export function oversoldOf(h: LeaderHist, q: Quote, base: LeaderRow): OversoldRo
   if (!(h.wkHi && h.wkHi > 0) || !(q.lo && q.lo > 0) || !(q.price > 0)) return null;
   const level = h.wkHi * (1 - (OVERSOLD.adrs * adr) / 100);
   if (q.lo > level) return null;
+  const ks = levelStatusOf(h.lv, q.price, q.lo, adr);
   return {
-    ...base, adr, level: +level.toFixed(2), wkHi: h.wkHi, lo: q.lo,
+    ...base, adr, level: +level.toFixed(2), wkHi: h.wkHi, lo: q.lo, key: ks.key, status: ks.status, ...(h.lv?.length ? { lvs: h.lv } : {}),
     offLow: +((q.price / q.lo - 1) * 100).toFixed(2),
     deep: +(((h.wkHi - q.lo) / h.wkHi) * 100 / adr).toFixed(2),
   };
 }
-/** Market washout reading (t2108_v1: % of stocks above their 40-day, last close). */
-export type Washout = { value: number | null; updatedAt: string | null };
 
 export interface LeadersLive {
   asOf: number;
@@ -103,7 +149,6 @@ export interface LeadersLive {
   gainers: LeaderRow[];
   volume: LeaderRow[];
   oversold?: OversoldRow[];      // absent on payloads written before 15 Oct 2026
-  washout?: Washout | null;
   counts: { rsHigh: number; priceHigh: number; heavy: number; oversold?: number };
 }
 
@@ -159,7 +204,7 @@ export function chkOf(bars: { h: number; l: number; c: number; v: number }[]): L
   return [r(ema(10, n - 1)), r(ema(21, n - 1)), r(ema(21, n - 2)), r(ema(50, n - 1)), adr, t.tight5, t.volDry, t.lowerHigh];
 }
 
-export function buildLive(state: LeadersState, quotes: Quote[], spyPrice: number, clockEt: number, asOf: number, idx: Pick<LeadersLive, 'spy' | 'qqq'>, rsOf?: (t: string) => number | null, washout: Washout | null = null): LeadersLive {
+export function buildLive(state: LeadersState, quotes: Quote[], spyPrice: number, clockEt: number, asOf: number, idx: Pick<LeadersLive, 'spy' | 'qqq'>, rsOf?: (t: string) => number | null): LeadersLive {
   const rows: (LeaderRow & { isRs: boolean; isHi: boolean })[] = [];
   const oversold: OversoldRow[] = [];
   for (const q of quotes) {
@@ -185,7 +230,8 @@ export function buildLive(state: LeadersState, quotes: Quote[], spyPrice: number
     const os = oversoldOf(h, q, base);
     if (os) oversold.push(os);
   }
-  oversold.sort((a, b) => b.offLow - a.offLow);
+  const RANK: Record<string, number> = { reclaimed: 0, testing: 1, holding: 2, lost: 3 };
+  oversold.sort((a, b) => (RANK[a.status ?? ''] ?? 4) - (RANK[b.status ?? ''] ?? 4) || b.offLow - a.offLow);
   const strip = ({ isRs: _r, isHi: _h, ...r }: LeaderRow & { isRs: boolean; isHi: boolean }): LeaderRow => r;
   const byChg = (a: LeaderRow, b: LeaderRow) => b.chg - a.chg;
   const rsHigh = rows.filter(r => r.isRs).sort(byChg);
@@ -196,7 +242,7 @@ export function buildLive(state: LeadersState, quotes: Quote[], spyPrice: number
     priceHigh: priceHigh.map(strip),
     gainers: rows.filter(r => (r.rs ?? 0) >= GAINER_MIN_RS).sort(byChg).slice(0, 50).map(strip),
     volume: rows.filter(r => r.track != null && r.chg > 0 && (r.rs ?? 0) >= VOLUME_MIN_RS).sort((a, b) => (b.track ?? 0) - (a.track ?? 0)).slice(0, 100).map(strip),
-    oversold: oversold.slice(0, OVERSOLD.max), washout,
+    oversold: oversold.slice(0, OVERSOLD.max),
     counts: { rsHigh: rsHigh.length, priceHigh: priceHigh.length, heavy: rows.filter(r => (r.track ?? -100) >= 100).length, oversold: oversold.length },
   };
 }

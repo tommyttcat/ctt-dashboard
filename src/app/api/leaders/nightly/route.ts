@@ -23,7 +23,7 @@ import { etGate } from '@/lib/etCron';
 import { etToday } from '@/lib/orb';
 import { etMinute } from '@/lib/orb';
 import {
-  LEADERS_STATE_KEY, LEADERS_MIN_PRICE, LEADERS_MIN_DVOL, BUCKETS, profileOf, chkOf, isLeveragedBull,
+  LEADERS_STATE_KEY, LEADERS_MIN_PRICE, LEADERS_MIN_DVOL, BUCKETS, profileOf, chkOf, isLeveragedBull, keyLevelsOf,
   type LeadersState, type LeaderHist,
 } from '@/lib/leaders';
 
@@ -153,6 +153,9 @@ export async function GET(req: Request) {
     const hi5 = days.slice(0, 5).map(d => d.bars.get(t)?.h ?? 0);
     const wk = Math.max(...hi5);
     if (wk > 0) out[t].wkHi = wk; else delete out[t].wkHi;
+    /* Key levels under tonight's close (16 Oct 2026), for the Oversold Bounce status. */
+    const lv = keyLevelsOf(bars);
+    if (lv.length) out[t].lv = lv; else delete out[t].lv;
   }
 
   // 4. Usual volume by half hour, from 20 sessions of 30-minute bars.

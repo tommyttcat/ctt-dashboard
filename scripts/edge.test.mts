@@ -105,9 +105,10 @@ eq('coil: wide coil pressed at the high = green', tierForScan('coil', { ...good,
 eq('coil: undercut & rally is not held back', tierForScan('coil', { ...good, setupName: 'U&R', coilRatio: 2 })?.tier, 'green');
 ok('the tooltip shows the measured line', /measured winners/.test(tierForScan('vcp', { ...good, atrPct: 3, finalDepthPct: 6, stopPct: 8 })?.tip ?? ''));
 
-// ---- Oversold Bounce (15 Oct 2026): colour = the washout light on the row
-eq('osb: washed out (20%) = green', tierForScan('osb', { ticker: 'X', _washout: 20 })?.tier, 'green');
-eq('osb: 25% = yellow', tierForScan('osb', { ticker: 'X', _washout: 25.2 })?.tier, 'yellow');
-eq('osb: no reading = yellow', tierForScan('osb', { ticker: 'X' })?.tier, 'yellow');
-ok('osb: tip quotes the test', /\+4\.64%/.test(tierForScan('osb', { _washout: 10 })!.tip));
+// ---- Oversold Bounce (16 Oct 2026): colour = the key-level status on the row
+eq('osb: reclaimed = green', tierForScan('osb', { ticker: 'X', _status: 'reclaimed' })?.tier, 'green');
+eq('osb: lost = red', tierForScan('osb', { ticker: 'X', _status: 'lost' })?.tier, 'red');
+eq('osb: testing = yellow', tierForScan('osb', { ticker: 'X', _status: 'testing' })?.tier, 'yellow');
+eq('osb: no level = yellow', tierForScan('osb', { ticker: 'X' })?.tier, 'yellow');
+ok('osb: tip says untested', /Untested/.test(tierForScan('osb', { _status: 'reclaimed' })!.tip));
 done('edge tiers');

@@ -378,21 +378,20 @@ export function checkedFor(source: string, row: any): Checked | null {
   return c;
 }
 
-/* ---- Oversold Bounce (OSB, 15 Oct 2026) ------------------------------------
-   Not the swing checklist: every oversold name fails it by design. The colour is the market
-   washout light the row carries (_washout, the share of stocks above their 40-day at the last
-   close; lib/leaders OVERSOLD.washout): GREEN at 20% or less — the only time the backtest paid
-   (scripts/backtest/oversold-bounce.ts: held 5 days, +4.64% a trade, 66% wins) — YELLOW
-   otherwise (+0.20%, 48%). No red: no bucket of the scan lost in both halves when held. */
-function osbTierRule(row: { _washout?: number | null } | null | undefined): EdgeTier | null {
+/* ---- Oversold Bounce (OSB, 15 Oct 2026; 16 Oct: key-level status) ----------
+   Not the swing checklist: every oversold name fails it by design. The colour is the row's
+   key-level status (lib/leaders levelStatusOf, carried as _status): GREEN reclaimed — the low
+   went under a key level today and the price is back above it, Monis's entry — RED lost (under
+   the nearest level), YELLOW testing / holding / no level. Untested; the market-washout gate
+   was dropped on 16 Oct at the owner's request. */
+function osbTierRule(row: { _status?: string | null } | null | undefined): EdgeTier | null {
   if (!row) return null;
-  const w = num(row._washout);
-  return w != null && w <= 20 ? 'green' : 'yellow';
+  return row._status === 'reclaimed' ? 'green' : row._status === 'lost' ? 'red' : 'yellow';
 }
 export const OSB_TIP: Record<EdgeTier, string> = {
-  green: 'GO (Oversold Bounce): the market is washed out — 20% or fewer stocks above their 40-day at the last close. In the 2015-2026 test, oversold names bought then and held ~5 days made +4.64% a trade with 66% wins; any liquid high-ADR name bought those days made +3.98%, so most of it is the washout. Not a same-day trade (that lost).',
-  yellow: 'WATCH (Oversold Bounce): oversold, but the market is not washed out. Held 5 days outside a washout the test found about nothing (+0.20% a trade, 48% wins). Goes GO at 20% or fewer stocks above their 40-day.',
-  red: 'unused on Oversold Bounce',
+  green: 'RECLAIMED (Oversold Bounce): dipped under a key level today and is back above it — the entry Monis circles on his charts. Key levels are on the pop-up chart. Untested.',
+  yellow: 'TESTING / HOLDING (Oversold Bounce): oversold, at a key level now or still above its levels. Key levels are on the pop-up chart. Untested.',
+  red: 'LOST (Oversold Bounce): oversold and under its nearest key level. Key levels are on the pop-up chart. Untested.',
 };
 
 const TIER_BY_SOURCE: Record<string, { fn: (r: any) => EdgeTier | null; rule: (r: any) => EdgeTier | null; tip: Record<EdgeTier, string>; mode: Mode }> = {

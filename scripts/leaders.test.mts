@@ -1,6 +1,6 @@
 /* scripts/leaders.test.mts — Liquid Leaders arithmetic (lib/leaders). */
 
-import { expectedCum, trackingPct, profileOf, buildLive, chkOf, checkFields, oversoldOf, isLeveragedBull, BUCKETS, OVERSOLD, type LeadersState } from '../src/lib/leaders.ts';
+import { expectedCum, trackingPct, profileOf, buildLive, chkOf, checkFields, oversoldOf, isLeveragedBull, keyLevelsOf, levelStatusOf, BUCKETS, type LeadersState } from '../src/lib/leaders.ts';
 import { eq, near, ok, done } from './testkit.mts';
 
 // A flat day: 100 shares every half hour -> cumulative 100, 200, ... 1300.
@@ -61,11 +61,9 @@ eq('no chk = no fields', Object.keys(checkFields({ maxClose: 1, maxRs: 1, adv: 1
     { t: 'A', price: 85, prevClose: 95, vol: 1, lo: 84 },   // +1.2% off the low
     { t: 'B', price: 88, prevClose: 95, vol: 1, lo: 80 },   // +10% off the low
     { t: 'C', price: 99, prevClose: 99, vol: 1, lo: 98 },   // not oversold
-  ], 500, 600, 1, { spy: null, qqq: null }, undefined, { value: 18, updatedAt: null });
+  ], 500, 600, 1, { spy: null, qqq: null });
   eq('sorted by bounce off the low (TopD)', lv.oversold!.map(x => x.t).join(), 'B,A');
   eq('count', lv.counts.oversold, 2);
-  eq('washout reading carried', lv.washout?.value, 18);
-  ok('washout line is 20%', OVERSOLD.washout === 20);
 }
 // ---- Leveraged bull ETFs (15 Oct 2026)
 for (const n of ['Direxion Daily Semiconductor Bull 3X Shares', 'ProShares UltraPro QQQ', 'GraniteShares 2x Long NVDA Daily ETF', 'T-Rex 2X Long MSTR Daily Target ETF', 'ProShares Ultra Bitcoin ETF', 'Direxion Daily TSLA Bull 2X Shares'])
@@ -85,5 +83,21 @@ for (const n of ['Direxion Daily Semiconductor Bear 3X Shares', 'ProShares Ultra
   eq('ETF on the oversold list, flagged', lv.oversold!.filter(r => r.etf).map(r => r.t).join(), 'SOXL');
   eq('ETF kept out of the universe count', lv.universe, 1);
   ok('ETF kept out of the Liquid Leaders lists', ![...lv.rsHigh, ...lv.priceHigh, ...lv.gainers, ...lv.volume].some(r => r.t === 'SOXL'));
+}
+// ---- Key levels + status (16 Oct 2026)
+{
+  // A dip to 90 at bar 10 (a swing low), an old high at 105 cleared later, last close 110.
+  const B = (h: number, l: number, c: number) => ({ h, l, c });
+  const bars = [...Array.from({ length: 6 }, () => B(100, 98, 99)), B(99, 95, 96), B(97, 93, 94), B(95, 91, 92), B(94, 90.5, 93), B(93, 90, 92), B(95, 91, 94), B(98, 93, 97), B(101, 96, 100), B(103, 99, 102), B(105, 101, 104),
+    B(104, 100, 101), B(103, 99, 100), B(104, 100, 102), B(107, 103, 106), B(109, 105, 108), B(111, 107, 110)];
+  const lv = keyLevelsOf(bars);
+  ok('key levels under the close, nearest first', lv.length >= 2 && lv[0] > lv[1] && lv.every(x => x < 110));
+  ok('the swing low at 90 is a level', lv.includes(90));
+  eq('reclaimed: low under a level, price back above', levelStatusOf([100, 90], 101, 99, 8).status, 'reclaimed');
+  eq('reclaimed names the level', levelStatusOf([100, 90], 101, 99, 8).key, 100);
+  eq('lost: under the nearest level', levelStatusOf([100, 90], 95, 94, 8).status, 'lost');
+  eq('testing: within a quarter ADR', levelStatusOf([100, 90], 101, 100.5, 8).status, 'testing');
+  eq('holding: above, not near', levelStatusOf([100, 90], 110, 108, 8).status, 'holding');
+  eq('no levels = no status', levelStatusOf([], 110, 108, 8).status, null);
 }
 done('liquid leaders');

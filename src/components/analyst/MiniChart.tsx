@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState, useCallback, useContext } from 'react';
+import { chartLevelsGlobal } from '@/lib/chartLevels';
 import { createChart, CandlestickSeries, LineSeries, AreaSeries } from 'lightweight-charts';
 import type { IChartApi, ISeriesApi, LineData, Time } from 'lightweight-charts';
 
@@ -259,7 +260,7 @@ export default function MiniChart({ symbol, mode = 'candle', showTrend = false, 
   const chartRef = useRef<IChartApi | null>(null);
   const [inited, setInited] = useState(false);
   const ctxLevels = useContext(ChartLevelsCtx);
-  const resolvedLevels = externalLevels ?? ctxLevels.get(symbol) ?? undefined;
+  const resolvedLevels = externalLevels ?? ctxLevels.get(symbol) ?? chartLevelsGlobal.get(symbol) ?? undefined;
   const [tf, setTf] = useState<'daily' | 'weekly' | 'monthly' | '3m' | 'ytd'>('daily');
   const [chartMode, setChartMode] = useState<'candle' | 'line'>(mode);
   const [trend, setTrend] = useState(showTrend);
