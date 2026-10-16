@@ -1685,7 +1685,8 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
   );
   const H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
   const badge = 'inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center';
-  const list = (title: string, n: number | null, rawRows: LeaderRow[]) => {
+  /* split (16 Oct 2026, owner): the top 20 as two lists of 10 side by side, stacked on a phone. */
+  const list = (title: string, n: number | null, rawRows: LeaderRow[], split = false) => {
     const sort = sorts[title] ?? { key: 'chg' as LeaderSortKey, dir: 'desc' as SortDir };
     // Click a column: high to low; click it again: low to high. Blanks sort last.
     const onSort = (k: LeaderSortKey) => setSorts(prev => {
@@ -1699,9 +1700,7 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
     });
     const S = 'cursor-pointer hover:text-slate-400 transition-colors select-none';
     const arrow = (k: LeaderSortKey) => (sort.key === k ? (sort.dir === 'desc' ? ' ↓' : ' ↑') : '');
-    return (
-    <div className="min-w-0">
-      <div className="text-[8px] font-bold tracking-widest uppercase text-cyan-400 mb-1">{title}{n != null ? ` · ${n}` : ''}</div>
+    const header = (
       <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
         <span className={`${H} shrink-0 w-[38px] md:w-[44px] text-center mx-0.5`}>Ticker</span>
         <span className={`${H} ${S} w-[20px] md:w-[22px] text-center ml-2 md:ml-1`} onClick={() => onSort('cnf')}>CNF{arrow('cnf')}</span>
@@ -1714,8 +1713,8 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
         <span className={`${H} ${S} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`} onClick={() => onSort('stg')}>Stg{arrow('stg')}</span>
         <span className={`${H} w-[14px] md:w-[16px] text-center ml-2 md:ml-1`}>N</span>
       </div>
-      <div className="max-h-[260px] overflow-y-auto space-y-0.5">
-        {rows.length === 0 ? <p className="text-[9px] text-slate-500 py-1">None right now.</p> : rows.map(r => {
+    );
+    const rowEl = (r: LeaderRow) => {
           const rv = r.track == null ? null : Math.max(0, 1 + r.track / 100);
           /* The scans' CNF / stage where a scan carries the name, else the live row's own (16 Oct 2026). */
           const cnf = cnfMap?.[r.t] ?? r.cnf ?? null;
@@ -1753,8 +1752,26 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
               ) : <span className="inline-block w-[14px] md:w-[16px] ml-2 md:ml-1" />}
             </InfoDot>
           );
-        })}
-      </div>
+        };
+    return (
+    <div className="min-w-0">
+      <div className="text-[8px] font-bold tracking-widest uppercase text-cyan-400 mb-1">{title}{n != null ? ` · ${n}` : ''}</div>
+      {split ? (
+        rows.length === 0 ? <p className="text-[9px] text-slate-500 py-1">None right now.</p> : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-3">
+            {[rows.slice(0, 10), rows.slice(10, 20)].filter(p => p.length).map((part, k) => (
+              <div key={k} className="min-w-0">{header}<div className="space-y-0.5">{part.map(rowEl)}</div></div>
+            ))}
+          </div>
+        )
+      ) : (
+        <>
+          {header}
+          <div className="max-h-[260px] overflow-y-auto space-y-0.5">
+            {rows.length === 0 ? <p className="text-[9px] text-slate-500 py-1">None right now.</p> : rows.map(rowEl)}
+          </div>
+        </>
+      )}
     </div>
     );
   };
@@ -1768,9 +1785,10 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
         </div>
         <InfoDot text={"RS LINE HIGH — the RS line is the stock's price divided by SPY. When it rises the stock is beating the market; at a 5-year high it is beating the market by more than at any time in 5 years, often before the price itself breaks out.\n\nHEAVIEST BUYING — RVOL: today's volume against this stock's own usual volume by this time of day (its last 20 sessions, by half hour). 2x means twice its usual pace. Only names UP on the day with RS 50+: heavy selling is not leadership.\n\nCOLOUR — the site's one checklist (swing, 3–5 days) on every row: the live price against last night's 10/21/50 EMAs, RS, industry group, volume drying up, earnings and QQQ. Hover a row for its ✔ / ✖.\n\nRS — the RS Rating, 1-99: stronger than that % of the market over the last 12 months, as of yesterday's close. Different from the RS line: the rating ranks the stock against all others, the line compares it with SPY.\n\nVOL — shares traded today so far. $VOL — dollars traded today (shares × price).\n\nCNF is the site's confluence score: the scan's own where a scan carries the name, else the same scorer on the live row without a news input (a slightly conservative read). STG is the Weinstein stage: the scan's, else last night's from the System nightly. N is the scans' news star (click for the story). On a phone PRC, VOL and $VOL are hidden to fit.\n\nROW COLOUR — the same green / yellow / red as the scan cards, for names one of the scans also carries today. An uncoloured row is not on any scan.\n\nThe universe is NASDAQ and NYSE common stock at $10+ trading $100M+ a day, rebuilt each evening. Data is 15 minutes delayed; the history goes back 5 years, so highs are 5-year highs, not all-time. A view of what is leading, not a tested buy signal."} />
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-3">
+      {/* 16 Oct 2026 (owner): heaviest buying under the RS line list, its top 20 side by side. */}
+      <div className="space-y-3">
         {list('RS line at 5-yr high', live.counts.rsHigh, live.rsHigh)}
-        {list('Heaviest buying vs usual', live.counts.heavy, live.volume)}
+        {list('Heaviest buying vs usual · top 20', null, live.volume, true)}
       </div>
       <p className="text-[10px] text-slate-500 font-medium mt-2">
         {live.universe} liquid names · 5-year highs · data 15 min delayed, as of {clock} ET
