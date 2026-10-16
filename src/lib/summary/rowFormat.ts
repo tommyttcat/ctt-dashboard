@@ -564,7 +564,7 @@ export const isMoverRow = (s: any): boolean => MOVER_SOURCES.has(String(s?._sour
    quintiles (Q1 +0.05R … Q5 −0.06R on trail21), and Swing's top quintile won
    in one half and lost in the other. Their scores still sort and describe the
    setup; they are just never coloured as a grade. */
-export const SCORE_UNRANKED_SOURCES = new Set(['ep9m', 'swing', 'osb']);   // osb: Oversold Bounce rows carry no CNF
+export const SCORE_UNRANKED_SOURCES = new Set(['ep9m', 'swing']);
 export const isPullbackPlan = (s: any): boolean => PULLBACK_SOURCES.has(String(s?._source ?? ''));
 
 /* At market: no level left to wait for. The 10/21 plans buy at the price

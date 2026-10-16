@@ -1,6 +1,6 @@
 /* scripts/leaders.test.mts — Liquid Leaders arithmetic (lib/leaders). */
 
-import { expectedCum, trackingPct, profileOf, buildLive, chkOf, checkFields, oversoldOf, isLeveragedBull, keyLevelsOf, levelStatusOf, BUCKETS, type LeadersState } from '../src/lib/leaders.ts';
+import { expectedCum, trackingPct, profileOf, buildLive, chkOf, checkFields, oversoldOf, isLeveragedBull, keyLevelsOf, levelStatusOf, liveCnf, BUCKETS, type LeadersState } from '../src/lib/leaders.ts';
 import { eq, near, ok, done } from './testkit.mts';
 
 // A flat day: 100 shares every half hour -> cumulative 100, 200, ... 1300.
@@ -99,5 +99,17 @@ for (const n of ['Direxion Daily Semiconductor Bear 3X Shares', 'ProShares Ultra
   eq('testing: within a quarter ADR', levelStatusOf([100, 90], 101, 100.5, 8).status, 'testing');
   eq('holding: above, not near', levelStatusOf([100, 90], 110, 108, 8).status, 'holding');
   eq('no levels = no status', levelStatusOf([], 110, 108, 8).status, null);
+}
+// ---- CNF + stage on every row (16 Oct 2026)
+{
+  const h = { maxClose: 50, maxRs: 0.01, adv: 1000, prof, chk: [95, 90, 89, 80, 6, null, null, 0] as any, stg: '2A' };
+  const c = liveCnf(h, { t: 'X', price: 100, prevClose: 96, vol: 3000, o: 97, hi: 101, lo: 96, vw: 98 }, 150, 0.5);
+  ok('live CNF is on the 0-100 scale', c != null && c >= 0 && c <= 100);
+  eq('no quote, no CNF', liveCnf(h, { t: 'X', price: 0, prevClose: 96, vol: 0 }, null, null), null);
+  const st: LeadersState = { date: 'd', builtAt: '', names: { X: h } };
+  const lv = buildLive(st, [{ t: 'X', price: 100, prevClose: 96, vol: 3000, o: 97, hi: 101, lo: 96, vw: 98 }], 500, 600, 1, { spy: { price: 500, chg: 0.5 }, qqq: null });
+  const row = [...lv.gainers, ...lv.volume, ...lv.rsHigh, ...lv.priceHigh].find(r => r.t === 'X');
+  eq('stage carried on the row', row?.stg, '2A');
+  ok('CNF carried on the row', typeof row?.cnf === 'number');
 }
 done('liquid leaders');

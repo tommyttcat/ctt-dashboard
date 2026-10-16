@@ -7,6 +7,23 @@
 import { computeStageDetail } from './indicators/stage';
 
 export const STAGE2_KEY = 'stage2_breadth_v1';
+/* Per-name stage (16 Oct 2026): the same stage function on the same closes, saved for the cards
+   that list names no scan carries (Liquid Leaders, Oversold Bounce), so their STG column is the
+   scans' own reading instead of a dash. Written by the System nightly, read by the leaders nightly. */
+export const STAGE_MAP_KEY = 'system_stage_v1';
+export interface StageMapState { asOf: string; stage: Record<string, string> }
+/** '2A', '4B', ... per ticker at session index t, for names with 210+ bars. */
+export function stageMapAt(closes: Float64Array[], tickers: string[], t: number): Record<string, string> {
+  const out: Record<string, string> = {};
+  closes.forEach((c, i) => {
+    const upto: number[] = [];
+    for (let j = Math.max(0, t - 260); j <= t; j++) if (Number.isFinite(c[j]) && c[j] > 0) upto.push(c[j]);
+    if (upto.length < 210 || !Number.isFinite(c[t])) return;
+    const sh = computeStageDetail(upto).label.replace(/^Stage\s*/i, '').trim();
+    if (/^[1-4]/.test(sh)) out[tickers[i]] = sh;
+  });
+  return out;
+}
 
 export interface Stage2Point { d: string; pct: number; n: number }
 export interface Stage2State { asOf: string; pct: number; n: number; counts: Record<string, number>; history: Stage2Point[] }

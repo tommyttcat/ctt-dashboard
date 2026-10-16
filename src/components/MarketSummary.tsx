@@ -1639,8 +1639,8 @@ const leaderDollars = (r: LeaderRow) => (r.vol != null && r.vol > 0 ? r.vol * r.
 type LeaderSortKey = 'cnf' | 'chg' | 'price' | 'rvol' | 'vol' | 'dvol' | 'rs' | 'stg';
 type ScanNews = { n: number; url: string | null; tip: string };
 const leaderSortVal = (r: LeaderRow, k: LeaderSortKey, cnfMap?: Record<string, number>, stageMap?: Record<string, string>): number | null => {
-  if (k === 'cnf') return cnfMap?.[r.t] ?? null;
-  if (k === 'stg') { const v = parseFloat(stageMap?.[r.t] ?? ''); return Number.isFinite(v) ? v : null; }
+  if (k === 'cnf') return cnfMap?.[r.t] ?? r.cnf ?? null;
+  if (k === 'stg') { const v = parseFloat(stageMap?.[r.t] ?? r.stg ?? ''); return Number.isFinite(v) ? v : null; }
   return k === 'chg' ? r.chg : k === 'price' ? r.price : k === 'rvol' ? r.track : k === 'vol' ? (r.vol ?? null)
     : k === 'dvol' ? leaderDollars(r) : (r.rs ?? null);
 };
@@ -1717,8 +1717,9 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
       <div className="max-h-[260px] overflow-y-auto space-y-0.5">
         {rows.length === 0 ? <p className="text-[9px] text-slate-500 py-1">None right now.</p> : rows.map(r => {
           const rv = r.track == null ? null : Math.max(0, 1 + r.track / 100);
-          const cnf = cnfMap?.[r.t] ?? null;
-          const stg = stageMap?.[r.t] ?? null;
+          /* The scans' CNF / stage where a scan carries the name, else the live row's own (16 Oct 2026). */
+          const cnf = cnfMap?.[r.t] ?? r.cnf ?? null;
+          const stg = stageMap?.[r.t] ?? r.stg ?? null;
           const news = newsMap?.[r.t] ?? null;
           /* Universal colour (12 Oct 2026): the scan's colour where a scan carries the name,
              else the swing checklist on this row — live price against last night's EMAs
@@ -1765,7 +1766,7 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
           {tile('RS lines at 5-yr high', <span className="text-slate-100">{live.counts.rsHigh}</span>, 'outrunning SPY more than ever')}
           {tile('Heavy volume', <span className="text-slate-100">{live.counts.heavy}</span>, '2x usual pace or more')}
         </div>
-        <InfoDot text={"RS LINE HIGH — the RS line is the stock's price divided by SPY. When it rises the stock is beating the market; at a 5-year high it is beating the market by more than at any time in 5 years, often before the price itself breaks out.\n\nHEAVIEST BUYING — RVOL: today's volume against this stock's own usual volume by this time of day (its last 20 sessions, by half hour). 2x means twice its usual pace. Only names UP on the day with RS 50+: heavy selling is not leadership.\n\nCOLOUR — the site's one checklist (swing, 3–5 days) on every row: the live price against last night's 10/21/50 EMAs, RS, industry group, volume drying up, earnings and QQQ. Hover a row for its ✔ / ✖.\n\nRS — the RS Rating, 1-99: stronger than that % of the market over the last 12 months, as of yesterday's close. Different from the RS line: the rating ranks the stock against all others, the line compares it with SPY.\n\nVOL — shares traded today so far. $VOL — dollars traded today (shares × price).\n\nCNF, STG and N come from the scans: CNF is the site's confluence score, STG the Weinstein stage, N the news star (click for the story). A dash means no scan carries the name today. On a phone PRC, VOL and $VOL are hidden to fit.\n\nROW COLOUR — the same green / yellow / red as the scan cards, for names one of the scans also carries today. An uncoloured row is not on any scan.\n\nThe universe is NASDAQ and NYSE common stock at $10+ trading $100M+ a day, rebuilt each evening. Data is 15 minutes delayed; the history goes back 5 years, so highs are 5-year highs, not all-time. A view of what is leading, not a tested buy signal."} />
+        <InfoDot text={"RS LINE HIGH — the RS line is the stock's price divided by SPY. When it rises the stock is beating the market; at a 5-year high it is beating the market by more than at any time in 5 years, often before the price itself breaks out.\n\nHEAVIEST BUYING — RVOL: today's volume against this stock's own usual volume by this time of day (its last 20 sessions, by half hour). 2x means twice its usual pace. Only names UP on the day with RS 50+: heavy selling is not leadership.\n\nCOLOUR — the site's one checklist (swing, 3–5 days) on every row: the live price against last night's 10/21/50 EMAs, RS, industry group, volume drying up, earnings and QQQ. Hover a row for its ✔ / ✖.\n\nRS — the RS Rating, 1-99: stronger than that % of the market over the last 12 months, as of yesterday's close. Different from the RS line: the rating ranks the stock against all others, the line compares it with SPY.\n\nVOL — shares traded today so far. $VOL — dollars traded today (shares × price).\n\nCNF is the site's confluence score: the scan's own where a scan carries the name, else the same scorer on the live row without a news input (a slightly conservative read). STG is the Weinstein stage: the scan's, else last night's from the System nightly. N is the scans' news star (click for the story). On a phone PRC, VOL and $VOL are hidden to fit.\n\nROW COLOUR — the same green / yellow / red as the scan cards, for names one of the scans also carries today. An uncoloured row is not on any scan.\n\nThe universe is NASDAQ and NYSE common stock at $10+ trading $100M+ a day, rebuilt each evening. Data is 15 minutes delayed; the history goes back 5 years, so highs are 5-year highs, not all-time. A view of what is leading, not a tested buy signal."} />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-3">
         {list('RS line at 5-yr high', live.counts.rsHigh, live.rsHigh)}
@@ -1788,14 +1789,16 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
    no extra column. Untested: the owner dropped the market-washout gate and the daily-bar test
    on 16 Oct. PHONE: every cell is shrink-0 and CNF / Stg are hidden below md, so the header
    stays on the data (a shrinking flex row drifted the columns apart on a 375px screen). */
-type OsSortKey = 'off' | 'deep' | 'chg' | 'rs' | 'cnf';
+type OsSortKey = 'off' | 'hi' | 'chg' | 'rs' | 'cnf';
 const OS_STATUS: Record<string, { tint: EdgeTier; word: string; why: string }> = {
   reclaimed: { tint: 'green', word: 'RECLAIMED', why: 'dipped under the key level today and is back above it (his entry)' },
   testing: { tint: 'yellow', word: 'TESTING', why: 'trading at the key level now' },
   holding: { tint: 'yellow', word: 'HOLDING', why: 'above its key levels, not testing one' },
   lost: { tint: 'red', word: 'LOST', why: 'below its nearest key level' },
 };
-const OS_TIP = "OVERSOLD BOUNCE — Monis-style (x.com/mmonis): liquid names ($10+, $100M+ a day) that move a lot (ADR 6–15%), stocks and leveraged bull ETFs, that traded down today to 1.5 ADRs or more under their 5-session high. Top 20: Reclaimed first, then by how far they have come back off today's low, as he sorts his \"TopD\" list.\n\nKEY LEVELS — the swing lows and old highs of the last 60 sessions under last night's close, drawn as green lines on the ticker's pop-up chart. ROW COLOUR — green RECLAIMED (dipped under a key level today and back above it — his entry), yellow TESTING (at a level) or HOLDING (above them), red LOST (under the nearest one). Hover a row for the level.\n\nOFF LOW — % above today's low. DEEP — how far today's low got under the 5-session high, in ADRs. Inverse ETFs are left out. Untested. Data 15 minutes delayed.";
+const OS_TIP = "OVERSOLD BOUNCE — Monis-style (x.com/mmonis): liquid names ($10+, $100M+ a day) that move a lot (ADR 6–15%), stocks and leveraged bull ETFs, that traded down today to 1.5 ADRs or more under their 5-session high. Top 20: Reclaimed first, then by how far they have come back off today's low, as he sorts his \"TopD\" list.\n\nKEY LEVELS — the swing lows and old highs of the last 60 sessions under last night's close, drawn as green lines on the ticker's pop-up chart. ROW COLOUR — green RECLAIMED (dipped under a key level today and back above it — his entry), yellow TESTING (at a level) or HOLDING (above them), red LOST (under the nearest one). Hover a row for the level.\n\nOL (off low) — % above today's low. OH (off high) — % below the 5-day high now (hover a row for the drop in ADRs). CNF and STG — the scan's own where a scan carries the name, else the live row's (CNF without a news input). Inverse ETFs are left out. Untested. Data 15 minutes delayed.";
+/** % below the 5-session high now (negative). */
+const offHi = (r: OversoldRow): number => (r.wkHi > 0 ? (r.price / r.wkHi - 1) * 100 : 0);
 const OversoldBounce = ({ cnfMap, stageMap, newsMap }: {
   cnfMap?: Record<string, number>; stageMap?: Record<string, string>; newsMap?: Record<string, ScanNews>;
 }) => {
@@ -1804,7 +1807,7 @@ const OversoldBounce = ({ cnfMap, stageMap, newsMap }: {
   if (!live) return <p className="text-[10px] text-slate-500">Builds with Liquid Leaders: after the nightly run, updated every 5 minutes in market hours.</p>;
   if (!live.oversold) return <p className="text-[10px] text-slate-500">{"Starts with the first Liquid Leaders update after tonight's nightly run."}</p>;
   const val = (r: OversoldRow, k: OsSortKey): number | null =>
-    k === 'off' ? r.offLow : k === 'deep' ? r.deep : k === 'chg' ? r.chg : k === 'rs' ? (r.rs ?? null) : (cnfMap?.[r.t] ?? null);
+    k === 'off' ? r.offLow : k === 'hi' ? offHi(r) : k === 'chg' ? r.chg : k === 'rs' ? (r.rs ?? null) : (cnfMap?.[r.t] ?? r.cnf ?? null);
   /* Default: the payload's order (Reclaimed first, then off the low). A header click sorts the 20. */
   const top = live.oversold.slice(0, 20);
   const rows = !sort.key ? top : [...top].sort((a, b) => {
@@ -1826,25 +1829,25 @@ const OversoldBounce = ({ cnfMap, stageMap, newsMap }: {
       <span className={`${H} ${S} hidden md:inline-block w-[22px] text-center ml-1`} onClick={() => onSort('cnf')}>CNF{arrow('cnf')}</span>
       <span className={`${H} ${S} w-[46px] md:w-[52px] text-right ml-1`} onClick={() => onSort('chg')}>Chg%{arrow('chg')}</span>
       <span className={`${H} hidden md:inline-block w-[42px] text-right ml-1`}>Prc</span>
-      <span className={`${H} ${S} w-[46px] md:w-[50px] text-right ml-2 md:ml-1`} onClick={() => onSort('off')}>Off low{arrow('off')}</span>
-      <span className={`${H} ${S} w-[36px] md:w-[38px] text-right ml-2 md:ml-1`} onClick={() => onSort('deep')}>Deep{arrow('deep')}</span>
+      <span className={`${H} ${S} w-[46px] md:w-[50px] text-right ml-2 md:ml-1`} onClick={() => onSort('off')}>OL{arrow('off')}</span>
+      <span className={`${H} ${S} w-[40px] md:w-[44px] text-right ml-2 md:ml-1`} onClick={() => onSort('hi')}>OH{arrow('hi')}</span>
       <span className={`${H} ${S} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`} onClick={() => onSort('rs')}>RS{arrow('rs')}</span>
       <span className={`${H} hidden md:inline-block w-[24px] text-center ml-1`}>Stg</span>
       <span className={`${H} w-[14px] md:w-[16px] text-center ml-2 md:ml-1`}>N</span>
     </div>
   );
   const row = (r: OversoldRow, i: number) => {
-    const cnf = cnfMap?.[r.t] ?? null, stg = stageMap?.[r.t] ?? null, news = newsMap?.[r.t] ?? null;
+    const cnf = cnfMap?.[r.t] ?? r.cnf ?? null, stg = stageMap?.[r.t] ?? r.stg ?? null, news = newsMap?.[r.t] ?? null;
     const st = r.status ? OS_STATUS[r.status] : null;
     return (
       <InfoDot key={r.t} block className={`flex items-center whitespace-nowrap py-[1px] ${st ? `${EDGE_TINT[st.tint]} rounded-sm` : ''}`}
-        text={`#${i + 1} ${r.n ?? r.t}${r.etf ? ' (leveraged ETF)' : ''}\n${st && r.key != null ? `${st.word} — ${st.why}: key level ${r.key.toFixed(2)}` : 'No key level under last night\'s close'}\nToday's low ${r.lo.toFixed(2)}, ${r.deep.toFixed(1)} ADRs under the 5-session high (${r.wkHi.toFixed(2)}) · now ${r.offLow.toFixed(1)}% off the low · ADR ${r.adr.toFixed(1)}%`}>
+        text={`#${i + 1} ${r.n ?? r.t}${r.etf ? ' (leveraged ETF)' : ''}\n${st && r.key != null ? `${st.word} — ${st.why}: key level ${r.key.toFixed(2)}` : 'No key level under last night\'s close'}\n5-day high ${r.wkHi.toFixed(2)} · today's low ${r.lo.toFixed(2)}, ${r.deep.toFixed(1)}× its ADR under that high · now ${r.offLow.toFixed(1)}% off the low · ADR ${r.adr.toFixed(1)}%`}>
         <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover>
         <span className={`${C} hidden md:inline-block w-[22px] text-center ml-1`}>{cnf != null ? <span className={`${badge} ${cnfBadgeCls(cnf)}`}>{Math.round(cnf)}</span> : dash}</span>
         <span className={`${C} text-[9px] tabular-nums font-semibold w-[46px] md:w-[52px] text-right ml-1 ${r.chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{r.chg >= 0 ? '+' : ''}{r.chg.toFixed(2)}%</span>
         <span className={`${C} text-[9px] tabular-nums hidden md:inline-block w-[42px] text-right text-slate-300 ml-1`}>{r.price.toFixed(2)}</span>
         <span className={`${C} text-[9px] tabular-nums font-semibold w-[46px] md:w-[50px] text-right ml-2 md:ml-1 ${r.offLow >= 3 ? 'text-emerald-400' : r.offLow >= 1 ? 'text-white' : 'text-slate-400'}`}>+{r.offLow.toFixed(1)}%</span>
-        <span className={`${C} text-[9px] tabular-nums w-[36px] md:w-[38px] text-right text-slate-300 ml-2 md:ml-1`}>{r.deep.toFixed(1)}</span>
+        <span className={`${C} text-[9px] tabular-nums w-[40px] md:w-[44px] text-right text-rose-300 ml-2 md:ml-1`}>{offHi(r).toFixed(1)}%</span>
         <span className={`${C} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`}>{r.rs != null ? <span className={`${badge} ${rsBadge(r.rs)}`}>{r.rs}</span> : dash}</span>
         <span className={`${C} hidden md:inline-block w-[24px] text-center ml-1`}>{stg ? <span className={`${badge} ${stageBadge(stg)}`}>{stg}</span> : dash}</span>
         {news ? (
@@ -1866,7 +1869,7 @@ const OversoldBounce = ({ cnfMap, stageMap, newsMap }: {
   return (
     <div>
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-[9px] text-slate-500 flex-1">Reclaimed first (green), then off the low. Key levels on each ticker&apos;s chart. Untested.</span>
+        <span className="text-[9px] text-slate-500 flex-1">Reclaimed first (green), then OL. OL = % off today&apos;s low · OH = % off the 5-day high. Key levels on each ticker&apos;s chart. Untested.</span>
         <InfoDot text={OS_TIP} />
       </div>
       {rows.length === 0 ? <p className="text-[9px] text-slate-500 py-1">Nothing has reached 1.5 ADRs under its 5-session high today.</p> : (
@@ -2657,9 +2660,9 @@ export default function MarketSummary() {
       out.push({
         ticker: r.t, name: r.n, price: r.price, changePct: r.chg, vol: r.vol, volume: r.vol,
         rvol: r.track == null ? null : Math.max(0, 1 + r.track / 100), rsRating: r.rs ?? null,
-        stage: macroInsights?.stageMap?.[r.t], adrPct: r.adr, _source: 'osb', _status: r.status ?? null, _key: r.key ?? null,
+        stage: macroInsights?.stageMap?.[r.t] ?? r.stg ?? undefined, cnfScore: r.cnf ?? undefined, adrPct: r.adr, _source: 'osb', _status: r.status ?? null, _key: r.key ?? null,
         setupName: 'Oversold Bounce',
-        thesis: `Oversold: today's low ${r.deep.toFixed(1)} ADRs under the 5-session high (${r.wkHi.toFixed(2)}), now +${r.offLow.toFixed(1)}% off the low${r.etf ? ' · leveraged ETF' : ''}.`,
+        thesis: `Oversold: ${offHi(r).toFixed(1)}% off the 5-day high (${r.wkHi.toFixed(2)}), now +${r.offLow.toFixed(1)}% off today's low${r.etf ? ' · leveraged ETF' : ''}.`,
       });
     }
     return out;

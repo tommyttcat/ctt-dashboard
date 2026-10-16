@@ -15,6 +15,7 @@ import { isTradingDay } from '@/lib/marketCalendar';
 import { etMinute } from '@/lib/orb';
 import { loadRsRatings } from '@/lib/indicators/rs';
 import { LEADERS_STATE_KEY, LEADERS_LIVE_KEY, buildLive, type LeadersState, type Quote } from '@/lib/leaders';
+import { STAGE_MAP_KEY, type StageMapState } from '@/lib/stageBreadth';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -43,16 +44,21 @@ export async function GET(req: Request) {
   if (now < OPEN + DELAY_MIN || now > CLOSE + 30) return NextResponse.json({ success: true, skipped: 'outside the window' });
   if (!KEY) return NextResponse.json({ success: false, error: 'no data key' }, { status: 500 });
 
-  // Two KV reads a run: the universe and the RS map (one GET via the shared lookup).
-  const [state, rsLookup] = await Promise.all([kv.get<LeadersState>(LEADERS_STATE_KEY), loadRsRatings()]);
+  /* Two KV commands a run: the universe + the System nightly's per-name stages (one MGET; the
+     stages, 16 Oct 2026, fill the STG column and feed CNF) and the RS map (one GET via the shared lookup). */
+  const [[state, stages], rsLookup] = await Promise.all([
+    kv.mget<[LeadersState | null, StageMapState | null]>(LEADERS_STATE_KEY, STAGE_MAP_KEY),
+    loadRsRatings(),
+  ]);
   if (!state?.names || !Object.keys(state.names).length) return NextResponse.json({ success: true, skipped: 'no universe yet (the nightly job builds it)' });
 
+  if (stages?.stage) for (const [t, h] of Object.entries(state.names)) { const s = stages.stage[t]; if (s && !h.etf) h.stg = s; }
   const tickers = [...Object.keys(state.names), 'SPY', 'QQQ'];
   const snaps = await snapshot(tickers);
   const quotes: Quote[] = [];
   let spyQ: Quote | null = null, qqqQ: Quote | null = null;
   for (const s of snaps) {
-    const q: Quote = { t: s.ticker, price: s.lastTrade?.p || s.min?.c || s.day?.c || 0, prevClose: s.prevDay?.c || 0, vol: s.day?.v || 0, lo: s.day?.l || undefined };
+    const q: Quote = { t: s.ticker, price: s.lastTrade?.p || s.min?.c || s.day?.c || 0, prevClose: s.prevDay?.c || 0, vol: s.day?.v || 0, lo: s.day?.l || undefined, o: s.day?.o || undefined, hi: s.day?.h || undefined, vw: s.day?.vw || undefined };
     if (q.t === 'SPY') spyQ = q; else if (q.t === 'QQQ') qqqQ = q; else quotes.push(q);
   }
   if (!spyQ || !(spyQ.price > 0)) return NextResponse.json({ success: false, error: 'no SPY quote' }, { status: 502 });

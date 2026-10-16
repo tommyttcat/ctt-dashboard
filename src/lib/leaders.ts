@@ -1,4 +1,5 @@
 import { tightnessOf } from './scans/tightness';
+import { computeCnfScore } from './indicators/confluence';
 // lib/leaders.ts — Liquid Leaders: the ~1,000 most traded stocks, and which are leading.
 //
 // Asked for 30 Sep 2026 from a screenshot of another dashboard, built on
@@ -40,6 +41,9 @@ export interface LeaderHist {
   wkHi?: number;
   /* Key levels under the last close (16 Oct 2026, keyLevelsOf), nearest first. */
   lv?: number[];
+  /* Weinstein stage at the last close ('2A'): not stored — the live job attaches it from the
+     System nightly's map (lib/stageBreadth STAGE_MAP_KEY) before buildLive. */
+  stg?: string;
   /* A leveraged bull ETF (15 Oct 2026): carried for the Oversold Bounce card only — kept out of
      the Liquid Leaders lists and universe count, and given no 5-year highs or volume profile. */
   etf?: boolean;
@@ -51,6 +55,9 @@ export interface LeaderRow {
   t: string; n?: string; price: number; chg: number; track: number | null; raw: number | null; vol?: number; rs?: number | null;
   /* swing checklist fields (lib/scans/checklist), live price against last night's EMAs */
   rsRating?: number | null; ema50?: number; distToEma21?: number; distToEma10?: number; ema21Rising?: boolean; adrPct?: number | null; tight5?: number | null; volDry?: number | null; lowerHigh?: number | null;
+  /* 16 Oct 2026: CNF on the shared scorer and last night's stage, for every row — the scans' values
+     only covered names a scan carried (0 of 40 oversold, 1 of 100 heavy-volume that day). */
+  cnf?: number | null; stg?: string | null;
 }
 /* Gainers and Volume, quality first (12 Oct 2026): a gainer needs RS 70+ (FICO +10.9% on RS 2
    was a bounce in a broken stock); heavy volume must be on an UP day with RS 50+ (heavy
@@ -178,7 +185,36 @@ export function profileOf(sessions: number[][]): number[] {
   return out.map(v => v / use.length);
 }
 
-export interface Quote { t: string; price: number; prevClose: number; vol: number; lo?: number }
+export interface Quote { t: string; price: number; prevClose: number; vol: number; lo?: number; o?: number; hi?: number; vw?: number }
+
+/* CNF for a live row (16 Oct 2026), on the scorer every scan uses (lib/indicators/confluence).
+   Like the DVol scan, the context it has no data for is NEUTRAL — no news, streak, dots, plan or
+   sector heat — so it is a slightly conservative read of the same scale, not a second scale. */
+export function liveCnf(h: LeaderHist, q: Quote, track: number | null, spyChg: number | null): number | null {
+  if (!(q.price > 0) || !(q.prevClose > 0)) return null;
+  const adr = h.chk?.[4] ?? null;
+  const chg = (q.price / q.prevClose - 1) * 100;
+  const e10 = h.chk?.[0], e21 = h.chk?.[1];
+  const range = q.hi != null && q.lo != null && q.hi > 0 && q.lo > 0 ? q.hi - q.lo : null;
+  const stageNum = h.stg ? parseInt(h.stg, 10) || null : null;
+  return computeCnfScore(
+    track == null ? null : Math.max(0, 1 + track / 100),
+    q.o != null && q.o > 0 ? (q.o / q.prevClose - 1) * 100 : null,
+    range != null && adr && adr > 0 ? ((range / q.price) * 100) / adr : null,
+    spyChg != null ? chg - spyChg : null,
+    {
+      catalystTier: 'none', hasEarnings: false, scanStreak: 1, rme: null,
+      vwapStatus: q.vw && q.vw > 0 ? (q.price >= q.vw ? 'above' : 'below') : 'neutral',
+      tradeType: 'DAY', setupName: null, breadthSignal: '', spyAbove21: null, inHotSector: false,
+      stageNum, goldenCross: null, pctOffHigh: null, dotKind: null, dotBarsSince: null, isBearInstrument: false,
+      aboveEma10: e10 && e10 > 0 ? q.price > e10 : null,
+      planTradeable: false, planResistanceR: null, planClear: false, planCollapsed: false,
+      distToEma21: e21 && e21 > 0 ? (q.price / e21 - 1) * 100 : null,
+      atrPct: adr, adrPct: adr,
+      closeStrength: range && range > 0 && q.lo != null ? (q.price - q.lo) / range : null,
+    },
+  ).score;
+}
 
 /** The four lists from one snapshot. `clockEt` is the minute the data describes. */
 /** The checklist fields for a live row: live price against last night's EMAs. */
@@ -212,7 +248,7 @@ export function buildLive(state: LeadersState, quotes: Quote[], spyPrice: number
     if (!h || !(q.price > 0) || !(q.prevClose > 0)) continue;
     const chg = (q.price / q.prevClose - 1) * 100;
     if (h.etf) {
-      const os = oversoldOf(h, q, { t: q.t, n: h.n, price: q.price, chg: +chg.toFixed(2), track: null, raw: null, vol: q.vol, rs: rsOf ? rsOf(q.t) : null });
+      const os = oversoldOf(h, q, { t: q.t, n: h.n, price: q.price, chg: +chg.toFixed(2), track: null, raw: null, vol: q.vol, rs: rsOf ? rsOf(q.t) : null, cnf: liveCnf(h, q, null, idx.spy?.chg ?? null), stg: null });
       if (os) oversold.push({ ...os, etf: true });
       continue;
     }
@@ -223,6 +259,7 @@ export function buildLive(state: LeadersState, quotes: Quote[], spyPrice: number
       track: track == null ? null : Math.round(track), raw: raw == null ? null : Math.round(raw),
       vol: q.vol, rs: rsOf ? rsOf(q.t) : null,
       ...checkFields(h, q.price, rsOf ? rsOf(q.t) : null),
+      cnf: liveCnf(h, q, track, idx.spy?.chg ?? null), stg: h.stg ?? null,
       isRs: spyPrice > 0 && q.price / spyPrice >= h.maxRs,
       isHi: q.price >= h.maxClose,
     });

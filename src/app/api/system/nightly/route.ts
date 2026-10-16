@@ -17,7 +17,7 @@ import { kv } from '@vercel/kv';
 import { authorized, authorizedOrAdmin } from '@/lib/apiAuth';
 import { etGate } from '@/lib/etCron';
 import { groupTerciles } from '@/lib/groups';
-import { stage2At, STAGE2_KEY, type Stage2State } from '@/lib/stageBreadth';
+import { stage2At, stageMapAt, STAGE2_KEY, STAGE_MAP_KEY, type Stage2State, type StageMapState } from '@/lib/stageBreadth';
 import { netHLAt, mergeHistory, NET_HL_KEY, type NetHLState } from '@/lib/netHighsLows';
 import {
   SYSTEM_KEY, SYSTEM_SCORES_KEY, LEVERAGE, SHORTLIST_N, MIN_DVOL_PICK, featuresAt, rankFeatures, scoreRow, scoreGo, isLate, stepColours,
@@ -145,6 +145,10 @@ export async function GET(req: Request) {
     const now = pts[pts.length - 1];
     const history = [...keep, ...pts.map(p => ({ d: p.d, pct: p.pct, n: p.n }))].sort((a, b) => a.d.localeCompare(b.d)).slice(-260);
     await kv.set(STAGE2_KEY, { asOf: now.d, pct: now.pct, n: now.n, counts: now.counts, history } satisfies Stage2State);
+    /* Per-name stage for the Liquid Leaders universe ($10+, $100M+ a day; ~1,000 names, ~15 KB),
+       read once a night by /api/leaders/nightly. 1 KV write. */
+    const big = meta.map((m, i) => ({ m, i })).filter(({ m }) => m.price >= 10 && m.dvol >= 100e6);
+    await kv.set(STAGE_MAP_KEY, { asOf: days[T], stage: stageMapAt(big.map(({ m }) => data.get(m.t)![3]), big.map(({ m }) => m.t), T) } satisfies StageMapState);
   } catch (e) { console.error('STAGE2_ERROR', e); }
 
   /* Net new 52-week highs − lows (lib/netHighsLows): tonight's point from the whole-market bars
