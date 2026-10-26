@@ -12,7 +12,7 @@ import { decodeEntities, headlineOf } from '../src/lib/catalyst.tsx';
 import { tagOf, tagCounts, tapeLine, relTime, minutesSince, ageLabelMinutes, etDateKey, fmtMove } from '../src/lib/newsView.ts';
 import { eq, done } from './testkit.mts';
 import { headlineFromExhibit } from '../src/lib/indicators/newsAlt.ts';
-import { RX_FUND_LETTER } from '../src/lib/indicators/news.ts';
+import { RX_FUND_LETTER, isQuestionFluff } from '../src/lib/indicators/news.ts';
 
 eq('numeric apostrophe', decodeEntities('Nvidia&#39;s AI Token Trade'), "Nvidia's AI Token Trade");
 eq('hex numeric', decodeEntities('Nvidia&#x27;s'), "Nvidia's");
@@ -103,4 +103,9 @@ for (const t of ['Baron Health Care Fund Q3 2026 Top Contributors And Detractors
   eq(`fund letter blocked: ${t}`, RX_FUND_LETTER.test(t), true);
 for (const t of ['WCN Stock Gains 11% After Reporting Q3 Earnings & Revenue Beat', 'EQT Announces Strategic Acquisition of Range Resources', 'Citigroup Lifts 2026 RoTCE Outlook', 'Intel Q3 Preview: Server CPU Shortage Sets Up A Pricing Tailwind', 'Nvidia reports Q3 2026 results'])
   eq(`real news kept: ${t}`, RX_FUND_LETTER.test(t), false);
+// Speculative question headlines blocked (26 Oct 2026)
+for (const t of ["Will JPMorgan's Nigeria Expansion Bolster Its Growth Prospects?", "Vince Holding's Wholesale Growth: Can Strong Momentum Continue?", "Etsy's Q3 Earnings Ahead: What's in Store for the Stock?", "Coca-Cola's Sports Beverage Portfolio: Can it Capture Fitness Demand?", 'Is Nvidia a Buy Before Earnings?'])
+  eq(`question fluff blocked: ${t}`, isQuestionFluff(t), true);
+for (const t of ['Why Is Nvidia Stock Soaring Today?', "What's Going On With Tesla Stock?", "Citigroup Lifts 2026 RoTCE Outlook: What's Fueling the Optimism?", 'Bon Secours Affiliate to Acquire Surgery Partners in $5.7 Billion Take-Private Deal', 'Intel Q3 Preview: Server CPU Shortage Sets Up A Pricing Tailwind'])
+  eq(`kept: ${t}`, isQuestionFluff(t), false);
 done('catalyst headlines + news view');
