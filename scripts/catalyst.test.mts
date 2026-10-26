@@ -11,6 +11,7 @@
 import { decodeEntities, headlineOf } from '../src/lib/catalyst.tsx';
 import { tagOf, tagCounts, tapeLine, relTime, minutesSince, ageLabelMinutes, etDateKey, fmtMove } from '../src/lib/newsView.ts';
 import { eq, done } from './testkit.mts';
+import { headlineFromExhibit } from '../src/lib/indicators/newsAlt.ts';
 
 eq('numeric apostrophe', decodeEntities('Nvidia&#39;s AI Token Trade'), "Nvidia's AI Token Trade");
 eq('hex numeric', decodeEntities('Nvidia&#x27;s'), "Nvidia's");
@@ -92,4 +93,8 @@ eq('move up', fmtMove(4.27), '+4.3%');
 eq('move down', fmtMove(-1.24), '-1.2%');
 eq('move unknown', fmtMove(null), '');
 
+// SEC exhibit headlines (26 Oct 2026, first live day): stacked tags, cover lines, entities, datelines
+eq('exhibit: stacked EX-99.1 / Exhibit 99.1 tags go', headlineFromExhibit("EX-99.1 Exhibit 99.1 EQT Announces Strategic Acquisition of Range Resources, Creating America's Largest Gas Producer PITTSBURGH, Oct. 26, 2026 -- body"), "EQT Announces Strategic Acquisition of Range Resources, Creating America's Largest Gas Producer");
+eq('exhibit: an all-caps dateline does not eat the last words', headlineFromExhibit('<p>Exhibit 99.1</p><p>HealthSpan Partners to Acquire Surgery Partners, Establishing a Leading Outpatient Platform</p><p>NASHVILLE, Tenn., Oct. 26, 2026 (BUSINESS WIRE) -- text</p>'), 'HealthSpan Partners to Acquire Surgery Partners, Establishing a Leading Outpatient Platform');
+eq('exhibit: cover line and &reg; go', headlineFromExhibit('PRESENTATION DATED OCTOBER 26, 2026 Exhibit 99.1 &reg; Designing Proteins Delivering Medicines -- more'), 'Designing Proteins Delivering Medicines');
 done('catalyst headlines + news view');

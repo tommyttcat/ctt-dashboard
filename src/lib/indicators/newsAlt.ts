@@ -125,10 +125,26 @@ export function headlineFromExhibit(htmlText: string): string | null {
   t = t.replace(/^EX-\d+(?:\.\d+)?\s+\d+\s+\S+\s+/i, '');
   t = t.replace(/^(?:EX-\d+(?:\.\d+)?\s+)?(?:\S+\s+){0,3}?Document\s+/i, '');
   t = t.replace(/^(?:Exhibit|EX-)\s*99(?:\.\d+)?\s*/i, '');
-  const cut = t.search(
-    /\(\s*(?:GLOBE NEWSWIRE|BUSINESS WIRE|ACCESSWIRE|ACCESS Newswire|Newsfile Corp|PRNewswire)|\s--\s|\b[A-Z][A-Za-z. ]{2,30},\s+(?:[A-Z][a-z]+\.?,?\s+)?(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},\s+\d{4}/,
-  );
-  const head = (cut > 0 ? t.slice(0, cut) : t.slice(0, 200)).trim();
+  /* Filings often stack the tags ("EX-99.1 Exhibit 99.1 …") and lead with a cover line
+     ("PRESENTATION DATED OCTOBER 26, 2026") — strip them until the headline itself leads
+     (26 Oct 2026, the first live day showed both). Named entities (&reg;, &trade;) go too. */
+  t = t.replace(/&(?:reg|trade|copy|#174|#8482|#169);/gi, '').replace(/&[a-z]+;/gi, ' ').replace(/[®™©]/g, '');
+  for (let k = 0; k < 4; k++) {
+    const before = t;
+    t = t.replace(/^(?:EX-?\s*\d+(?:\.\d+)?|Exhibit\s*\d+(?:\.\d+)?)\s*[:\-–]?\s*/i, '')
+      .replace(/^(?:PRESS RELEASE|NEWS RELEASE|FOR IMMEDIATE RELEASE|INVESTOR PRESENTATION|PRESENTATION)(?:\s+DATED\s+[A-Z]+\.?\s+\d{1,2},\s+\d{4})?\s*/i, '')
+      .trim();
+    if (t === before) break;
+  }
+  /* The dateline ends the headline. Wire datelines put the city in capitals ("NASHVILLE, Tenn.,
+     Oct. 26, 2026"), so that form is tried first: the mixed-case pattern alone also matched the
+     headline's own last words ("…Outpatient Platform NASHVILLE,") and cut them (26 Oct 2026). */
+  const MONTH = '(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\\.?\\s+\\d{1,2},\\s+\\d{4}';
+  const wire = t.search(/\(\s*(?:GLOBE NEWSWIRE|BUSINESS WIRE|ACCESSWIRE|ACCESS Newswire|Newsfile Corp|PRNewswire)|\s--\s/);
+  const caps = t.search(new RegExp(`\\b[A-Z][A-Z.]+(?:\\s[A-Z][A-Z.]+){0,3},\\s+(?:[A-Z][a-z]+\\.?,?\\s+)?${MONTH}`));
+  const mixed = t.search(new RegExp(`\\b[A-Z][A-Za-z. ]{2,30},\\s+(?:[A-Z][a-z]+\\.?,?\\s+)?${MONTH}`));
+  const cut = [wire, caps >= 0 ? caps : mixed].filter(i => i > 0).reduce((m, i) => Math.min(m, i), Infinity);
+  const head = (Number.isFinite(cut) ? t.slice(0, cut) : t.slice(0, 200)).trim();
   if (head.length < 15) return null;
   return head.length > 200 ? `${head.slice(0, 197).trimEnd()}…` : head;
 }
