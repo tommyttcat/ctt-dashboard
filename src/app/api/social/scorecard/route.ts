@@ -4,6 +4,7 @@ import { etGate } from '@/lib/etCron';
 import { kv } from '@vercel/kv';
 import { postToBluesky } from '@/lib/bluesky';
 import { postToX } from '@/lib/twitter';
+import { SUBSTACK_LATEST_KEY, SUBSTACK_LATEST_MAX_AGE_MS, type SubstackLatest } from '@/lib/substackLatest';
 import { isTradingDay, etDateString } from '@/lib/marketCalendar';
 
 export const dynamic = 'force-dynamic';
@@ -329,21 +330,37 @@ async function publish(opts: {
     await kv.set(lockKey, 1, { ex: 86400 });
   }
 
+  /* Link today's Substack briefing (owner, 26 Oct 2026: "X and Bluesky should link to the substack
+     posts") — the scorecard has no post of its own. The dashboard only when nothing has published
+     in the last 12 hours. Bluesky gets a link card with the scorecard as its picture; X gets the
+     picture attached and the link in the text (X shows no card for substack.com links). */
+  const latest = await kv.get<SubstackLatest>(SUBSTACK_LATEST_KEY).catch(() => null);
+  const sub = latest?.url && Date.now() - (latest.at ?? 0) < SUBSTACK_LATEST_MAX_AGE_MS ? latest.url : null;
   const cta = `Live scorecard → ${DASH_URL}`;
   const text = `${blurb}\n\n${cta}`;
+  const xBudget = 280 - 2 - "Today's briefing → ".length - 23;   // X counts any link as 23
+  const xBlurb = blurb.length <= xBudget ? blurb : `${blurb.slice(0, xBudget - 1).replace(/\s+\S*$/, '')}…`;
+  const xText = sub ? `${xBlurb}\n\nToday's briefing → ${sub}` : text;
+  const bskyText = sub ? blurb.slice(0, 300) : text;
 
   const card = await fetchCard(origin);
-  const debug: any = { slot, author, why, blurb, cardBytes: card?.length ?? 0 };
+  const debug: any = { slot, author, why, blurb, cardBytes: card?.length ?? 0, link: sub ?? `https://${DASH_URL}` };
   if (!card) debug.cardMissing = true;
 
-  const linkStart = text.indexOf(DASH_URL);
+  const linkStart = bskyText.indexOf(DASH_URL);
   const results = await Promise.allSettled([
     postToBluesky(
-      text,
-      linkStart >= 0 ? [{ start: linkStart, end: linkStart + DASH_URL.length, url: `https://${DASH_URL}` }] : [],
+      bskyText,
+      !sub && linkStart >= 0 ? [{ start: linkStart, end: linkStart + DASH_URL.length, url: `https://${DASH_URL}` }] : [],
       card ? { data: card, alt: 'CTT Macro Scorecard', mimeType: 'image/png' } : undefined,
+      sub ? {
+        uri: sub,
+        title: `CTT Macro Scorecard — ${slot === 'open' ? 'the open' : 'the afternoon'}`,
+        description: "Today's CTT briefing: the tape, the money and what it means.",
+        thumb: card ? { data: card, mimeType: 'image/png' } : undefined,
+      } : undefined,
     ),
-    postToX(text, card ? { data: card } : undefined),
+    postToX(xText, card ? { data: card } : undefined),
   ]);
 
   if (results[0].status === 'rejected') debug.bskyError = String((results[0] as PromiseRejectedResult).reason);

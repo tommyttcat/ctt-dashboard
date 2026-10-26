@@ -394,21 +394,29 @@ function buildSubtitle(brief: any): string {
 }
 
 async function substackGetUserId(pubUrl: string, session: string): Promise<{ id: number | null; debug?: string }> {
-  const endpoints = [
-    `https://substack.com/api/v1/user/self`,
-    `${pubUrl}/api/v1/publication`,
-  ];
-  for (const url of endpoints) {
-    try {
-      const res = await fetch(url, {
-        headers: { Cookie: `substack.sid=${session}` },
-      });
-      if (!res.ok) continue;
+  /* user/self is the only call that proves the login. 26 Oct 2026: it had returned 403 since
+     ~20 Oct (the substack.sid cookie expired) and the old fallback took the PUBLIC publication
+     endpoint's `id` — the publication's id, not a user's — as the byline, so every draft failed
+     with nothing saying why. Now an expired login is named, and the publication endpoint is only
+     read for its owner (author_id). */
+  try {
+    const res = await fetch('https://substack.com/api/v1/user/self', { headers: { Cookie: `substack.sid=${session}` } });
+    if (res.status === 401 || res.status === 403) {
+      return { id: null, debug: `Substack login expired (user/self ${res.status}) — refresh SUBSTACK_SESSION (the substack.sid cookie) in Vercel` };
+    }
+    if (res.ok) {
       const data = await res.json();
-      const id = data.id ?? data.author_id ?? data.bylines?.[0]?.id ?? data.authors?.[0]?.id ?? null;
-      if (id) return { id, debug: `from ${url}` };
-    } catch { continue; }
-  }
+      if (data?.id) return { id: data.id, debug: 'from user/self' };
+    }
+  } catch { /* fall through */ }
+  try {
+    const res = await fetch(`${pubUrl}/api/v1/publication`, { headers: { Cookie: `substack.sid=${session}` } });
+    if (res.ok) {
+      const data = await res.json();
+      const id = data?.author_id ?? data?.bylines?.[0]?.id ?? data?.authors?.[0]?.id ?? null;
+      if (id) return { id, debug: 'publication author_id' };
+    }
+  } catch { /* fall through */ }
   return { id: null, debug: 'all endpoints failed' };
 }
 
@@ -521,11 +529,11 @@ export async function GET(req: Request) {
     ]};
 
     const draft = await substackCreateDraft(pubUrl, session, 'Introducing Confluence Trading Tools', 'Professional market intelligence for serious traders — and why I built it.', introBody, coverCdn);
-    if (draft.error) return NextResponse.json({ error: draft.error }, { status: 502 });
+    if (draft.error) { console.error('SUBSTACK_DRAFT_ERROR', draft.error); return NextResponse.json({ error: draft.error }, { status: 502 }); }
 
     if (publish && draft.id) {
       const pub = await substackPublish(pubUrl, session, draft.id, send);
-      if (pub.error) return NextResponse.json({ draftId: draft.id, error: pub.error }, { status: 502 });
+      if (pub.error) { console.error('SUBSTACK_PUBLISH_ERROR', pub.error); return NextResponse.json({ draftId: draft.id, error: pub.error }, { status: 502 }); }
       return NextResponse.json({ success: true, draftId: draft.id, published: true, sent: send });
     }
     return NextResponse.json({ success: true, draftId: draft.id, published: false });
@@ -668,12 +676,12 @@ export async function GET(req: Request) {
 
     const weeklyBody = { type: 'doc', content };
     const draft = await substackCreateDraft(pubUrl, session, wTitle, wSubtitle, weeklyBody, weeklyCoverCdn, WEEKLY_SUBSTACK_TAGS);
-    if (draft.error) return NextResponse.json({ error: draft.error }, { status: 502 });
+    if (draft.error) { console.error('SUBSTACK_DRAFT_ERROR', draft.error); return NextResponse.json({ error: draft.error }, { status: 502 }); }
 
     if (publish && draft.id) {
       await kv.set(subKey, true, { ex: 86400 });
       const pub = await substackPublish(pubUrl, session, draft.id, send);
-      if (pub.error) return NextResponse.json({ draftId: draft.id, error: pub.error }, { status: 502 });
+      if (pub.error) { console.error('SUBSTACK_PUBLISH_ERROR', pub.error); return NextResponse.json({ draftId: draft.id, error: pub.error }, { status: 502 }); }
       if (pub.url) await kv.set('weekly_substack_last', { postUrl: pub.url, date: today }, { ex: 7 * 86400 });
       return NextResponse.json({ success: true, draftId: draft.id, published: true, sent: send, url: pub.url, coverUrl: weeklyCoverCdn || null });
     }
@@ -801,6 +809,7 @@ export async function GET(req: Request) {
 
   const draft = await substackCreateDraft(pubUrl, session, title, subtitle, bodyJson, coverImageUrl);
   if (draft.error) {
+    console.error('SUBSTACK_DRAFT_ERROR', phase, draft.error);
     return NextResponse.json({ error: draft.error }, { status: 502 });
   }
 
@@ -815,6 +824,10 @@ export async function GET(req: Request) {
     }
     const pub = await substackPublish(pubUrl, session, draft.id, send);
     if (pub.error) {
+      console.error('SUBSTACK_PUBLISH_ERROR', phase, pub.error);
+      /* Release the day's lock so the phase's retry can publish (26 Oct 2026: a failed publish
+         held it for 24 h). */
+      await kv.del(subKey).catch(() => {});
       return NextResponse.json({
         draftId: draft.id,
         published: false,

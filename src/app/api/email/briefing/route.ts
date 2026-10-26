@@ -34,6 +34,7 @@ import {
 import { dedupeByTicker, chgOf, dVolOf, advancingDollarShare } from '@/lib/indicators/marketMath';
 import { postToBluesky } from '@/lib/bluesky';
 import { postToX } from '@/lib/twitter';
+import { SUBSTACK_LATEST_KEY, type SubstackLatest } from '@/lib/substackLatest';
 import { stageHex as stageColor } from '@/lib/indicators/stage';
 import { cnfHex, rvolHex, rsHex } from '@/lib/indicators/columnColors';
 import { newsStarCount } from '@/lib/newsStars';
@@ -1620,6 +1621,8 @@ export async function GET(req: Request) {
       });
       const subJson: any = await subRes.json().catch(() => null);
       substackUrl = subJson?.url ?? null;
+      /* The scorecard posts link the latest briefing (lib/substackLatest). */
+      if (substackUrl) await kv.set(SUBSTACK_LATEST_KEY, { url: substackUrl, phase, at: Date.now() } satisfies SubstackLatest, { ex: 3 * 86400 }).catch(() => {});
     } catch { /* Substack publish is best-effort */ }
 
     let bskyResult: any = null;
