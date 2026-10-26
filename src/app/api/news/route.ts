@@ -160,13 +160,20 @@ function capPerTicker(items: Normalized[]): Normalized[] {
 /* FMP's latest stock news across the market (26 Oct 2026) — the wire this section reads since the
    Massive/Benzinga add-on ended (27 Oct). One call. FMP times are New York time without a zone
    (nyToIso). No WIIM desk any more, so tags come from the headline rules alone. */
+/* Zacks-style filler the wire carries in bulk — previews, "A vs B", "should you buy" — that says
+   nothing about why a stock is moving (first live pull, 26 Oct 2026: 11 of 20 were these). */
+const FLUFF = /gears up to report|what's in the cards|what to expect|here's what investors should know|which (stock|is) .*better|better (buy|bet)\b|\bvs\.? .*:|should you (buy|sell|hold)|worth a (bet|look|buy)|is it time to|buy, sell or hold|top ranked|zacks rank|strong buy stock|stocks to (buy|watch)|\d+ (stocks|reasons)\b|bull of the day|bear of the day|earnings preview/i;
+
+let fmpBytes = 0;   // last call's response size, for ?debug=1 (FMP bandwidth is plan-capped)
 async function fetchFmpLatest(apiKey: string): Promise<Normalized[]> {
-  const res = await fetch(`https://financialmodelingprep.com/stable/news/stock-latest?page=0&limit=100&apikey=${apiKey}`, { cache: 'no-store' });
+  const res = await fetch(`https://financialmodelingprep.com/stable/news/stock-latest?page=0&limit=150&apikey=${apiKey}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(`FMP ${res.status}`);
-  const arr: any[] = await res.json();
+  const body = await res.text();
+  fmpBytes = body.length;
+  const arr: any[] = JSON.parse(body);
   if (!Array.isArray(arr)) throw new Error('FMP: not a list');
   const normalized = arr
-    .filter(it => it?.symbol && it?.title && !isSpamNews(it.title) && !isBlockedPublisher(it.publisher || it.site || ''))
+    .filter(it => it?.symbol && it?.title && !isSpamNews(it.title) && !FLUFF.test(it.title) && !isBlockedPublisher(it.publisher || it.site || ''))
     .map((it): Normalized => {
       const t = normalizeTicker(it.symbol);
       return {
@@ -268,6 +275,7 @@ export async function GET(req: Request) {
     try {
       results = fmpKey ? await fetchFmpLatest(fmpKey) : [];
       sources.fmp = fmpKey ? results.length : 'no key';
+      sources.fmpBytes = fmpBytes;
     } catch (e: any) {
       sources.fmp = `error: ${e.message}`;
     }
