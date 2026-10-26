@@ -330,35 +330,34 @@ async function publish(opts: {
     await kv.set(lockKey, 1, { ex: 86400 });
   }
 
-  /* Link today's Substack briefing (owner, 26 Oct 2026: "X and Bluesky should link to the substack
-     posts") — the scorecard has no post of its own. The dashboard only when nothing has published
-     in the last 12 hours. Bluesky gets a link card with the scorecard as its picture; X gets the
-     caption and the link, no picture (owner, 26 Oct 2026). */
+  /* Always a Substack link (owner, 26 Oct 2026: "add the Substack link to the scorecard posts"):
+     today's latest briefing (lib/substackLatest, last 12 hours), else the publication's home —
+     never the dashboard. Bluesky gets a link card with the scorecard as its picture; X gets the
+     caption and the link, no picture. */
   const latest = await kv.get<SubstackLatest>(SUBSTACK_LATEST_KEY).catch(() => null);
   const sub = latest?.url && Date.now() - (latest.at ?? 0) < SUBSTACK_LATEST_MAX_AGE_MS ? latest.url : null;
-  const cta = `Live scorecard → ${DASH_URL}`;
-  const text = `${blurb}\n\n${cta}`;
-  const xBudget = 280 - 2 - "Today's briefing → ".length - 23;   // X counts any link as 23
+  const link = sub ?? (process.env.SUBSTACK_PUB_URL || 'https://confluencetradingtools.substack.com').replace(/\/$/, '');
+  const label = sub ? "Today's briefing" : 'Read CTT on Substack';
+  const xBudget = 280 - 2 - `${label} → `.length - 23;   // X counts any link as 23
   const xBlurb = blurb.length <= xBudget ? blurb : `${blurb.slice(0, xBudget - 1).replace(/\s+\S*$/, '')}…`;
-  const xText = sub ? `${xBlurb}\n\nToday's briefing → ${sub}` : text;
-  const bskyText = sub ? blurb.slice(0, 300) : text;
+  const xText = `${xBlurb}\n\n${label} → ${link}`;
+  const bskyText = blurb.slice(0, 300);
 
   const card = await fetchCard(origin);
-  const debug: any = { slot, author, why, blurb, cardBytes: card?.length ?? 0, link: sub ?? `https://${DASH_URL}` };
+  const debug: any = { slot, author, why, blurb, cardBytes: card?.length ?? 0, link };
   if (!card) debug.cardMissing = true;
 
-  const linkStart = bskyText.indexOf(DASH_URL);
   const results = await Promise.allSettled([
     postToBluesky(
       bskyText,
-      !sub && linkStart >= 0 ? [{ start: linkStart, end: linkStart + DASH_URL.length, url: `https://${DASH_URL}` }] : [],
+      [],
       card ? { data: card, alt: 'CTT Macro Scorecard', mimeType: 'image/png' } : undefined,
-      sub ? {
-        uri: sub,
+      {
+        uri: link,
         title: `CTT Macro Scorecard — ${slot === 'open' ? 'the open' : 'the afternoon'}`,
-        description: "Today's CTT briefing: the tape, the money and what it means.",
+        description: sub ? "Today's CTT briefing: the tape, the money and what it means." : 'Confluence Trading Tools on Substack: the daily briefings and the weekly wrap.',
         thumb: card ? { data: card, mimeType: 'image/png' } : undefined,
-      } : undefined,
+      },
     ),
     postToX(xText),   // text only: the caption + the briefing link (owner, 26 Oct 2026)
   ]);
