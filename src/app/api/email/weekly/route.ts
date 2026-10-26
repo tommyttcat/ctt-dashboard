@@ -700,7 +700,7 @@ export async function GET(req: Request) {
     const skipped = () => Promise.resolve({ skipped: true });
     const r = await Promise.allSettled([
       only === 'x' ? skipped() : postToBluesky(texts.bskyText, texts.facets, cover ? { data: cover.data, alt: 'CTT Weekly Wrap', mimeType: cover.mimeType } : undefined),
-      only === 'bluesky' ? skipped() : postToX(texts.xText, cover ? { data: cover.data } : undefined),
+      only === 'bluesky' ? skipped() : postToX(texts.xText),   // text only (owner, 26 Oct 2026)
     ]);
     return NextResponse.json({
       socialOnly: true, postUrl, image: !!cover,
@@ -1040,7 +1040,7 @@ export async function GET(req: Request) {
       const cover = await socialImage(await fetchImageBytes(narrative?.coverImageUrl));
       const socialResults = await Promise.allSettled([
         postToBluesky(bskyText, facets, cover ? { data: cover.data, alt: 'CTT Weekly Wrap', mimeType: cover.mimeType } : undefined),
-        postToX(xText, cover ? { data: cover.data } : undefined),
+        postToX(xText),   // text only: the teaser + the Substack link (owner, 26 Oct 2026)
       ]);
       bskyWeekly = socialResults[0].status === 'fulfilled' ? socialResults[0].value : null;
       xWeekly = socialResults[1].status === 'fulfilled' ? socialResults[1].value : null;

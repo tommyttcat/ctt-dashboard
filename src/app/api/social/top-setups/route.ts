@@ -271,7 +271,7 @@ export async function GET(req: Request) {
     const coverBuf = await fetchCover(origin);
     const image = coverBuf ? { data: new Uint8Array(coverBuf) } : undefined;
     try {
-      const r = await postToX(socialText(n, postUrl, 280, 1), image);
+      const r = await postToX(socialText(n, postUrl, 280, 1));   // text only (owner, 26 Oct 2026)
       return NextResponse.json({ success: true, x: r ? 'posted' : 'skipped', postUrl });
     } catch (e: any) {
       return NextResponse.json({ success: false, x: `error: ${e.message || e}`, postUrl }, { status: 502 });
@@ -329,7 +329,7 @@ export async function GET(req: Request) {
     const linkPos = bskyText.lastIndexOf(postUrl);
     const facets = linkPos >= 0 ? [{ start: linkPos, end: linkPos + postUrl.length, url: postUrl }] : [];
     const results = await Promise.allSettled([
-      postToX(xText, image),
+      postToX(xText),   // text only: the take + the Substack link (owner, 26 Oct 2026)
       postToBluesky(bskyText, facets, image ? { data: image.data, alt: 'CTT Top Setups board' } : undefined),
     ]);
     xRes = results[0].status === 'fulfilled' ? (results[0].value ? 'posted' : 'skipped') : `error: ${(results[0] as any).reason?.message || 'failed'}`;

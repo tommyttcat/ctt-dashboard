@@ -333,7 +333,7 @@ async function publish(opts: {
   /* Link today's Substack briefing (owner, 26 Oct 2026: "X and Bluesky should link to the substack
      posts") — the scorecard has no post of its own. The dashboard only when nothing has published
      in the last 12 hours. Bluesky gets a link card with the scorecard as its picture; X gets the
-     picture attached and the link in the text (X shows no card for substack.com links). */
+     caption and the link, no picture (owner, 26 Oct 2026). */
   const latest = await kv.get<SubstackLatest>(SUBSTACK_LATEST_KEY).catch(() => null);
   const sub = latest?.url && Date.now() - (latest.at ?? 0) < SUBSTACK_LATEST_MAX_AGE_MS ? latest.url : null;
   const cta = `Live scorecard → ${DASH_URL}`;
@@ -360,7 +360,7 @@ async function publish(opts: {
         thumb: card ? { data: card, mimeType: 'image/png' } : undefined,
       } : undefined,
     ),
-    postToX(xText, card ? { data: card } : undefined),
+    postToX(xText),   // text only: the caption + the briefing link (owner, 26 Oct 2026)
   ]);
 
   if (results[0].status === 'rejected') debug.bskyError = String((results[0] as PromiseRejectedResult).reason);

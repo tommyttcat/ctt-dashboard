@@ -1558,7 +1558,7 @@ export async function GET(req: Request) {
       } catch (e: any) { debug.bskyError = e.message; }
 
       if (only !== 'bsky') try {
-        const x = await postToX(xText, cover ? { data: cover.data } : undefined);
+        const x = await postToX(xText);   // text only (owner, 26 Oct 2026)
         debug.xResult = x?.id ?? 'returned null (env vars missing?)';
       } catch (e: any) { debug.xError = e.message; }
 
@@ -1682,13 +1682,8 @@ export async function GET(req: Request) {
         const bskyText = hasCard ? `${phaseTag}${bskyBlurb}` : `${phaseTag}${bskyBlurb}\n\n${bskyCta}`;
         const linkStart = bskyText.indexOf(target);
 
-        /* X carries the poster as attached media. X suppresses link previews
-           on substack.com links — verified on this post: Substack serves
-           twitter:card=summary_large_image and a twitter:image and X still
-           rendered a bare blue link, while the same account unfurled a full
-           card for confluencetradingtools.com. So there is no link card to
-           suppress and attaching the image is the only way a picture reaches
-           the feed. The Substack link stays in the text as the way through. */
+        /* X is text only since 26 Oct 2026 (owner: "ditch the picture on X. just have it be short
+           take and link to substack"). X shows substack.com links as a bare link, not a card. */
         const xCta = target;
         const xAvail = 280 - phaseTag.length - 2 - 23;
         const xBlurb = blurbIsPlainRead
@@ -1710,7 +1705,7 @@ export async function GET(req: Request) {
                 }
               : undefined,
           ),
-          postToX(xText, cover ? { data: cover.data } : undefined),
+          postToX(xText),   // text only: the short take + the Substack link (owner, 26 Oct 2026)
         ]);
 
         socialDebug.bskyStatus = results[0].status;
