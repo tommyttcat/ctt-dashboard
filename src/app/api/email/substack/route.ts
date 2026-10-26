@@ -549,7 +549,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'No weekly data in KV' }, { status: 404 });
     }
 
-    const { narrative, weeklyChanges, sips, sectors: sectorList, mStr, fStr, subject: weeklySubject } = weeklyData;
+    const { narrative, weeklyChanges, sectors: sectorList, mStr, fStr, subject: weeklySubject } = weeklyData;
 
     /* Attach (or replace) the cover on an already-published weekly post.
        Used once on 6 Sep 2026 after the post went out without an image. */
@@ -637,22 +637,9 @@ export async function GET(req: Request) {
         if (c.body) content.push(...analysisToNodes(c.body));
       }
     }
-    /* Watch / Avoid come from the analyst narrative, which carries the levels.
-       The raw scanner list that used to sit here (top 5 by score) surfaced
-       leveraged ETFs and Stage 4 names next to the analyst's actual picks. */
-    if (narrative?.watchStocks?.length) {
-      content.push(heading(2, 'Key Stocks to Watch'));
-      for (const w of narrative.watchStocks.slice(0, 5)) {
-        if (!w?.ticker) continue;
-        content.push(para([bold(`$${w.ticker}`), text(w.title ? ` — ${w.title}` : '')]));
-        if (w.body) content.push(...analysisToNodes(w.body));
-      }
-    } else if (sips?.length) {
-      content.push(heading(2, 'Top Scanner Picks'));
-      content.push(bulletList(sips.slice(0, 5).map((s: any) =>
-        `**$${s.ticker}** — CNF ${s.cnfScore || '—'} · ${s.stage || '—'} · ${s.setup || '—'}`
-      )));
-    }
+    /* No picks since 9 Oct 2026: no watch list and no scanner list here.
+       The old fallback (top 5 scanner rows with CNF and stage) printed picks
+       every week, because watchStocks is always empty now. */
     if (narrative?.avoidStocks?.length) {
       content.push(heading(2, 'Stay Away'));
       for (const a of narrative.avoidStocks.slice(0, 5)) {
