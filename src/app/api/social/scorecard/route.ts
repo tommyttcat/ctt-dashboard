@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { authorized, internalAuthHeaders } from '@/lib/apiAuth';
+import { authorized, internalAuthHeaders, authorizedOrAdmin } from '@/lib/apiAuth';
 import { etGate } from '@/lib/etCron';
 import { kv } from '@vercel/kv';
 import { postToBluesky } from '@/lib/bluesky';
@@ -270,7 +270,9 @@ export async function GET(req: Request) {
      scorecard post to X and Bluesky by typing a URL. It now only does what
      its name says. `preview` stays open: it renders a caption, posts
      nothing. */
-  if (!preview && !authorized(req)) {
+  /* force=1 also works for a signed-in admin (26 Oct 2026, owner: "post the scorecard again"), as
+     on the other forced routes (lib/apiAuth authorizedOrAdmin): open the URL in the browser. */
+  if (!preview && !(force ? await authorizedOrAdmin(req) : authorized(req))) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
