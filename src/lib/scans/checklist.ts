@@ -18,11 +18,13 @@
 //          RS under 50 · more than 3 ADRs above the 21 EMA · earnings within 3 days · QQQ
 //          below its 200-day
 //   YELLOW anything else: in an uptrend with one thing off, or not enough data to say
-// DAY (Stocks in Play, EP9M, Early Movers):
-//   GREEN  neglected before today (lib/scans/neglect) · up today · volume pace 2x+ usual (RVOL scaled to the share of the session gone) · price in the top half of today's range · above the
-//          open · ADR 4%+ · $20M+ traded
-//   RED    down today · volume under 1.5x · below the open
-//   YELLOW in play but fading (bottom half of the range) or volume 1.5-2x, or a thin range
+// DAY (Stocks in Play, Daily Setups, EP9M, Top Movers, Early Movers — 26 Oct 2026: back on the
+// day cards; the swing checklist painted every in-play name red on a bounce day):
+//   GREEN  up today · volume pace 1.5x+ usual (RVOL scaled to the share of the session gone AT
+//          THE DATA'S TIME — rvolPace from the scan) · top half of today's range · above the open
+//          · ADR 4%+ · $20M+ traded. Catalyst and "neglected before today" are shown, not required.
+//   RED    down today · below the open · volume pace under 1x
+//   YELLOW in play but fading, volume 1-1.5x, or a thin range
 
 import type { EdgeTier } from './edge';
 
@@ -168,7 +170,9 @@ export function paceOf(rvol: number | null, etMin: number, alreadyPace = false):
 export function dayCheck(r: Row | null | undefined, _ruleRed = false, etMin: number = etMinuteNow()): Checked | null {
   if (!r) return null;
   const price = num(r.price), chg = num(r.changePct), adr = adrOf(r), open = num(r.open);
-  const rvol = paceOf(num(r.rvol), etMin, r._early === true);
+  /* rvolPace: the scan's own pace at its data's minute (26 Oct 2026). Scaling the raw RVOL by the
+     page's clock under-read every row by the scan's age plus the feed's 15-minute delay. */
+  const rvol = num(r.rvolPace) ?? paceOf(num(r.rvol), etMin, r._early === true);
   const dvol = num(r.dVol) ?? num(r.dvol) ?? (num(r.avgDollarVolM) != null ? (num(r.avgDollarVolM) as number) * 1e6 : null);
   let cs = num(r.closeStrength);
   if (cs == null) { const hi = num(r.dayHigh), lo = num(r.dayLow); if (price != null && hi != null && lo != null && hi > lo) cs = (price - lo) / (hi - lo); }
@@ -186,22 +190,22 @@ export function dayCheck(r: Row | null | undefined, _ruleRed = false, etMin: num
 
   const checks: Check[] = [
     { label: chg != null ? `Up today (${chg >= 0 ? '+' : ''}${chg.toFixed(1)}%)` : 'Up today', ok: chg != null ? chg > 0 : null },
-    { label: rvol != null ? `Volume pace 2x+ usual (${rvol.toFixed(1)}x)` : 'Volume pace 2x+ usual', ok: rvol != null ? rvol >= 2 : null },
+    { label: rvol != null ? `Volume pace 1.5x+ usual (${rvol.toFixed(1)}x)` : 'Volume pace 1.5x+ usual', ok: rvol != null ? rvol >= 1.5 : null },
     { label: cs != null ? `Holding — top half of today's range (${Math.round(cs * 100)}%)` : "Holding — top half of today's range", ok: cs != null ? cs >= 0.5 : null },
     { label: 'Above the open', ok: aboveOpen },
     { label: adr != null ? `Moves enough — ADR 4%+ (${adr.toFixed(1)}%)` : 'Moves enough — ADR 4%+', ok: adr != null ? adr >= 4 : null },
     { label: '$20M+ traded', ok: dvol != null ? dvol >= 20e6 : null },
-    { label: catalyst ? `Catalyst — ${typeof r.catalyst === 'string' && !generic ? r.catalyst : 'news behind the move'}` : 'Catalyst (real news behind the move)', ok: catalyst },
-    { label: p3 != null ? `Neglected before today (3-mo ${p3 >= 0 ? '+' : ''}${p3}%, 6-mo ${p6 != null && p6 >= 0 ? '+' : ''}${p6 ?? '–'}%)` : 'Neglected before today (hadn\'t run, quiet base)', ok: neglected },
+    { label: catalyst ? `Catalyst — ${typeof r.catalyst === 'string' && !generic ? r.catalyst : 'news behind the move'} (info)` : 'Catalyst (real news behind the move) (info — not required)', ok: catalyst },
+    { label: p3 != null ? `Neglected before today (3-mo ${p3 >= 0 ? '+' : ''}${p3}%, 6-mo ${p6 != null && p6 >= 0 ? '+' : ''}${p6 ?? '–'}%) (info)` : 'Neglected before today (info — not required)', ok: neglected },
   ];
   const reds: string[] = [];
   if (chg != null && chg < 0) reds.push('down today');
-  if (rvol != null && rvol < 1.5) reds.push('volume pace under 1.5x usual');
+  if (rvol != null && rvol < 1) reds.push('volume pace under 1x usual');
   if (aboveOpen === false) reds.push('below the open');
 
   const passes = (i: number) => checks[i].ok !== false;
   const tier: EdgeTier = reds.length ? 'red'
-    : checks[0].ok === true && checks[1].ok === true && passes(2) && passes(3) && passes(4) && passes(5) && passes(6) && passes(7) ? 'green'
+    : checks[0].ok === true && checks[1].ok === true && passes(2) && passes(3) && passes(4) && passes(5) ? 'green'   // 6, 7: info only
     : 'yellow';
   return { tier, checks, reds };
 }
@@ -229,8 +233,8 @@ export const CHECKLIST_TIP: Record<Mode, Record<EdgeTier, string>> = {
     red: "STAY AWAY (swing): below the 50-day, under the 21 with the 10 below it or the 21 falling (short-term downtrend), RS under 50, more than 3 ADRs above the 21 EMA (blow-off), earnings within 3 days, QQQ below its 200-day — or this scan's own red rule.",
   },
   day: {
-    green: 'GO (day trade): up today on 2x+ its usual volume pace with a real catalyst (specific news), neglected before today (hadn\'t already run: 3-month ≤ +15%, 6-month ≤ +30%, quiet 60-day range), holding the top half of today\'s range and above the open, ADR 4%+ and $20M+ traded. A checklist traders use, not a tested edge. Hover a row for its ✔ / ✖.',
-    yellow: 'LOOK (day trade): in play but fading into the bottom half of the range, volume pace only 1.5-2x, a thin range, no specific news behind the move, or it had already run before today.',
-    red: 'STAY AWAY (day trade): down today, below the open, or volume running under 1.5x its usual pace. (The scans\' 20-day red rules do not apply to day trades.)',
+    green: 'GO (day trade): up today on 1.5x+ its usual volume pace for this time of day, holding the top half of today\'s range and above the open, ADR 4%+ and $20M+ traded. News and whether it had run before today are shown in the hover but not required. A checklist traders use, not a tested edge. Hover a row for its ✔ / ✖.',
+    yellow: 'LOOK (day trade): in play but fading into the bottom half of the range, volume pace only 1-1.5x, or a thin range.',
+    red: 'STAY AWAY (day trade): down today, below the open, or volume running under its usual pace. (The scans\' 20-day red rules do not apply to day trades.)',
   },
 };

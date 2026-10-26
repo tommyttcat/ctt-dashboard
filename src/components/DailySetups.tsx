@@ -86,7 +86,8 @@ import { formatSetupName, isBlueDotSetup } from '@/lib/setupName';
 
 type FitFilterType = 'All' | 'OK';
 const FIT_BUCKETS: FitFilterType[] = ['OK'];
-import { edgeTier, EDGE_FILTER_TIP, EDGE_TINT, tipFor } from '@/lib/scans/edge';
+/* Day checklist since 26 Oct 2026 (the swing checklist painted every in-play name red on a bounce day). */
+import { edgeTierDay as edgeTier, DAY_FILTER_TIP as EDGE_FILTER_TIP, EDGE_TINT, tipFor } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import {
   formatTime,

@@ -86,14 +86,18 @@ eq('hrs never returns red', hrsTier({ price: 500 }), 'yellow');
 
 // The scan's red rule still wins over the checklist, in both modes.
 const cheap = { price: 6, adrPct: 4, closeStrength: 1, mf: 70, mktCap: 4e8, floatTurnover: 0.3, changePct: 5, rvol: 3, rsRating: 90, stage: 'Stage 2A' };
-eq('momentum red rule ($5-10) wins on the swing checklist', tierForScan('daily', cheap)?.tier, 'red');
-eq('universal swing colours: sip is red by the same rule', tierForScan('sip', cheap)?.tier, 'red');
-ok('the tip says why', /own red rule/.test(tierForScan('daily', cheap)?.tip ?? ''));
+// 26 Oct 2026: day scans use the day checklist, which ignores the scans' 20-session red rules.
+eq('day colours: the $5-10 momentum red rule does not apply on daily', tierForScan('daily', cheap)?.tier, 'green');
+eq('day colours: nor on sip', tierForScan('sip', cheap)?.tier, 'green');
+eq('swing colours still apply it (dvol)', tierForScan('dvol', cheap)?.tier, 'red');
+ok('the swing tip says why', /own red rule/.test(tierForScan('dvol', cheap)?.tip ?? ''));
 const day = { price: 30, adrPct: 6, closeStrength: 0.8, changePct: 6, rvol: 3, dVol: 5e7, mf: 50, mktCap: 1e9, floatTurnover: 0.3 };
-ok('ep9m uses the swing checklist too (universal)', /swing checklist/.test(tierForScan('ep9m', day)?.tip ?? ''));
-ok('and so does sip', /swing checklist/.test(tierForScan('sip', day)?.tip ?? ''));
-ok('daily uses the swing checklist', /swing checklist/.test(tierForScan('daily', day)?.tip ?? ''));
-eq('an unknown source falls back to daily', tierForScan('nonsense', cheap)?.tier, 'red');
+ok('ep9m uses the day checklist', /day-trade checklist/.test(tierForScan('ep9m', day)?.tip ?? ''));
+ok('and so does sip', /day-trade checklist/.test(tierForScan('sip', day)?.tip ?? ''));
+ok('and daily', /day-trade checklist/.test(tierForScan('daily', day)?.tip ?? ''));
+ok('swing stays on the swing checklist', /swing checklist/.test(tierForScan('swing', day)?.tip ?? ''));
+ok('swingcheck: the swing checklist with no scan rule', /swing checklist/.test(tierForScan('swingcheck', day)?.tip ?? ''));
+eq('an unknown source falls back to daily (day)', tierForScan('nonsense', cheap)?.tier, 'green');
 // Require both (VCP, 10/21): the checklist AND the scan's measured green bucket.
 const good = { price: 100, ema50: 90, ema21Rising: true, distToEma21: 2, distToEma10: 1, adrPct: 4, rsRating: 85, stage: 'Stage 2A', volDry: 0.6 };
 eq('vcp: checklist green but middle bucket = yellow', tierForScan('vcp', { ...good, atrPct: 3, finalDepthPct: 6, stopPct: 8 })?.tier, 'yellow');

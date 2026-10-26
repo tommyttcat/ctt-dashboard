@@ -149,6 +149,7 @@ import { cleanSectorDescription } from '@/lib/sectors';
 import { sma, ema, atr, adrPct, stochK, pctReturn } from '@/lib/indicators/marketMath';
 import { runInBackground, isDetachedRun, BG_HEADERS } from '@/lib/background';
 import { pickBestNews, polygonNewsPath, type NewsItem } from '@/lib/indicators/news';
+import { paceOf, etMinuteNow } from '@/lib/scans/checklist';
 import { fetchFreeNewsIndex } from '@/lib/indicators/newsAlt';
 /* The pure half of the scan — shortlist, score, EP type and the derived
    inputs — lives in lib/scans/ep9m so the historical backtest replays the
@@ -217,6 +218,7 @@ interface Ep9mCandidate {
   dVol: number;
   avgVol: number;
   rvol: number;
+  rvolPace: number;   // pace at the data's minute (26 Oct 2026)
   volVs60dMax: number | null;
   unprecedented: boolean;
   floatTurnover: number | null;
@@ -805,6 +807,8 @@ async function runScan(request: Request) {
         dVol: Math.round(snap.price * snap.vol),
         avgVol: Math.round(ab.avgVol),
         rvol: +ab.rvol.toFixed(2),
+        /* Volume pace at the data's minute (15-min delayed feed) — the day checklist's input (26 Oct 2026). */
+        rvolPace: +(paceOf(ab.rvol, etMinuteNow() - 15) as number).toFixed(2),
         volVs60dMax: ab.volVs60dMax != null ? +ab.volVs60dMax.toFixed(2) : null,
         unprecedented: ab.unprecedented,
         floatTurnover: raw.floatTurnover != null ? +raw.floatTurnover.toFixed(3) : null,

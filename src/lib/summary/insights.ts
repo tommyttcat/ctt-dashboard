@@ -12,7 +12,7 @@
  * reason — they describe the data this file produces.
  */
 
-import { edgeTier as edgeOf, tierForScan, type EdgeTier } from '@/lib/scans/edge';
+import { tierForScan, type EdgeTier } from '@/lib/scans/edge';
 import { isTradingDay } from '@/lib/marketCalendar';
 import { isEtfSector, industryHeat } from '@/lib/sectors';
 import {
@@ -1126,10 +1126,16 @@ export const buildLocalInsights = (
     if (rs != null && isFinite(rs) && !rsMap[t]) rsMap[t] = rs;
     const st = stageOf(s);
     if (st && st !== '—' && !stageMap[t]) stageMap[t] = st;
-    const edge = edgeOf(s);
+    /* Each row by its own scan's checklist (26 Oct 2026: day scans day, swing scans swing). */
+    const edge = tierForScan(s?._source ?? 'daily', s)?.tier ?? null;
     if (edge && !edgeMap[t]) edgeMap[t] = edge;
   }
-  for (const arr of [...Object.values(movers), swingList, consolList, vcpList, mbList, dvolList]) {
+  type Rows = typeof swingList;
+  const bySource: [string, Rows][] = [
+    ...Object.values(movers).map(a => ['daily', a] as [string, Rows]),   // Top Movers: day
+    ['swing', swingList], ['coil', consolList], ['vcp', vcpList], ['mb', mbList], ['dvol', dvolList],
+  ];
+  for (const [src, arr] of bySource) {
     if (!Array.isArray(arr)) continue;
     for (const s of arr) {
       const t = s?.ticker || s?.symbol;
@@ -1137,7 +1143,7 @@ export const buildLocalInsights = (
       if (!priceMap[t]) { const prc = priceOf(s); if (prc != null) priceMap[t] = prc; }
       if (!rsMap[t]) { const rs = s?.rsRating != null ? Number(s.rsRating) : null; if (rs != null && isFinite(rs)) rsMap[t] = rs; }
       if (!stageMap[t]) { const st = stageOf(s); if (st && st !== '—') stageMap[t] = st; }
-      if (!edgeMap[t]) { const edge = edgeOf(s); if (edge) edgeMap[t] = edge; }
+      if (!edgeMap[t]) { const edge = tierForScan(src, s)?.tier ?? null; if (edge) edgeMap[t] = edge; }
     }
   }
 
@@ -1163,7 +1169,8 @@ export const buildLocalInsights = (
     'SIPs Thesis': tierMap([['sip', sips]]),
     'Daily Setups Thesis': tierMap([['daily', daily]]),
     'Reversal Swing Thesis': tierMap([['swing', swingList]]),
-    '10/21 Thesis': tierMap([['sip', sips], ['daily', daily], ['ep9m', ep9m]]),
+    /* A holding-period (swing) card built from day-scan rows: the swing checklist, no scan rule. */
+    '10/21 Thesis': tierMap([['swingcheck', sips], ['swingcheck', daily], ['swingcheck', ep9m]]),
     'VCP Thesis': tierMap([['vcp', vcpList]]),
     'EP9M Thesis': tierMap([['ep9m', ep9m]]),
     '100-Bagger Thesis': tierMap([['mb', mbList]]),

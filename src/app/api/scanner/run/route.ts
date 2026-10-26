@@ -129,6 +129,7 @@ import { choppiness, CHOP_PERIOD_DEFAULT, CHOP_CHOP_MIN, CHOP_TREND_MAX } from '
 import { loadRsRatings, type RsLookup } from '@/lib/indicators/rs';
 import { rawRsScore, percentileRank } from '@/lib/indicators/vcp';
 import { pickBestNews, type NewsItem } from '@/lib/indicators/news';
+import { paceOf, etMinuteNow } from '@/lib/scans/checklist';
 import { fetchFreeNewsIndex } from '@/lib/indicators/newsAlt';
 import {
   computeCnfScore, atrsAboveAnchor, isBreakoutSetupName, isReversalSetupName,
@@ -1539,6 +1540,8 @@ async function runScan(request: Request) {
         ...tightnessOf([...dailyBars].reverse()),   // swing checklist: tight & quiet (bars are newest-first here)
         ...neglectOf([...dailyBars].reverse()),     // day checklist: neglected before today (lib/scans/neglect)
         ticker: sym, name: companyName, sector: deepSector, price, vwapStatus, changePct: chgPct, vol, avgVol, atr, dVol: vol * vwap, rvol: rvol ? parseFloat(rvol.toFixed(2)) : null,
+        /* Volume pace at the minute this (15-min delayed) data describes — the day checklist's input (26 Oct 2026). */
+        rvolPace: rvol ? +(paceOf(rvol, etMinuteNow() - 15) as number).toFixed(2) : null,
         float, shortPct,
         daysToCover: daysToCover != null ? parseFloat(daysToCover.toFixed(1)) : null,
         mktCap: marketCap, stage: setupMatched.stage, setupName: setupMatched.name, catalystUrl: null,

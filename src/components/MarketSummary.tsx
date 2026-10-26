@@ -108,7 +108,7 @@ import { isTradingDay } from '@/lib/marketCalendar';
 import TickerChartHover, { ActiveChartProvider, WatchlistBtn } from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
 import { hrsEdgeGrade } from '@/lib/scans/hrs';
-import { EDGE_TINT, EDGE_FILTER_TIP, type EdgeTier } from '@/lib/scans/edge';
+import { EDGE_TINT, COLOUR_TIP, type EdgeTier } from '@/lib/scans/edge';
 /* A summary row's colour = the colour it is drawn with: its own scan's checklist (day for
    Stocks in Play / EP9M / Early Movers, swing for the rest). Filtering on one colour while
    drawing another hid green rows behind the green filter (12 Oct 2026). */
@@ -749,7 +749,7 @@ const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A
 
   return (
     <InfoDot key={idx} block className={`flex items-center ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
-      text={edge ? `${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : undefined}>
+      text={edge ? `${edge.toUpperCase()} — ${COLOUR_TIP[edge]}` : undefined}>
       {!skipWatchlistBtn && <span className="hidden md:inline-flex shrink-0" style={{ width: 0, overflow: 'visible', position: 'relative' }}><span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)' }}><WatchlistBtn symbol={p.ticker} /></span></span>}
       <div className={`${scrollRowCls} flex-1 min-w-0`} style={scrollRowStyle}>
       <div className="flex items-center whitespace-nowrap py-[1px]">
@@ -1011,11 +1011,13 @@ const renderSetupRow = (
   const indicatorLabel = overlap >= 2 ? overlap + '×' : rpt ? `EP${rpt.count}` : '';
   const indicatorColor = overlap >= 2 ? 'text-indigo-400/80' : rpt ? 'text-fuchsia-400/80' : 'text-slate-500';
   const mbGradeCls = mbf ? (mbf.grade === 'A' ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/10' : mbf.grade === 'B' ? 'text-sky-400 border-sky-500/20 bg-sky-500/10' : mbf.grade === 'C' ? 'text-amber-400 border-amber-500/20 bg-amber-500/10' : 'text-slate-400 border-slate-500/20 bg-slate-500/10') : '';
-  const edge = edgeOf(s);
+  /* The row's own checklist and its ✔ / ✖ (day scans day, swing scans swing — 26 Oct 2026). */
+  const tfs = tierForScan(s?._early ? 'early' : s?._source, s);
+  const edge = tfs?.tier ?? null;
 
   return (
     <InfoDot key={`ss-${s.ticker}-${i}`} block className={`flex items-center gap-0 ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
-      text={edge ? `${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : undefined}>
+      text={tfs ? `${tfs.tier.toUpperCase()} — ${tfs.tip}` : undefined}>
       <span className="hidden md:inline-flex shrink-0" style={{ width: 0, overflow: 'visible', position: 'relative' }}><span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)' }}><WatchlistBtn symbol={s.ticker} /></span></span>
       <div className="w-[28px] shrink-0 flex items-center justify-end pr-1.5 gap-0.5">
         {hasIndicator && (
@@ -1107,7 +1109,7 @@ const ALL_SETUP_FILTERS = [...SETUP_PATTERN_FILTERS, ...SETUP_SOURCE_FILTERS];
    covers most of its rows. */
 const THESIS_EDGE_SOURCE: Record<string, string> = {
   'SIPs Thesis': 'sip', 'Daily Setups Thesis': 'daily', 'Reversal Swing Thesis': 'swing',
-  '10/21 Thesis': 'daily', 'VCP Thesis': 'vcp', 'EP9M Thesis': 'ep9m', '100-Bagger Thesis': 'mb',
+  '10/21 Thesis': 'swingcheck', 'VCP Thesis': 'vcp', 'EP9M Thesis': 'ep9m', '100-Bagger Thesis': 'mb',
 };
 const thesisTips = (label: string): Record<EdgeTier, string> => {
   const src = THESIS_EDGE_SOURCE[label];
@@ -1453,7 +1455,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
         <button
           key={f.key}
           onClick={() => setEdgeKey(liveEdge === f.key ? null : f.key)}
-          title={`${f.label} rows — ${EDGE_FILTER_TIP[f.key]}`}
+          title={`${f.label} rows — ${COLOUR_TIP[f.key]}`}
           className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-[2px] rounded border transition-all duration-150 ${
             on ? f.cls : liveEdge == null && count > 0 ? f.cls : 'text-slate-600 bg-transparent border-white/5'
           }`}
@@ -1720,15 +1722,15 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
           const cnf = cnfMap?.[r.t] ?? r.cnf ?? null;
           const stg = stageMap?.[r.t] ?? r.stg ?? null;
           const news = newsMap?.[r.t] ?? null;
-          /* Universal colour (12 Oct 2026): the scan's colour where a scan carries the name,
-             else the swing checklist on this row — live price against last night's EMAs
-             (lib/leaders checkFields), with the stage the scans know when they know it. */
+          /* A swing card (26 Oct 2026): the swing checklist on this row — live price against last
+             night's EMAs (lib/leaders checkFields), with the stage when known — not the scans'
+             colour, which is the day checklist on SIP / Daily names. */
           const own = swingCheck({ ...r, ticker: r.t, stage: stg ?? undefined } as unknown as Record<string, unknown>);
-          const edge: EdgeTier | null = edgeMap?.[r.t] ?? own?.tier ?? null;
+          const edge: EdgeTier | null = own?.tier ?? null;
           return (
             /* Colour reasons in the InfoDot panel (12 Oct 2026: no native title tooltips). */
             <InfoDot key={r.t} block className={`flex items-center whitespace-nowrap py-[1px] ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
-              text={edge ? `${r.n ?? r.t}\n${edgeMap?.[r.t] ? `${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : checkTip('swing', own)}` : (r.n ?? r.t)}>
+              text={edge ? `${r.n ?? r.t}\n${checkTip('swing', own)}` : (r.n ?? r.t)}>
               <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover>
               <span className="inline-block w-[20px] md:w-[22px] text-center ml-2 md:ml-1">{cnf != null
                 ? <span className={`${badge} ${cnfBadgeCls(cnf)}`}>{Math.round(cnf)}</span>
@@ -1960,7 +1962,7 @@ const SocialSentiment = ({ edgeMap, cnfMap }: { edgeMap?: Record<string, EdgeTie
     const rv = r.rvol ?? null;
     return (
       <InfoDot key={r.t} block className={`flex items-center whitespace-nowrap py-[1px] ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
-        text={edge ? `${r.n ?? r.t} · ${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : (r.n ?? r.t)}>
+        text={edge ? `${r.n ?? r.t} · ${edge.toUpperCase()} — ${COLOUR_TIP[edge]}` : (r.n ?? r.t)}>
         <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover>
         <span className="inline-block w-[20px] md:w-[22px] text-center ml-2 md:ml-1">{cnf != null
           ? <span className={`${badge} ${cnfBadgeCls(cnf)}`}>{Math.round(cnf)}</span>

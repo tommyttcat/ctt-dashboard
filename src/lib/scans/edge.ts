@@ -53,7 +53,10 @@ export const CHECKLIST_COLOURS = true;
 /* UNIVERSAL (12 Oct 2026, owner's call): one colour per stock on every card — the SWING
    checklist everywhere, quality first. The day checklist (lib/scans/checklist dayCheck) stays
    in the code but colours nothing; day-trade signals show as columns. */
-export const UNIVERSAL_SWING = true;
+/* false since 26 Oct 2026 (owner): day-trade cards (SIP, Daily, EP9M, Top Movers, Early Movers) are
+   coloured by the DAY checklist again, swing cards by the swing one. The universal swing colour
+   (12 Oct) painted every in-play name red on a bounce day: 98 of 132 rows red, 2 green. */
+export const UNIVERSAL_SWING = false;
 const modeFor = (m: Mode): Mode => (UNIVERSAL_SWING ? 'swing' : m);
 const tickerOf = (row: unknown): string | undefined => { const r = row as { ticker?: string; symbol?: string; t?: string } | null; return r?.ticker ?? r?.symbol ?? r?.t; };
 export function modelBand(score: number): EdgeTier { return score >= 0.7 ? 'green' : score >= 0.3 ? 'yellow' : 'red'; }
@@ -394,8 +397,17 @@ export const OSB_TIP: Record<EdgeTier, string> = {
   red: 'LOST (Oversold Bounce): oversold and under its nearest key level. Key levels are on the pop-up chart. Untested.',
 };
 
+/* Tips for the day-coloured daily source, defined here because TIER_BY_SOURCE is built at load. */
+const DAY_TIP: Record<EdgeTier, string> = { ...CHECKLIST_TIP.day };
+/* One line for a card that mixes both checklists (Setups Summary, Top Movers rows, Social Sentiment). */
+export const COLOUR_TIP: Record<EdgeTier, string> = {
+  green: 'GO — on day-trade scans (SIP, Daily, EP9M, Top Movers, Early Movers): up on 1.5x+ usual volume pace, holding the top half of the range, above the open. On swing scans: an uptrend pullback holding the 21 EMA, RS 70+, volume drying up. Hover a row for its checks.',
+  yellow: 'LOOK — something on its checklist is off (day: fading or thin volume; swing: stretched, lagging, lower high, or not enough data). Hover a row for its checks.',
+  red: 'STAY AWAY — day: down, below the open or volume under its usual pace; swing: below the 50-day, a short-term downtrend, RS under 50, a blow-off, or earnings within 3 days.',
+};
+
 const TIER_BY_SOURCE: Record<string, { fn: (r: any) => EdgeTier | null; rule: (r: any) => EdgeTier | null; tip: Record<EdgeTier, string>; mode: Mode }> = {
-  daily: { fn: edgeTier, rule: r => edgeTierRule(r), tip: EDGE_FILTER_TIP, mode: 'swing' },
+  daily: { fn: edgeTierDay, rule: r => edgeTierRule(r), tip: DAY_TIP, mode: 'day' },   // Daily Setups + Top Movers: day (26 Oct 2026)
   sip: { fn: edgeTierDay, rule: r => edgeTierRule(r), tip: EDGE_FILTER_TIP, mode: 'day' },
   early: { fn: edgeTierDay, rule: r => edgeTierRule(r), tip: EDGE_FILTER_TIP, mode: 'day' },
   dvol: { fn: edgeTier, rule: r => edgeTierRule(r), tip: EDGE_FILTER_TIP, mode: 'swing' },
@@ -406,6 +418,8 @@ const TIER_BY_SOURCE: Record<string, { fn: (r: any) => EdgeTier | null; rule: (r
   mb: { fn: multibaggerTier, rule: r => multibaggerTierRule(r), tip: MULTIBAGGER_TIP, mode: 'swing' },
   hrs: { fn: hrsTier, rule: r => hrsTierRule(r), tip: HRS_TIP, mode: 'swing' },
   osb: { fn: osbTierRule, rule: osbTierRule, tip: OSB_TIP, mode: 'swing' },
+  /* The swing checklist with no scan rule — for swing cards built from day-scan rows (10/21 Thesis). */
+  swingcheck: { fn: r => viaChecklist('swing', null, r), rule: () => null, tip: CHECKLIST_TIP.swing, mode: 'swing' },
 };
 
 export function tierForScan(source: string | null | undefined, row: any): { tier: EdgeTier; tip: string } | null {
