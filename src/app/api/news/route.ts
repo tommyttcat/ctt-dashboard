@@ -162,7 +162,7 @@ function capPerTicker(items: Normalized[]): Normalized[] {
    (nyToIso). No WIIM desk any more, so tags come from the headline rules alone. */
 /* Zacks-style filler the wire carries in bulk — previews, "A vs B", "should you buy" — that says
    nothing about why a stock is moving (first live pull, 26 Oct 2026: 11 of 20 were these). */
-const FLUFF = /gears up to report|what's in the cards|what to expect|here's what investors should know|which (stock|is) .*better|better (buy|bet)\b|\bvs\.? .*:|should you (buy|sell|hold)|worth a (bet|look|buy)|is it time to|buy, sell or hold|top ranked|zacks rank|strong buy stock|stocks to (buy|watch)|\d+ (stocks|reasons)\b|bull of the day|bear of the day|earnings preview/i;
+const FLUFF = /gears up to report|what's in the cards|what to expect|here's what investors should know|which (stock|is) .*better|better (buy|bet)\b|\bvs\.? .*:|should you (buy|sell|hold)|worth a (bet|look|buy)|is it time to|buy, sell or hold|top ranked|zacks rank|strong buy stock|stocks to (buy|watch)|\d+ (stocks|reasons)\b|bull of the day|bear of the day|earnings preview|in the (cards|offing)|set to report|to (post|report) q[1-4]|likely to (support|aid|hurt|boost)|: can (it|the)\b|fund roundup|stock (rises|falls) (as|while) market/i;
 
 let fmpBytes = 0;   // last call's response size, for ?debug=1 (FMP bandwidth is plan-capped)
 async function fetchFmpLatest(apiKey: string): Promise<Normalized[]> {
