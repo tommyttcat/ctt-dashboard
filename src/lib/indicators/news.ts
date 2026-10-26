@@ -161,6 +161,10 @@ const RX_OPINION = /\b(?:should you (?:buy|sell|own)|should (?:investors?|you) (
 
 // Legal solicitation. Carried over from the WIIM spam filter — these flood
 // any feed and describe a lawsuit being organised, not a company event.
+/* Fund letters (26 Oct 2026, owner: block them) — Seeking Alpha republishes managers' quarterly
+   letters tagged to every holding: "Baron Health Care Fund Q3 2026 Top Contributors And
+   Detractors", "Ariel Fund Q3 2026 Leaders And Laggards". Not news about the stock. */
+export const RX_FUND_LETTER = /\b(?:top contributors(?:\s+(?:and|&)\s+detractors)?|contributors\s+(?:and|&)\s+detractors|leaders\s+(?:and|&)\s+laggards|(?:quarterly|investor|shareholder|annual|semi-?annual|partners?|client)\s+letter|(?:q[1-4]|quarterly|monthly|annual)\s+(?:20\d\d\s+)?(?:commentary|letter|review)|fund\s+(?:commentary|letter)|(?:fund|portfolio|strategy|etf)\s+q[1-4]\s+20\d\d)\b/i;
 const RX_LAW_FIRM = /\b(?:rosen|pomerantz|glancy|kaskela|bronstein|schall|johnson\s*fistel|bragar|eagel|squire|gross\s*law|faruqi|portnoy|block\s*&?\s*leviton|hagens\s*berman|halper\s*sadeh|levi\s*&?\s*korsinsky|robbins\s*geller|kessler\s*topaz|monteverde|wolf\s*haldenstein|berger\s*montague|kahn\s*swick|kirby\s*mcinerney|labaton|bernstein\s*liebhard|howard\s*g\.?\s*smith|kuehn\s*law|grabar|rigrodsky|weiss\s*law|ademi|federman|claimsfiler|holzer)\b/i;
 
 const RX_LEGAL_BOILERPLATE = /\b(?:class\s*action|securities\s*fraud|shareholder\s*(?:alert|rights|investigation|deadline)|investors?\s+(?:are\s+)?(?:urged|encouraged|reminded|alerted|notified|advised)|suffered\s+losses|lead\s+plaintiff|investor\s*alert|deadline\s+approach|law\s*(?:firm|offices)|is\s+investigating)\b/i;
@@ -355,6 +359,7 @@ export function pickBestNews(
     if (RX_LISTICLE.test(title)) continue;
     if (RX_ALGO_CONTENT.test(title)) continue;
     if (RX_OPINION.test(title)) continue;
+    if (RX_FUND_LETTER.test(title)) continue;
 
     // --- breadth ---
     const tickers = Array.isArray(item.tickers) ? item.tickers : [];

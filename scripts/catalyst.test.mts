@@ -12,6 +12,7 @@ import { decodeEntities, headlineOf } from '../src/lib/catalyst.tsx';
 import { tagOf, tagCounts, tapeLine, relTime, minutesSince, ageLabelMinutes, etDateKey, fmtMove } from '../src/lib/newsView.ts';
 import { eq, done } from './testkit.mts';
 import { headlineFromExhibit } from '../src/lib/indicators/newsAlt.ts';
+import { RX_FUND_LETTER } from '../src/lib/indicators/news.ts';
 
 eq('numeric apostrophe', decodeEntities('Nvidia&#39;s AI Token Trade'), "Nvidia's AI Token Trade");
 eq('hex numeric', decodeEntities('Nvidia&#x27;s'), "Nvidia's");
@@ -97,4 +98,9 @@ eq('move unknown', fmtMove(null), '');
 eq('exhibit: stacked EX-99.1 / Exhibit 99.1 tags go', headlineFromExhibit("EX-99.1 Exhibit 99.1 EQT Announces Strategic Acquisition of Range Resources, Creating America's Largest Gas Producer PITTSBURGH, Oct. 26, 2026 -- body"), "EQT Announces Strategic Acquisition of Range Resources, Creating America's Largest Gas Producer");
 eq('exhibit: an all-caps dateline does not eat the last words', headlineFromExhibit('<p>Exhibit 99.1</p><p>HealthSpan Partners to Acquire Surgery Partners, Establishing a Leading Outpatient Platform</p><p>NASHVILLE, Tenn., Oct. 26, 2026 (BUSINESS WIRE) -- text</p>'), 'HealthSpan Partners to Acquire Surgery Partners, Establishing a Leading Outpatient Platform');
 eq('exhibit: cover line and &reg; go', headlineFromExhibit('PRESENTATION DATED OCTOBER 26, 2026 Exhibit 99.1 &reg; Designing Proteins Delivering Medicines -- more'), 'Designing Proteins Delivering Medicines');
+// Fund letters blocked (26 Oct 2026)
+for (const t of ['Baron Health Care Fund Q3 2026 Top Contributors And Detractors', 'Ariel Fund Q3 2026 Leaders And Laggards', 'Longleaf Partners Q3 2026 Commentary', 'Greenlight Capital Q3 2026 Investor Letter'])
+  eq(`fund letter blocked: ${t}`, RX_FUND_LETTER.test(t), true);
+for (const t of ['WCN Stock Gains 11% After Reporting Q3 Earnings & Revenue Beat', 'EQT Announces Strategic Acquisition of Range Resources', 'Citigroup Lifts 2026 RoTCE Outlook', 'Intel Q3 Preview: Server CPU Shortage Sets Up A Pricing Tailwind', 'Nvidia reports Q3 2026 results'])
+  eq(`real news kept: ${t}`, RX_FUND_LETTER.test(t), false);
 done('catalyst headlines + news view');

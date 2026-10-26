@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { pickBestNews, polygonNewsPath } from '@/lib/indicators/news';
+import { pickBestNews, polygonNewsPath, RX_FUND_LETTER } from '@/lib/indicators/news';
 import { nyToIso } from '@/lib/indicators/newsAlt';
 
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
@@ -173,7 +173,7 @@ async function fetchFmpLatest(apiKey: string): Promise<Normalized[]> {
   const arr: any[] = JSON.parse(body);
   if (!Array.isArray(arr)) throw new Error('FMP: not a list');
   const normalized = arr
-    .filter(it => it?.symbol && it?.title && !isSpamNews(it.title) && !FLUFF.test(it.title) && !isBlockedPublisher(it.publisher || it.site || ''))
+    .filter(it => it?.symbol && it?.title && !isSpamNews(it.title) && !FLUFF.test(it.title) && !RX_FUND_LETTER.test(it.title) && !isBlockedPublisher(it.publisher || it.site || ''))
     .map((it): Normalized => {
       const t = normalizeTicker(it.symbol);
       return {
