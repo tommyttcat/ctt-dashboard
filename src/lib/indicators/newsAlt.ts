@@ -1,6 +1,10 @@
 /* News without Benzinga — SEC EDGAR 8-Ks + FMP stock news
    ==================================================================
-   Candidate replacement for the Massive/Benzinga news add-on. Both sources
+   LIVE since 26 Oct 2026: the Massive/Benzinga news add-on ended 27 Oct, and the scans now
+   take their headlines from fetchFreeNewsIndex below (+ Polygon where they already called it).
+   It was first run as a shadow comparison (9-26 Oct, 22 runs, 1,727 ticker checks): FMP
+   supplied 1,124 picks, SEC 59 (43 rated strong), Polygon 41; of 300 Benzinga picks, 13 had
+   no replacement and the median headline age went 2.9h -> 6.2h. Both sources
    are mapped into PolygonNewsRaw so pickBestNews judges them with exactly the
    same publisher, shape, causal and age rules as everything else — the point
    of the shadow comparison (/api/news/compare) is that ONLY the inputs
@@ -27,6 +31,18 @@ import type { PolygonNewsRaw } from './news';
 const SEC_UA = 'ConfluenceTradingTools/1.0 noreply@confluencetradingtools.com';
 const secFetch = (url: string, signal: AbortSignal) =>
   fetch(url, { headers: { 'User-Agent': SEC_UA, Accept: '*/*' }, signal: signal as any, cache: 'no-store' });
+/* Per-instance memo (26 Oct 2026). Five scans call this every 15 minutes and their routes are
+   force-dynamic (no fetch cache), so the 800 KB ticker map and the feed pages would be
+   re-downloaded on every run. A warm function instance reuses them: the map for a day, the
+   feed for 4 minutes (the scans fire at :05 and :07). */
+const memo = new Map<string, { at: number; v: Promise<any> }>();
+function memoized<T>(key: string, ttlMs: number, load: () => Promise<T>): Promise<T> {
+  const hit = memo.get(key);
+  if (hit && Date.now() - hit.at < ttlMs) return hit.v;
+  const v = load().catch(e => { memo.delete(key); throw e; });
+  memo.set(key, { at: Date.now(), v });
+  return v;
+}
 
 /* SEC lists class shares with a dash (BRK-B); the scanners use a dot. */
 const secTicker = (t: string) => t.toUpperCase().replace(/\./g, '-');
@@ -145,12 +161,12 @@ export async function fetchEdgarNewsIndex(
   try {
     const want = new Map(tickers.map(t => [secTicker(t), t]));
     const [map, ...pages] = await Promise.all([
-      secFetch('https://www.sec.gov/files/company_tickers.json', controller.signal).then(r => (r.ok ? r.json() : {})),
+      memoized('sec:tickers', 86_400_000, () => secFetch('https://www.sec.gov/files/company_tickers.json', controller.signal).then(r => (r.ok ? r.json() : Promise.reject(new Error(`SEC ${r.status}`))))).catch(() => ({})),
       ...[0, 100, 200, 300].map(start =>
-        secFetch(
+        memoized(`sec:feed:${start}`, 240_000, () => secFetch(
           `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-K&owner=include&start=${start}&count=100&output=atom`,
           controller.signal,
-        ).then(r => (r.ok ? r.text() : '')).catch(() => ''),
+        ).then(r => (r.ok ? r.text() : Promise.reject(new Error(`SEC ${r.status}`))))).catch(() => ''),
       ),
     ]);
 
@@ -241,15 +257,7 @@ export async function fetchFmpNewsIndex(
           bytes += text.length;
           const arr = res.ok ? JSON.parse(text) : null;
           if (!Array.isArray(arr)) { errors++; return; }
-          index.set(t, arr.map((it: any): PolygonNewsRaw => ({
-            id: `fmp-${it?.url ?? it?.title}`,
-            title: it?.title || '',
-            description: it?.text || '',
-            article_url: it?.url || '',
-            published_utc: nyToIso(String(it?.publishedDate ?? '')),
-            tickers: [t],
-            publisher: { name: it?.publisher || it?.site || '' },
-          })));
+          index.set(t, arr.map((it: any) => fmpToRaw(it, t)));
         } catch {
           errors++;
         }
@@ -259,4 +267,80 @@ export async function fetchFmpNewsIndex(
     clearTimeout(timer);
   }
   return { index, calls, bytes, errors };
+}
+
+const fmpToRaw = (it: any, t: string): PolygonNewsRaw => ({
+  id: `fmp-${it?.url ?? it?.title}`,
+  title: it?.title || '',
+  description: it?.text || '',
+  article_url: it?.url || '',
+  published_utc: nyToIso(String(it?.publishedDate ?? '')),
+  tickers: [t],
+  publisher: { name: it?.publisher || it?.site || '' },
+});
+
+/** FMP stock news for many tickers in batches of 25 symbols (26 Oct 2026) — for a scan that
+    shortlists far more names than it shows (VCP: up to 150, ~5 kept). Multi-symbol calls sort
+    across symbols, so a busy name can crowd a quiet one out; per-ticker (fetchFmpNewsIndex) is
+    the better read where the list is short. */
+export async function fetchFmpNewsBatched(
+  tickers: string[],
+  apiKey: string,
+  timeoutMs = 30_000,
+): Promise<{ index: Map<string, PolygonNewsRaw[]>; calls: number; bytes: number; errors: number }> {
+  const index = new Map<string, PolygonNewsRaw[]>();
+  if (!apiKey || !tickers.length) return { index, calls: 0, bytes: 0, errors: 0 };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const from = new Date(Date.now() - 5 * 86_400_000).toISOString().slice(0, 10);
+  const want = new Set(tickers);
+  let calls = 0, bytes = 0, errors = 0;
+  try {
+    const chunks: string[][] = [];
+    for (let i = 0; i < tickers.length; i += 25) chunks.push(tickers.slice(i, i + 25));
+    for (let i = 0; i < chunks.length; i += 3) {
+      await Promise.all(chunks.slice(i, i + 3).map(async chunk => {
+        calls++;
+        try {
+          const res = await fetch(
+            `https://financialmodelingprep.com/stable/news/stock?symbols=${encodeURIComponent(chunk.join(','))}&from=${from}&limit=250&apikey=${apiKey}`,
+            { signal: controller.signal as any, cache: 'no-store' },
+          );
+          const text = await res.text();
+          bytes += text.length;
+          const arr = res.ok ? JSON.parse(text) : null;
+          if (!Array.isArray(arr)) { errors++; return; }
+          for (const it of arr) {
+            const t = String(it?.symbol ?? '').toUpperCase();
+            if (!want.has(t)) continue;
+            const b = index.get(t);
+            if (b) b.push(fmpToRaw(it, t)); else index.set(t, [fmpToRaw(it, t)]);
+          }
+        } catch { errors++; }
+      }));
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+  return { index, calls, bytes, errors };
+}
+
+/** The scans' news index without Benzinga (26 Oct 2026): SEC 8-Ks + FMP stock news for
+    `tickers`, merged per ticker, in PolygonNewsRaw so pickBestNews judges it unchanged.
+    `batched` uses the 25-symbol FMP calls (long shortlists). Never throws. */
+export async function fetchFreeNewsIndex(
+  tickers: string[],
+  fmpKey: string,
+  opts: { batched?: boolean } = {},
+): Promise<Map<string, PolygonNewsRaw[]>> {
+  const uniq = [...new Set(tickers.filter(Boolean).map(t => String(t).toUpperCase()))];
+  const out = new Map<string, PolygonNewsRaw[]>();
+  if (!uniq.length) return out;
+  const [sec, fmp] = await Promise.all([
+    fetchEdgarNewsIndex(uniq).catch(() => ({ index: new Map<string, PolygonNewsRaw[]>() })),
+    (opts.batched ? fetchFmpNewsBatched(uniq, fmpKey) : fetchFmpNewsIndex(uniq, fmpKey)).catch(() => ({ index: new Map<string, PolygonNewsRaw[]>() })),
+  ]);
+  for (const [t, arr] of sec.index) out.set(t, [...arr]);
+  for (const [t, arr] of fmp.index) out.set(t, [...(out.get(t) ?? []), ...arr]);
+  return out;
 }

@@ -127,7 +127,8 @@ import { CHOP_CHOP_MIN, CHOP_TREND_MAX } from '@/lib/indicators/chop';
 import { SWING, CONSOL, SWING_META, CONSOL_META } from '@/lib/scanConfig';
 import { enrichWithFundamentals } from '@/lib/indicators/fundamentals';
 import { loadRsRatings, type RsLookup } from '@/lib/indicators/rs';
-import { pickBestNews, polygonNewsPath, fetchBenzingaNewsIndex, type NewsItem } from '@/lib/indicators/news';
+import { pickBestNews, polygonNewsPath, type NewsItem } from '@/lib/indicators/news';
+import { fetchFreeNewsIndex } from '@/lib/indicators/newsAlt';
 /* The consolidation analyser, and the helpers both analysers share, live in
    lib/scans/consolidation so the backtest replays the identical rules. */
 import {
@@ -140,6 +141,7 @@ export const revalidate = 0;
 export const maxDuration = 300;
 
 const POLYGON_KEY = process.env.POLYGON_API_KEY || '';
+const FMP_KEY = (process.env.FMP_API_KEY || '').trim();
 const BENZINGA_KEY = process.env.NEXT_PUBLIC_BENZINGA_API_KEY || process.env.BENZINGA_API_KEY || '';
 const BASE = "https://api.polygon.io";
 
@@ -531,17 +533,15 @@ async function runSwingScan() {
       ...consolKeep.map(c => c.symbol),
     ]));
 
-    /* Benzinga leads, Polygon backs it up — Polygon's per-ticker feed is Motley
-       Fool wall-to-wall on this plan and pickBestNews blocks that publisher,
-       which is why this map came back empty for every symbol. The Benzinga side
-       is one fetch for the whole scan because this plan's endpoint ignores
-       per-ticker params entirely; the index does the filtering. */
-    const bzIndex = await fetchBenzingaNewsIndex(POLYGON_KEY);
+    /* SEC 8-Ks + FMP stock news lead, Polygon backs them up — Polygon's per-ticker feed is
+       Motley Fool wall-to-wall on this plan and pickBestNews blocks that publisher.
+       (lib/indicators/newsAlt; Benzinga until 26 Oct 2026.) */
+    const newsIndex = await fetchFreeNewsIndex(newsSymbols, FMP_KEY);
 
     const newsMap = new Map<string, NewsItem | null>();
     await inBatches(newsSymbols, NEWS_CONCURRENCY, async (sym) => {
       const res = await polygonSafe<any>(polygonNewsPath(sym, 20), { results: [] });
-      newsMap.set(sym, pickBestNews([...(bzIndex.get(sym) ?? []), ...(res?.results ?? [])], sym));
+      newsMap.set(sym, pickBestNews([...(newsIndex.get(sym) ?? []), ...(res?.results ?? [])], sym));
       return sym;
     });
 

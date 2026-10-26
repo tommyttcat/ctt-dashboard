@@ -148,7 +148,8 @@ import { rawRsScore, percentileRank } from '@/lib/indicators/vcp';
 import { cleanSectorDescription } from '@/lib/sectors';
 import { sma, ema, atr, adrPct, stochK, pctReturn } from '@/lib/indicators/marketMath';
 import { runInBackground, isDetachedRun, BG_HEADERS } from '@/lib/background';
-import { pickBestNews, polygonNewsPath, fetchBenzingaNewsIndex, type NewsItem } from '@/lib/indicators/news';
+import { pickBestNews, polygonNewsPath, type NewsItem } from '@/lib/indicators/news';
+import { fetchFreeNewsIndex } from '@/lib/indicators/newsAlt';
 /* The pure half of the scan — shortlist, score, EP type and the derived
    inputs — lives in lib/scans/ep9m so the historical backtest replays the
    exact same rules. This route keeps only the I/O. */
@@ -166,6 +167,7 @@ export const revalidate = 0;
 export const maxDuration = 300;
 
 const POLYGON_KEY = process.env.POLYGON_API_KEY || '';
+const FMP_KEY = (process.env.FMP_API_KEY || '').trim();
 /* Benzinga is back, for news only — never the earnings calendar, which is what
    was actually dead when it got pulled. Polygon's per-ticker news is Motley
    Fool wall-to-wall on this plan, so it now serves as the fallback source. */
@@ -570,9 +572,9 @@ async function runScan(request: Request) {
       }
     }
 
-    /* One fetch for the whole scan, indexed by ticker — this plan's Benzinga
-       endpoint ignores per-ticker params, so filtering happens here. */
-    const bzIndex = await fetchBenzingaNewsIndex(POLYGON_KEY);
+    /* SEC 8-Ks + FMP stock news per shortlisted name (lib/indicators/newsAlt; Benzinga until
+       26 Oct 2026) — the shortlist is small (14 on 16 Oct). */
+    const newsIndex = await fetchFreeNewsIndex(shortlist.map(ab => ab.sym), FMP_KEY);
 
     const enriched = await inBatches(shortlist, WINDOW.concurrency, async (ab) => {
       const sym = ab.sym;
@@ -732,7 +734,7 @@ async function runScan(request: Request) {
           dayLow: snap.dayLow ?? bars[bars.length - 1]?.l ?? null,
           priorSwingHigh,
           plan: serialisePlan(plan),
-          news: pickBestNews([...(bzIndex.get(sym) ?? []), ...(newsRes?.results ?? [])], sym),
+          news: pickBestNews([...(newsIndex.get(sym) ?? []), ...(newsRes?.results ?? [])], sym),
         },
       };
     });

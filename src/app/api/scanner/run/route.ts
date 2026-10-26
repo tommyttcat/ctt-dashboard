@@ -128,7 +128,8 @@ import { computeTradePlan } from '@/lib/indicators/tradeplan';
 import { choppiness, CHOP_PERIOD_DEFAULT, CHOP_CHOP_MIN, CHOP_TREND_MAX } from '@/lib/indicators/chop';
 import { loadRsRatings, type RsLookup } from '@/lib/indicators/rs';
 import { rawRsScore, percentileRank } from '@/lib/indicators/vcp';
-import { pickBestNews, fetchBenzingaNewsIndex, enrichBenzingaIndex, type NewsItem } from '@/lib/indicators/news';
+import { pickBestNews, type NewsItem } from '@/lib/indicators/news';
+import { fetchFreeNewsIndex } from '@/lib/indicators/newsAlt';
 import {
   computeCnfScore, atrsAboveAnchor, isBreakoutSetupName, isReversalSetupName,
   EXT_HARD_ATRS, EXT_PARABOLIC_ATRS, EXT_HARD_PCT_NO_ATR, EXT_PARABOLIC_PCT_NO_ATR,
@@ -1265,11 +1266,11 @@ async function runScan(request: Request) {
     const allCandidates = [...dailyCandidates, ...sipCandidates, ...megaCapsRaw, ...gainersRaw, ...losersRaw, ...etfGainersRaw, ...etfLosersRaw];
     const uniqueCandidates = Array.from(new Map(allCandidates.map(item => [item.ticker, item])).values());
 
-    /* General Benzinga feed (200 articles) indexed by ticker, then enriched with
-       per-ticker lookups for candidates the general feed missed. */
-    const bzIndex = await fetchBenzingaNewsIndex(polygonApiKey);
+    /* SEC 8-Ks + FMP stock news for every candidate (lib/indicators/newsAlt), merged with each
+       name's Polygon feed below. Replaced the Massive/Benzinga add-on on 26 Oct 2026 (it ended
+       27 Oct). One FMP call per candidate. */
     const candidateTickers = uniqueCandidates.map((c: any) => c.ticker || c.single_ticker).filter(Boolean);
-    await enrichBenzingaIndex(bzIndex, candidateTickers, polygonApiKey);
+    const newsIndex = await fetchFreeNewsIndex(candidateTickers, (process.env.FMP_API_KEY || '').trim());
 
     const enrichCandidate = async (t: any) => {
       const sym = t.ticker || t.single_ticker;
@@ -1527,7 +1528,7 @@ async function runScan(request: Request) {
          together, and returns null when nothing qualifies — which is the
          common and correct outcome. */
       const newsPick: NewsItem | null = pickBestNews(
-        [...(bzIndex.get(sym) ?? []), ...(newsData?.results ?? [])],
+        [...(newsIndex.get(sym) ?? []), ...(newsData?.results ?? [])],
         sym
       );
 

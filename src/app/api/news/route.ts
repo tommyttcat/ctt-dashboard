@@ -1,18 +1,15 @@
 import { NextResponse } from 'next/server';
 import { pickBestNews, polygonNewsPath } from '@/lib/indicators/news';
+import { nyToIso } from '@/lib/indicators/newsAlt';
 
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
-/* Polygon's aggregated feed is the fallback, not the primary source: on the
-   current plan every article it returns is Motley Fool, which the publisher
-   filter rejects wholesale — the route answered `{results: []}` forever.
-   Benzinga carries the WIIM ("why is it moving") desk copy this section is
-   actually for, plus a channel taxonomy that classifies catalysts for free. */
-
-const BENZINGA_PAGES = 3;   // 25 items/page, ~10 hours of coverage
+/* FMP's latest stock news is the source since 26 Oct 2026 (the Massive/Benzinga add-on ended
+   27 Oct). Polygon's aggregated feed only tops it up: on the current plan nearly every article it
+   returns is Motley Fool, which the publisher filter rejects wholesale. */
 const PER_TICKER_CAP = 2;   // one earnings night otherwise floods the section
 const MAX_ITEMS = 20;
 const MAX_HEADLINE_CHARS = 110;
@@ -52,15 +49,6 @@ const BLOCKED_PUBLISHERS = new Set([
   'insider monkey', 'validea', 'talkmarkets', 'invezz',
   'stocknews.com', 'stocknews', 'quiverquant',
   '24/7 wall st', '24/7 wall street',
-]);
-
-/* The Benzinga equivalent of the blocked publishers above — same failure mode,
-   expressed as a channel rather than a byline. Commentary about a move, not
-   the move. "$1000 Invested In X 10 Years Ago" lands here. */
-const BLOCKED_CHANNELS = new Set([
-  'opinion', 'trading ideas', 'long ideas', 'short ideas',
-  'personal finance', 'education', 'sports betting', 'cannabis',
-  'entertainment', 'general', 'crowdsourcing',
 ]);
 
 const isSpamNews = (title: string) => {
@@ -169,63 +157,34 @@ function capPerTicker(items: Normalized[]): Normalized[] {
   return out;
 }
 
-async function fetchBenzinga(apiKey: string): Promise<Normalized[]> {
-  const massiveFetch = (extra = '') =>
-    fetch(`https://api.massive.com/benzinga/v2/news?apiKey=${apiKey}&limit=100&sort=published.desc${extra}`)
-      .then(r => (r.ok ? r.json() : { results: [] }))
-      .then(d => d?.results || [])
-      .catch(() => []);
-
-  const [general, wiim] = await Promise.all([
-    massiveFetch(),
-    massiveFetch(`&tags=${encodeURIComponent("why it's moving")}`),
-  ]);
-
-  const raw: any[] = [...general, ...wiim].filter(Boolean);
-  const byId = new Map<string, any>();
-  for (const it of raw) if (it?.benzinga_id != null) byId.set(String(it.benzinga_id), it);
-
-  const normalized = [...byId.values()]
-    .filter(it => {
-      const channels: string[] = (it.channels || []).map((c: any) => String(c).toLowerCase());
-      if (!it.tickers?.length) return false;
-      if (isSpamNews(it.title)) return false;
-      if (channels.some(c => BLOCKED_CHANNELS.has(c))) return false;
-      return true;
-    })
+/* FMP's latest stock news across the market (26 Oct 2026) — the wire this section reads since the
+   Massive/Benzinga add-on ended (27 Oct). One call. FMP times are New York time without a zone
+   (nyToIso). No WIIM desk any more, so tags come from the headline rules alone. */
+async function fetchFmpLatest(apiKey: string): Promise<Normalized[]> {
+  const res = await fetch(`https://financialmodelingprep.com/stable/news/stock-latest?page=0&limit=100&apikey=${apiKey}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`FMP ${res.status}`);
+  const arr: any[] = await res.json();
+  if (!Array.isArray(arr)) throw new Error('FMP: not a list');
+  const normalized = arr
+    .filter(it => it?.symbol && it?.title && !isSpamNews(it.title) && !isBlockedPublisher(it.publisher || it.site || ''))
     .map((it): Normalized => {
-      const channels: string[] = (it.channels || []).map((c: any) => String(c)).filter(Boolean);
-      const tags: string[] = (it.tags || []).map((t: any) => String(t)).filter(Boolean);
-      const isWiim = tags.some(t => /why it'?s moving/i.test(t));
-      const tickers: string[] = (it.tickers || [])
-        .map((t: any) => normalizeTicker(t))
-        .filter(Boolean);
+      const t = normalizeTicker(it.symbol);
       return {
-        id: String(it.benzinga_id),
-        ticker: tickers[0] || '',
-        tickers,
+        id: `fmp-${it.url || it.title}`,
+        ticker: t,
+        tickers: [t],
         title: it.title,
         originalTitle: it.title,
         cleanHeadline: shorten(it.title),
-        aiTag: isWiim ? 'WIIM' : deriveTag(it.title, channels),
+        aiTag: deriveTag(it.title),
         url: it.url || '',
-        publishedUtc: it.published || '',
-        publisher: 'Benzinga',
-        summary: summarize(it.teaser || it.body, it.title),
+        publishedUtc: nyToIso(String(it.publishedDate ?? '')),
+        publisher: it.publisher || it.site || 'FMP',
+        summary: summarize(it.text, it.title),
       };
     })
     .sort((a, b) => (b.publishedUtc > a.publishedUtc ? 1 : -1));
-
-  const wiimNorm = normalized.filter(n => n.aiTag === 'WIIM');
-  const nonWiim = normalized.filter(n => n.aiTag !== 'WIIM');
-  const WIIM_SLOTS = 5;
-  const mainSlots = MAX_ITEMS - WIIM_SLOTS;
-  const mainCapped = capPerTicker(nonWiim).slice(0, mainSlots);
-  const wiimCapped = capPerTicker(wiimNorm).slice(0, WIIM_SLOTS);
-  const merged = [...mainCapped, ...wiimCapped]
-    .sort((a, b) => (b.publishedUtc > a.publishedUtc ? 1 : -1));
-
-  return merged;
+  return capPerTicker(normalized).slice(0, MAX_ITEMS);
 }
 
 async function fetchPolygon(apiKey: string): Promise<Normalized[]> {
@@ -266,25 +225,13 @@ export async function GET(req: Request) {
   const debug = params.get('debug') === '1';
   const probe = params.get('probe');
   const polygonApiKey = process.env.POLYGON_API_KEY || '';
-  const benzingaKey = (process.env.NEXT_PUBLIC_BENZINGA_API_KEY || process.env.BENZINGA_API_KEY || '').trim();
+  const fmpKey = (process.env.FMP_API_KEY || '').trim();
 
   /* Diagnostic for the *other* news pipeline — the per-ticker Polygon feed
      behind scanner-row catalysts. It shares nothing with the code above, so
      this reports what that feed actually returns for one symbol and whether
      pickBestNews can find anything usable in it. */
   if (probe) {
-    const bzProbe = polygonApiKey ? await fetch(
-      `https://api.massive.com/benzinga/v2/news?apiKey=${polygonApiKey}&limit=10&sort=published.desc&tickers=${probe}`,
-    ).then(r => r.ok ? r.json() : { results: [] }).catch(() => ({ results: [] })) : { results: [] };
-    const bzArr = Array.isArray(bzProbe?.results) ? bzProbe.results : [];
-    const bzSample = bzArr.slice(0, 5).map((a: any) => ({
-      title: (a.title || '').slice(0, 150),
-      tickers: a.tickers || [],
-      channels: a.channels || [],
-      tags: a.tags || [],
-      published: a.published,
-    }));
-
     const polyResult: any = {};
     if (polygonApiKey) {
       const res = await fetch(`https://api.polygon.io${polygonNewsPath(probe, 20)}&apiKey=${polygonApiKey}`);
@@ -306,7 +253,6 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       probe,
-      benzinga: { count: bzArr.length, sample: bzSample },
       feed: polygonApiKey ? polyResult : 'no key',
     });
   }
@@ -320,15 +266,22 @@ export async function GET(req: Request) {
     let results: Normalized[] = [];
 
     try {
-      results = await fetchBenzinga(polygonApiKey);
-      sources.benzinga = results.length;
+      results = fmpKey ? await fetchFmpLatest(fmpKey) : [];
+      sources.fmp = fmpKey ? results.length : 'no key';
     } catch (e: any) {
-      sources.benzinga = `error: ${e.message}`;
+      sources.fmp = `error: ${e.message}`;
     }
 
-    if (!results.length) {
-      results = await fetchPolygon(polygonApiKey);
-      sources.polygon = results.length;
+    // Polygon tops up a short FMP list (or stands in when FMP fails), skipping names already shown.
+    if (results.length < MAX_ITEMS) {
+      try {
+        const have = new Set(results.map(r => r.ticker));
+        const poly = (await fetchPolygon(polygonApiKey)).filter(r => !have.has(r.ticker));
+        sources.polygon = poly.length;
+        results = [...results, ...poly].sort((a, b) => (b.publishedUtc > a.publishedUtc ? 1 : -1)).slice(0, MAX_ITEMS);
+      } catch (e: any) {
+        sources.polygon = `error: ${e.message}`;
+      }
     }
 
     if (debug) {

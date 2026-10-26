@@ -40,7 +40,8 @@ import { runInBackground, isDetachedRun, BG_HEADERS } from '@/lib/background';
 import { computeStage } from '@/lib/indicators/stage';
 import { loadRsRatings } from '@/lib/indicators/rs';
 import { rawRsScore, percentileRank } from '@/lib/indicators/vcp';
-import { fetchBenzingaNewsIndex, pickBestNews } from '@/lib/indicators/news';
+import { pickBestNews } from '@/lib/indicators/news';
+import { fetchFreeNewsIndex } from '@/lib/indicators/newsAlt';
 import { fromAscending } from '@/lib/indicators/barMetrics';
 import { swingFieldsOf } from '@/lib/scans/swingFields';
 import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
@@ -53,6 +54,7 @@ export const revalidate = 0;
 export const maxDuration = 300;
 
 const POLYGON_KEY = process.env.POLYGON_API_KEY || '';
+const FMP_KEY = (process.env.FMP_API_KEY || '').trim();
 const BENZINGA_KEY = (process.env.NEXT_PUBLIC_BENZINGA_API_KEY || process.env.BENZINGA_API_KEY || '').trim();
 
 const KV_ROWS = 'dvol_rows_v1';
@@ -316,8 +318,9 @@ async function runScan(req: Request) {
        depending on which card you read. */
     const rs = await loadRsRatings();
 
-    /* News for the slice, from the one global Benzinga fetch. */
-    const bzIndex = await fetchBenzingaNewsIndex(POLYGON_KEY);
+    /* News for the slice: SEC 8-Ks + FMP stock news per candidate (lib/indicators/newsAlt;
+       Benzinga until 26 Oct 2026). */
+    const newsIndex = await fetchFreeNewsIndex(candidates.map(r => r.ticker), FMP_KEY);
     let newsResolved = 0;
 
     const barsFrom = new Date(Date.now() - 400 * 86400e3).toISOString().split('T')[0];
@@ -407,7 +410,7 @@ async function runScan(req: Request) {
           row.mfTrend = moneyFlowTrend(bars as any[], { order: 'asc', length: 21, lookback: 5 });
         }
 
-        const pick = pickBestNews(bzIndex.get(row.ticker) ?? [], row.ticker);
+        const pick = pickBestNews(newsIndex.get(row.ticker) ?? [], row.ticker);
         if (pick) {
           newsResolved++;
           row.catalyst = pick.tag;

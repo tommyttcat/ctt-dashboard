@@ -124,7 +124,8 @@ import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
 import { computeStage } from '@/lib/indicators/stage';
 import { loadRsRatings, type RsLookup } from '@/lib/indicators/rs';
 import { runInBackground, isDetachedRun, BG_HEADERS } from '@/lib/background';
-import { pickBestNews, polygonNewsPath, fetchBenzingaNewsIndex, type NewsItem } from '@/lib/indicators/news';
+import { pickBestNews, polygonNewsPath, type NewsItem } from '@/lib/indicators/news';
+import { fetchFreeNewsIndex } from '@/lib/indicators/newsAlt';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -132,6 +133,7 @@ export const revalidate = 0;
 export const maxDuration = 300;
 
 const POLYGON_KEY = process.env.POLYGON_API_KEY || '';
+const FMP_KEY = (process.env.FMP_API_KEY || '').trim();
 /* Benzinga is back for news only (v1.4). The v1.3 move to Polygon is what made
    this column go dark: Polygon's per-ticker feed is Motley Fool wall-to-wall on
    this plan, and pickBestNews blocks that publisher by design. */
@@ -449,9 +451,10 @@ async function runScan(request: Request) {
     const to = ymd(new Date());
     const from = ymd(dateDaysAgo(500));
 
-    /* One fetch for the whole scan, indexed by ticker — this plan's Benzinga
-       endpoint ignores per-ticker params, so filtering happens here. */
-    const bzIndex = await fetchBenzingaNewsIndex(POLYGON_KEY);
+    /* SEC 8-Ks + FMP stock news for the shortlist (lib/indicators/newsAlt; Benzinga until
+       26 Oct 2026). Batched FMP calls, 25 symbols each: the shortlist runs to 150 names and
+       about 5 are kept, so a call per name would be ~150 calls a run for 5 rows. */
+    const newsIndex = await fetchFreeNewsIndex(shortlist.map(s => s.sym), FMP_KEY, { batched: true });
 
     const confirmed = await inBatches(shortlist, ENRICH_CONCURRENCY, async ({ sym, rs }) => {
       const snap = snapMap.get(sym);
@@ -504,7 +507,7 @@ async function runScan(request: Request) {
          now null because nothing was published, not because the feed was
          dead. */
       const news: NewsItem | null = pickBestNews(
-        [...(bzIndex.get(sym) ?? []), ...(newsRes?.results ?? [])],
+        [...(newsIndex.get(sym) ?? []), ...(newsRes?.results ?? [])],
         sym
       );
 
