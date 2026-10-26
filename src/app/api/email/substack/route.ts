@@ -394,30 +394,42 @@ function buildSubtitle(brief: any): string {
 }
 
 async function substackGetUserId(pubUrl: string, session: string): Promise<{ id: number | null; debug?: string }> {
-  /* user/self is the only call that proves the login. 26 Oct 2026: it had returned 403 since
-     ~20 Oct (the substack.sid cookie expired) and the old fallback took the PUBLIC publication
-     endpoint's `id` — the publication's id, not a user's — as the byline, so every draft failed
-     with nothing saying why. Now an expired login is named, and the publication endpoint is only
-     read for its owner (author_id). */
+  /* Substack shut off https://substack.com/api/v1/user/self around 20 Oct 2026: it returns 403 even
+     to a signed-in browser (checked 26 Oct), which is what broke every publish since then — the
+     cookie was fine. The signed-in user's id now comes from the publication's own endpoints:
+       1. /api/v1/subscription  -> user_id   (the logged-in reader's subscription row)
+       2. /api/v1/drafts        -> [0].publishedBylines[0].id / draft_bylines[0].id
+     Both need the login, so a 401/403 from both means the cookie really has expired. */
+  const headers = { Cookie: `substack.sid=${session}` };
+  const statuses: string[] = [];
   try {
-    const res = await fetch('https://substack.com/api/v1/user/self', { headers: { Cookie: `substack.sid=${session}` } });
-    if (res.status === 401 || res.status === 403) {
-      return { id: null, debug: `Substack login expired (user/self ${res.status}) — refresh SUBSTACK_SESSION (the substack.sid cookie) in Vercel` };
-    }
+    const res = await fetch(`${pubUrl}/api/v1/subscription`, { headers });
+    statuses.push(`subscription ${res.status}`);
     if (res.ok) {
       const data = await res.json();
-      if (data?.id) return { id: data.id, debug: 'from user/self' };
+      if (data?.user_id) return { id: data.user_id, debug: 'from subscription.user_id' };
     }
-  } catch { /* fall through */ }
+  } catch (e) { statuses.push(`subscription err ${(e as Error)?.message ?? e}`); }
   try {
-    const res = await fetch(`${pubUrl}/api/v1/publication`, { headers: { Cookie: `substack.sid=${session}` } });
+    const res = await fetch(`${pubUrl}/api/v1/drafts?offset=0&limit=5`, { headers });
+    statuses.push(`drafts ${res.status}`);
     if (res.ok) {
-      const data = await res.json();
-      const id = data?.author_id ?? data?.bylines?.[0]?.id ?? data?.authors?.[0]?.id ?? null;
-      if (id) return { id, debug: 'publication author_id' };
+      const list = await res.json();
+      for (const d of Array.isArray(list) ? list : []) {
+        const id = d?.publishedBylines?.[0]?.id ?? d?.draft_bylines?.[0]?.id ?? d?.draft_bylines?.[0]?.user_id ?? null;
+        if (id) return { id, debug: 'from drafts byline' };
+      }
     }
-  } catch { /* fall through */ }
-  return { id: null, debug: 'all endpoints failed' };
+  } catch (e) { statuses.push(`drafts err ${(e as Error)?.message ?? e}`); }
+  const fixed = Number(process.env.SUBSTACK_USER_ID);
+  if (Number.isFinite(fixed) && fixed > 0) return { id: fixed, debug: 'from SUBSTACK_USER_ID' };
+  const expired = statuses.some(x => / 40[13]$/.test(x)) && !statuses.some(x => / 200$/.test(x));
+  return {
+    id: null,
+    debug: expired
+      ? `Substack login expired (${statuses.join(', ')}) — refresh SUBSTACK_SESSION (the substack.sid cookie) in Vercel`
+      : `no user id (${statuses.join(', ')})`,
+  };
 }
 
 async function substackCreateDraft(pubUrl: string, session: string, title: string, subtitle: string, bodyJson: any, coverImageUrl?: string, tags?: string[]): Promise<{ id?: number; error?: string }> {
@@ -499,7 +511,7 @@ export async function GET(req: Request) {
     const pubUrl = process.env.SUBSTACK_PUB_URL, session = process.env.SUBSTACK_SESSION;
     if (!pubUrl || !session) return NextResponse.json({ ok: false, error: 'SUBSTACK_PUB_URL or SUBSTACK_SESSION missing' }, { status: 500 });
     const who = await substackGetUserId(pubUrl, session);
-    return NextResponse.json({ ok: !!who.id && who.debug === 'from user/self', userId: who.id, how: who.debug, cookieLength: session.length, cookieLooksEncoded: /%3A/i.test(session) });
+    return NextResponse.json({ ok: !!who.id, userId: who.id, how: who.debug, cookieLength: session.length });
   }
 
   const origin = resolveOrigin(req);
