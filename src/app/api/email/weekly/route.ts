@@ -7,6 +7,7 @@ import { postToBluesky } from '@/lib/bluesky';
 import { postToX } from '@/lib/twitter';
 import { kv } from '@vercel/kv';
 import { buildWeeklyEmailV2 } from '@/lib/email/weeklyV2';
+import { substackHome } from '@/lib/substackLatest';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -687,7 +688,7 @@ export async function GET(req: Request) {
     const wd = await kv.get<any>('weekly_substack_data');
     if (!wd?.narrative) return NextResponse.json({ error: 'No weekly data in KV' }, { status: 404 });
     const last = await kv.get<any>('weekly_substack_last');
-    const postUrl = url.searchParams.get('url') || last?.postUrl || 'https://www.confluencetradingtools.com';
+    const postUrl = url.searchParams.get('url') || last?.postUrl || substackHome();
     const wc = wd.weeklyChanges || {};
     const indexLine = ['SPY', 'QQQ', 'IWM', 'DIA'].filter(t => wc[t]).map(t => `$${t} ${wc[t].pct >= 0 ? '+' : ''}${wc[t].pct.toFixed(1)}%`).join(' | ');
     const heads = (wd.narrative.catalysts || []).slice(0, 2);
@@ -966,7 +967,6 @@ export async function GET(req: Request) {
     let bskyWeekly: any = null;
     let xWeekly: any = null;
     try {
-      const dashUrl = 'www.confluencetradingtools.com';
       let indexLine = ['SPY', 'QQQ', 'IWM', 'DIA']
         .filter(t => weeklyChanges[t])
         .map(t => `$${t} ${weeklyChanges[t].pct >= 0 ? '+' : ''}${weeklyChanges[t].pct.toFixed(1)}%`)
@@ -1022,7 +1022,7 @@ export async function GET(req: Request) {
       // Link to the Substack post itself — the social copy is only a teaser, so
       // the link is what carries the reader to the full wrap. Fall back to the
       // dashboard only when the publish returned no URL.
-      const postUrl = substackUrl || `https://${dashUrl}`;
+      const postUrl = substackUrl || substackHome();   // never the site (owner, 26 Oct 2026)
       const { bskyText, xText, facets } = weeklySocialTexts(body, postUrl);
       const cover = await socialImage(await fetchImageBytes(narrative?.coverImageUrl));
       const socialResults = await Promise.allSettled([

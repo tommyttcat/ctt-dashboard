@@ -34,7 +34,7 @@ import {
 import { dedupeByTicker, chgOf, dVolOf, advancingDollarShare } from '@/lib/indicators/marketMath';
 import { postToBluesky } from '@/lib/bluesky';
 import { postToX } from '@/lib/twitter';
-import { SUBSTACK_LATEST_KEY, type SubstackLatest } from '@/lib/substackLatest';
+import { SUBSTACK_LATEST_KEY, substackHome, type SubstackLatest } from '@/lib/substackLatest';
 import { stageHex as stageColor } from '@/lib/indicators/stage';
 import { cnfHex, rvolHex, rsHex } from '@/lib/indicators/columnColors';
 import { newsStarCount } from '@/lib/newsStars';
@@ -1664,8 +1664,9 @@ export async function GET(req: Request) {
         /* The destination is the Substack post when there is one, so the
            picture people see is the door into the writing rather than the end
            of it. Falls back to the dashboard if the publish failed. */
-        const target = substackUrl || `https://${dashUrl}`;
-        const targetLabel = substackUrl ? 'Read the briefing' : 'Full tape + scanners';
+        /* Substack home when this phase's publish failed — never the site (owner, 26 Oct 2026). */
+        const target = substackUrl || substackHome();
+        const targetLabel = substackUrl ? 'Read the briefing' : 'Read CTT on Substack';
 
         /* With a link card the URL in the text is dead weight. Spelling out a
            ~105-character Substack URL inside a 300-character limit was costing

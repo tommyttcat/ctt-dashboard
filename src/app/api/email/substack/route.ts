@@ -493,6 +493,15 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
+  /* ?check=1 (admin or cron): is the stored Substack login accepted? Asks Substack who we are and
+     posts nothing (26 Oct 2026, so a refreshed cookie can be confirmed at once). */
+  if (url.searchParams.get('check') === '1') {
+    const pubUrl = process.env.SUBSTACK_PUB_URL, session = process.env.SUBSTACK_SESSION;
+    if (!pubUrl || !session) return NextResponse.json({ ok: false, error: 'SUBSTACK_PUB_URL or SUBSTACK_SESSION missing' }, { status: 500 });
+    const who = await substackGetUserId(pubUrl, session);
+    return NextResponse.json({ ok: !!who.id && who.debug === 'from user/self', userId: who.id, how: who.debug, cookieLength: session.length, cookieLooksEncoded: /%3A/i.test(session) });
+  }
+
   const origin = resolveOrigin(req);
   const custom = url.searchParams.get('custom');
 

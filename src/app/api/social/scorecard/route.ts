@@ -4,7 +4,7 @@ import { etGate } from '@/lib/etCron';
 import { kv } from '@vercel/kv';
 import { postToBluesky } from '@/lib/bluesky';
 import { postToX } from '@/lib/twitter';
-import { SUBSTACK_LATEST_KEY, SUBSTACK_LATEST_MAX_AGE_MS, type SubstackLatest } from '@/lib/substackLatest';
+import { SUBSTACK_LATEST_KEY, SUBSTACK_LATEST_MAX_AGE_MS, substackHome, type SubstackLatest } from '@/lib/substackLatest';
 import { isTradingDay, etDateString } from '@/lib/marketCalendar';
 
 export const dynamic = 'force-dynamic';
@@ -338,7 +338,7 @@ async function publish(opts: {
      caption and the link, no picture. */
   const latest = await kv.get<SubstackLatest>(SUBSTACK_LATEST_KEY).catch(() => null);
   const sub = latest?.url && Date.now() - (latest.at ?? 0) < SUBSTACK_LATEST_MAX_AGE_MS ? latest.url : null;
-  const link = sub ?? (process.env.SUBSTACK_PUB_URL || 'https://confluencetradingtools.substack.com').replace(/\/$/, '');
+  const link = sub ?? substackHome();
   const label = sub ? "Today's briefing" : 'Read CTT on Substack';
   const xBudget = 280 - 2 - `${label} → `.length - 23;   // X counts any link as 23
   const xBlurb = blurb.length <= xBudget ? blurb : `${blurb.slice(0, xBudget - 1).replace(/\s+\S*$/, '')}…`;
