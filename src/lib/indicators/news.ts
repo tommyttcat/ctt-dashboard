@@ -171,6 +171,10 @@ export const RX_FUND_LETTER = /\b(?:top contributors(?:\s+(?:and|&)\s+detractors
    "Why Is X Stock Soaring Today?", "What's Going On With X Stock?". */
 const RX_QUESTION_FLUFF = /(?:^|:\s*)(?:will|can|could|should|is|are|does|do|has|have|would)\b[^?]*\?\s*$|what(?:'|’)?s in store|what(?:'|’)?s (?:next|ahead) for|what lies ahead/i;
 const RX_QUESTION_KEEP = /\bwhy\b|what(?:'|’)?s going on/i;
+/* Stock-pitch promos (26 Oct 2026, owner: block them) — "Why Ameren (AEE) is a Top Dividend Stock for
+   Your Portfolio", "This is Why Shinhan Financial (SHG) is a Great Dividend Stock", "Invesco (IVZ)
+   Could Be a Great Choice". They get past the question rule because they start with "Why". */
+export const RX_STOCK_PITCH = /\b(?:is|are|could be|might be|may be|makes?|looks? like|remains?)\s+(?:a|an)\s+(?:great|top|strong|solid|smart|good|compelling|excellent|winning|attractive|terrific|must-own|top-ranked)\s+(?:(?:dividend|value|growth|income|momentum|long-term|bargain)\s+)?(?:stock|pick|choice|buy|investment|bet|play|option)\b|\bfor your portfolio\b/i;
 export const isQuestionFluff = (title: string): boolean => RX_QUESTION_FLUFF.test(title) && !RX_QUESTION_KEEP.test(title);
 const RX_LAW_FIRM = /\b(?:rosen|pomerantz|glancy|kaskela|bronstein|schall|johnson\s*fistel|bragar|eagel|squire|gross\s*law|faruqi|portnoy|block\s*&?\s*leviton|hagens\s*berman|halper\s*sadeh|levi\s*&?\s*korsinsky|robbins\s*geller|kessler\s*topaz|monteverde|wolf\s*haldenstein|berger\s*montague|kahn\s*swick|kirby\s*mcinerney|labaton|bernstein\s*liebhard|howard\s*g\.?\s*smith|kuehn\s*law|grabar|rigrodsky|weiss\s*law|ademi|federman|claimsfiler|holzer)\b/i;
 
@@ -368,6 +372,7 @@ export function pickBestNews(
     if (RX_OPINION.test(title)) continue;
     if (RX_FUND_LETTER.test(title)) continue;
     if (isQuestionFluff(title)) continue;
+    if (RX_STOCK_PITCH.test(title)) continue;
 
     // --- breadth ---
     const tickers = Array.isArray(item.tickers) ? item.tickers : [];

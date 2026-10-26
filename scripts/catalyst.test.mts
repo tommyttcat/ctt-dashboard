@@ -12,7 +12,7 @@ import { decodeEntities, headlineOf } from '../src/lib/catalyst.tsx';
 import { tagOf, tagCounts, tapeLine, relTime, minutesSince, ageLabelMinutes, etDateKey, fmtMove } from '../src/lib/newsView.ts';
 import { eq, done } from './testkit.mts';
 import { headlineFromExhibit } from '../src/lib/indicators/newsAlt.ts';
-import { RX_FUND_LETTER, isQuestionFluff } from '../src/lib/indicators/news.ts';
+import { RX_FUND_LETTER, RX_STOCK_PITCH, isQuestionFluff } from '../src/lib/indicators/news.ts';
 
 eq('numeric apostrophe', decodeEntities('Nvidia&#39;s AI Token Trade'), "Nvidia's AI Token Trade");
 eq('hex numeric', decodeEntities('Nvidia&#x27;s'), "Nvidia's");
@@ -108,4 +108,9 @@ for (const t of ["Will JPMorgan's Nigeria Expansion Bolster Its Growth Prospects
   eq(`question fluff blocked: ${t}`, isQuestionFluff(t), true);
 for (const t of ['Why Is Nvidia Stock Soaring Today?', "What's Going On With Tesla Stock?", "Citigroup Lifts 2026 RoTCE Outlook: What's Fueling the Optimism?", 'Bon Secours Affiliate to Acquire Surgery Partners in $5.7 Billion Take-Private Deal', 'Intel Q3 Preview: Server CPU Shortage Sets Up A Pricing Tailwind'])
   eq(`kept: ${t}`, isQuestionFluff(t), false);
+// Stock-pitch promos blocked (26 Oct 2026)
+for (const t of ['Why Landmark Bancorp (LARK) is a Great Dividend Stock Right Now', 'Why Ameren (AEE) is a Top Dividend Stock for Your Portfolio', 'This is Why Shinhan Financial (SHG) is a Great Dividend Stock', 'Invesco (IVZ) Could Be a Great Choice'])
+  eq(`pitch blocked: ${t}`, RX_STOCK_PITCH.test(t), true);
+for (const t of ['SpaceX locks in $40B GPU financing deal with Apollo', 'TNGX Stock Falls 16% Despite Positive Pancreatic Cancer Study Data', 'Why Is Nvidia Stock Soaring Today?', 'Apple is a top supplier to the new console'])
+  eq(`kept: ${t}`, RX_STOCK_PITCH.test(t), false);
 done('catalyst headlines + news view');
