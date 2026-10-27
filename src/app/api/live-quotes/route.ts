@@ -62,7 +62,7 @@ export async function GET(req: Request) {
     const snaps = await webullSnapshot(symbols, 'US_STOCK', { extendedHours: preMarket });
     /* ?raw=1 (signed in): the snapshot fields behind each change, to check the pre-market base. */
     if (new URL(req.url).searchParams.get('raw') === '1') {
-      return NextResponse.json({ session: mkt, now: Date.now(), raw: snaps.map(q => ({ s: q.symbol, price: q.price, preClose: q.preClose, open: q.open, extPrice: q.extPrice, lastTradeTime: q.lastTradeTime, extLastTradeTime: q.extLastTradeTime, base: dayBase(q, preMarket) })) }, { headers: noCacheHeaders() });
+      return NextResponse.json({ session: mkt, now: Date.now(), raw: snaps.map(q => ({ s: q.symbol, price: q.price, preClose: q.preClose, open: q.open, extPrice: q.extPrice, lastTradeTime: q.lastTradeTime, extLastTradeTime: q.extLastTradeTime, change: q.change, changeRatio: q.changeRatio, base: dayBase(q, preMarket) })) }, { headers: noCacheHeaders() });
     }
     const quotes: Record<string, LiveQuote> = {};
     for (const q of snaps) {

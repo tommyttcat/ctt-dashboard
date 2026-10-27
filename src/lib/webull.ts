@@ -195,28 +195,19 @@ export async function webullCapitalFlow(symbol: string, count = 5): Promise<Webu
   }));
 }
 
-/** The base for a day change (27 Oct 2026). Before the open a snapshot can describe either day:
-    - CART (a stock) at 9:01 AM: `price` was YESTERDAY's close (60.88) and `pre_close` the close
-      BEFORE it (Friday, 56.44) — measuring the pre-market print against `pre_close` counted
-      yesterday's move twice (+7.80% for a -0.07% morning; CLRO +82.9% for +19.5%).
-    - SPY (an ETF) at the same minute: `price` was already the live pre-market print and
-      `pre_close` yesterday's close — so using `price` as the base read 0%.
-    The regular-session `lastTradeTime` tells them apart: from an earlier ET date means `price` is
-    yesterday's close (base = price); otherwise `pre_close` already is. With no timestamp, a
-    `price` that differs from the extended print is taken to be yesterday's close. */
-const etDay = (ms: number) => new Date(ms).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
-export function dayBase(
-  q: { price: number; preClose: number; open?: number; lastTradeTime?: number | null; extPrice?: number | null },
-  preMarket: boolean,
-  nowMs: number = Date.now(),
-): number {
+/** The base for a day change (27 Oct 2026). Before the open, with extended hours on, Webull's
+    snapshot still describes YESTERDAY's regular session: `pre_close` is the close BEFORE yesterday
+    (Friday, on a Tuesday morning), `change` is yesterday's regular-session move, and `price` is
+    already the live pre-market print. So yesterday's close is pre_close + change — verified on
+    27 Oct: CART 56.44 + 4.44 = 60.88, CLRO 3.25 + 1.72 = 4.97, SPY 759.97 + 5.40 = 765.37, all
+    yesterday's closes. Measuring against `pre_close` alone counted yesterday's move twice
+    (CART +7.80% for a -0.07% morning, CLRO +82.9% for +19.5%). Outside pre-market `pre_close` is
+    yesterday's close already. */
+export function dayBase(q: { price: number; preClose: number; open?: number; change?: number }, preMarket: boolean): number {
   const fallback = q.preClose || q.open || q.price;
-  if (!preMarket || !(q.price > 0)) return fallback;
-  const t = q.lastTradeTime != null && q.lastTradeTime > 0 ? (q.lastTradeTime < 1e12 ? q.lastTradeTime * 1000 : q.lastTradeTime) : null;
-  const priceIsYesterdaysClose = t != null
-    ? etDay(t) < etDay(nowMs)
-    : q.extPrice != null && q.extPrice > 0 && q.extPrice !== q.price;
-  return priceIsYesterdaysClose ? q.price : fallback;
+  if (!preMarket || !(q.preClose > 0) || q.change == null || !Number.isFinite(q.change)) return fallback;
+  const yclose = +(q.preClose + q.change).toFixed(4);
+  return yclose > 0 ? yclose : fallback;
 }
 
 export type WebullRankRow = {
