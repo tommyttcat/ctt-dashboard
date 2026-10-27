@@ -253,6 +253,7 @@ async function runScan(req: Request) {
         dvol,
         avgVol,
         rvol: avgVol && avgVol > 0 ? vol / avgVol : null,
+        rvolPace: avgVol && avgVol > 0 ? vol / avgVol / share : null,   // vs usual by this time of day (27 Oct 2026)
         adrPct,
         mf: null as number | null,
         mfTrend: 0,

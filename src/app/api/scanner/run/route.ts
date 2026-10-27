@@ -129,7 +129,7 @@ import { choppiness, CHOP_PERIOD_DEFAULT, CHOP_CHOP_MIN, CHOP_TREND_MAX } from '
 import { loadRsRatings, type RsLookup } from '@/lib/indicators/rs';
 import { rawRsScore, percentileRank } from '@/lib/indicators/vcp';
 import { pickBestNews, type NewsItem } from '@/lib/indicators/news';
-import { paceOf, etMinuteNow } from '@/lib/scans/checklist';
+import { paceOf, etMinuteNow, sessionShare } from '@/lib/scans/checklist';
 import { fetchFreeNewsIndex } from '@/lib/indicators/newsAlt';
 import {
   computeCnfScore, atrsAboveAnchor, isBreakoutSetupName, isReversalSetupName,
@@ -918,7 +918,12 @@ async function runScan(request: Request) {
       });
     }
 
-    const viableSetups = processedSnapshot.filter((t: any) => passesScannerUniverse(t.ticker, t._livePrice, t._liveVol));
+    /* Whole-day volume floors scaled to the share of a day's volume the (15-min delayed) snapshot
+       covers (27 Oct 2026): at 9:50 ET the 500K-share floor had five minutes of trading to meet. */
+    const volShareNow = sessionShare(new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }));
+    const dataMin = etMinuteNow() - 15;
+    const inSession = dataMin >= 570 && dataMin < 960;
+    const viableSetups = processedSnapshot.filter((t: any) => passesScannerUniverse(t.ticker, t._livePrice, t._liveVol, volShareNow));
     const spyChgToday = processedSnapshot.find((t: any) => t.ticker === 'SPY')?._liveChg ?? 0;
 
     // Lightweight {ticker: [changePct, price]} map from the full snapshot.
@@ -1504,7 +1509,9 @@ async function runScan(request: Request) {
       const rsVsMkt = chgPct - spyChgToday;
 
       const rvol = (avgVol > 0 && vol > 0) ? (vol / avgVol) : null;
-      const setupMatched = detectPattern(dailyBars, price, currentOpen, vwap, rvol, dot.kind, stochK);
+      /* Patterns gate on PACE (27 Oct 2026): raw RVOL is volume so far / a whole day, so the 1.0x and
+         2.0x gates almost never passed in the morning. */
+      const setupMatched = detectPattern(dailyBars, price, currentOpen, vwap, paceOf(rvol, dataMin), dot.kind, stochK);
       const companyName = details?.results?.name || sym;
 
       const plan = computeTradePlan({
@@ -1557,7 +1564,7 @@ async function runScan(request: Request) {
         ...neglectOf([...dailyBars].reverse()),     // day checklist: neglected before today (lib/scans/neglect)
         ticker: sym, name: companyName, sector: deepSector, price, vwapStatus, changePct: chgPct, vol, avgVol, atr, dVol: vol * vwap, rvol: rvol ? parseFloat(rvol.toFixed(2)) : null,
         /* Volume pace at the minute this (15-min delayed) data describes — the day checklist's input (26 Oct 2026). */
-        rvolPace: rvol ? +(paceOf(rvol, etMinuteNow() - 15) as number).toFixed(2) : null,
+        rvolPace: rvol ? +(paceOf(rvol, dataMin) as number).toFixed(2) : null,
         float, shortPct,
         daysToCover: daysToCover != null ? parseFloat(daysToCover.toFixed(1)) : null,
         mktCap: marketCap, stage: setupMatched.stage, setupName: setupMatched.name, catalystUrl: null,
@@ -1757,7 +1764,7 @@ async function runScan(request: Request) {
       const hasEarnings = !!earn && !earn.reported;
 
       const cnf = computeCnfScore(
-        t.rvol, t.gapPct, t.atrExpansion, t.rsVsMkt,
+        t.rvolPace ?? t.rvol, t.gapPct, t.atrExpansion, t.rsVsMkt,   // pace, not volume-so-far (27 Oct 2026)
         {
           catalystTier: t._catalystTier,
           hasEarnings,
@@ -1799,7 +1806,9 @@ async function runScan(request: Request) {
          tables. CNF stays computed for the tooltip and the other cards. */
       t.fit = fitScore({
         changePct: t.changePct, atrExpansion: t.atrExpansion, rsVsMkt: t.rsVsMkt, chop14: t.chop14,
-        dVol: t.dVol, vwapStatus: t.vwapStatus, aboveSma50: t.aboveSma50,
+        /* The cut points are full-day dollar-volume quintiles: during the session, compare a
+           full-day equivalent, or every morning row reads LATE (27 Oct 2026). */
+        dVol: inSession && t.dVol != null ? t.dVol / volShareNow : t.dVol, vwapStatus: t.vwapStatus, aboveSma50: t.aboveSma50,
         closeStrength: (t.dayHigh != null && t.dayLow != null && t.dayHigh > t.dayLow) ? (t.price - t.dayLow) / (t.dayHigh - t.dayLow) : null,
       });
       if (t.fit != null) t.fit = Math.round(t.fit);
@@ -1823,12 +1832,12 @@ async function runScan(request: Request) {
        watched long enough to know what it costs. */
     const finalSip = sipCandidates
       .map((t: any) => enrichedMap.get(t.ticker))
-      .filter((r: any) => r !== undefined && passesSipFinal(r))
+      .filter((r: any) => r !== undefined && passesSipFinal({ ...r, volShare: volShareNow }))
       .slice(0, SCANNER.finalSize);
 
     const finalDaily = dailyCandidates
       .map((t: any) => enrichedMap.get(t.ticker))
-      .filter((r: any) => r !== undefined && passesDailyFinal(r))
+      .filter((r: any) => r !== undefined && passesDailyFinal({ ...r, volShare: volShareNow }))
       .slice(0, SCANNER.finalSize);
 
     // Enrich with fundamentals — cross-reference multibagger KV first, Polygon for the rest
@@ -1850,7 +1859,7 @@ async function runScan(request: Request) {
     /* Every tab gets the site-wide floor (12 Oct 2026): $3+ (the universe gate) and $20M+ a
        day on the 20-day average. Gainers also need RS 50+ and not Stage 3/4, the $Vol bar.
        Losers and the ETF tabs stay as awareness, floor only. */
-    const floorOk = (r: any) => r !== undefined && r.vol >= SCANNER.minVolume && (r.avgDollarVol ?? (r.avgVol ?? 0) * (r.price ?? 0)) >= SCANNER.minAvgDollarVol;
+    const floorOk = (r: any) => r !== undefined && r.vol >= SCANNER.minVolume * volShareNow && (r.avgDollarVol ?? (r.avgVol ?? 0) * (r.price ?? 0)) >= SCANNER.minAvgDollarVol;
     const strongOk = (r: any) => (r.rsRating ?? -1) >= TOPMOVER_MIN_RS && !/^(stage\s*)?[34]/i.test(String(r.stage ?? '').trim());
     const finalTopMovers = {
       'Mega Caps': megaCapsRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10),
@@ -1861,7 +1870,7 @@ async function runScan(request: Request) {
     };
 
     const finalHighBeta = enrichedList
-      .filter((t: any) => t.beta != null && t.beta >= 1.5 && t.vol >= SCANNER.minVolume && !ETF_TARGET_MAP[t.ticker])
+      .filter((t: any) => t.beta != null && t.beta >= 1.5 && t.vol >= SCANNER.minVolume * volShareNow && !ETF_TARGET_MAP[t.ticker])
       .sort((a: any, b: any) => b.beta - a.beta)
       .slice(0, 10);
 

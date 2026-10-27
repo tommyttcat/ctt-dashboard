@@ -16,8 +16,10 @@ import { computeStageDetail } from '@/lib/indicators/stage';
 export interface ScannerBar { t?: number; o: number; h: number; l: number; c: number; v: number }
 
 /** The scan's universe: symbol shape, price floor, an absolute volume floor. */
-export function passesScannerUniverse(sym: string, price: number, vol: number): boolean {
-  return /^[A-Z]{1,5}$/.test(sym) && price >= SCANNER.minPrice && vol >= SCANNER.minVolume;
+/* `share` (27 Oct 2026): the share of a day's volume the intraday snapshot covers
+   (lib/scans/checklist sessionShare). The floor is a whole-day number; the replay passes 1. */
+export function passesScannerUniverse(sym: string, price: number, vol: number, share = 1): boolean {
+  return /^[A-Z]{1,5}$/.test(sym) && price >= SCANNER.minPrice && vol >= SCANNER.minVolume * share;
 }
 
 /** Stocks in Play: moving hard AND holding the day's average buyer. */
@@ -41,6 +43,9 @@ export interface ScannerRowGates {
      is the liquidity test; avgVol x TODAY's price made a stock that doubled look twice as
      liquid. The replay, which has no such field, keeps the old product. */
   avgDollarVol?: number | null;
+  /* Share of a day's volume the snapshot covers (sessionShare) — scales the whole-day share and
+     dollar floors below. Absent = 1 (the replay, a finished session). */
+  volShare?: number;
 }
 /** The site-wide floor on the 20-day average dollar volume (scanConfig QUALITY_FLOOR). */
 const avgDollarOk = (r: ScannerRowGates) => r.avgDollarVol != null
@@ -49,8 +54,8 @@ const avgDollarOk = (r: ScannerRowGates) => r.avgDollarVol != null
 
 /** Final SIP gate — adds the liquidity and range floors to the candidate test. */
 export function passesSipFinal(r: ScannerRowGates): boolean {
-  return r.vol >= SCANNER.minVolume
-    && r.dVol >= SCANNER.minDollarVol
+  return r.vol >= SCANNER.minVolume * (r.volShare ?? 1)
+    && r.dVol >= SCANNER.minDollarVol * (r.volShare ?? 1)
     && r.changePct >= SCANNER.minChange
     && r.atr >= SCANNER.minAtr
     && r.avgVol >= SCANNER.minAvgVol
@@ -60,8 +65,8 @@ export function passesSipFinal(r: ScannerRowGates): boolean {
 
 /** Final Daily gate — looser: no ATR floor, no average-volume floor. */
 export function passesDailyFinal(r: ScannerRowGates): boolean {
-  return r.vol >= SCANNER.minVolume
-    && r.dVol >= SCANNER.minDollarVol
+  return r.vol >= SCANNER.minVolume * (r.volShare ?? 1)
+    && r.dVol >= SCANNER.minDollarVol * (r.volShare ?? 1)
     && r.changePct >= SCANNER.minChange
     && avgDollarOk(r)
     && r.adrPct != null && r.adrPct >= SCANNER.minAdrPct;

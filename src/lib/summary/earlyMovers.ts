@@ -21,6 +21,7 @@
 // one Webull snapshot call per 15s at most) — flat in users.
 
 import { ORB_VOL_MULT } from '@/lib/orb';
+import { volumeShareAt } from '@/lib/scans/checklist';
 import { numOrNull } from '@/lib/summary/rowFormat';
 import { planRowsFor, planStatusOf } from '@/lib/scans/triggerProximity';
 
@@ -44,9 +45,12 @@ export function avgSharesOf(s: any): number | null {
 }
 
 /** Volume so far against the average day's share for the minutes elapsed. */
+/* Against the U-shaped intraday curve (lib/scans/checklist volumeShareAt), 27 Oct 2026: a straight
+   line read a stock trading its normal opening volume as 2.3x at 9:40, so nearly every name up 2%
+   passed the 1.5x gate in the first half hour. */
 export function paceOf(vol: number | null | undefined, avg: number | null, elapsedMin: number): number | null {
   if (vol == null || !(vol > 0) || avg == null || !(avg > 0) || elapsedMin < EARLY_MIN_ELAPSED) return null;
-  return vol / ((avg * Math.min(390, elapsedMin)) / 390);
+  return vol / (avg * volumeShareAt(9 * 60 + 30 + Math.min(390, elapsedMin)));
 }
 
 /**

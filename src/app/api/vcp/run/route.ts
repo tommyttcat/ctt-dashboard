@@ -126,6 +126,7 @@ import { loadRsRatings, type RsLookup } from '@/lib/indicators/rs';
 import { runInBackground, isDetachedRun, BG_HEADERS } from '@/lib/background';
 import { pickBestNews, polygonNewsPath, type NewsItem } from '@/lib/indicators/news';
 import { fetchFreeNewsIndex } from '@/lib/indicators/newsAlt';
+import { paceOf, etMinuteNow } from '@/lib/scans/checklist';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -184,6 +185,7 @@ interface VcpCandidate {
   dVol: number;
   avgVol: number;
   rvol: number | null;
+  rvolPace: number | null;
   mktCap: number | null;
   float: number | null;
 
@@ -532,6 +534,7 @@ async function runScan(request: Request) {
         dVol: Math.round(snap.price * snap.vol),
         avgVol: Math.round(avgVol),
         rvol: rvol != null ? +rvol.toFixed(2) : null,
+        rvolPace: rvol != null ? +(paceOf(rvol, etMinuteNow() - 15) as number).toFixed(2) : null,   // 27 Oct 2026
         mktCap,
         float,
 

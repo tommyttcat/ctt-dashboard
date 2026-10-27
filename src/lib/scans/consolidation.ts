@@ -9,6 +9,7 @@
 // Pure: no fetch, no KV, no clock. Moved 11 Sep 2026; no behaviour change.
 
 import { computeRMV } from '@/lib/indicators/rmv';
+import { paceOf, etMinuteNow } from '@/lib/scans/checklist';
 import { computeStage } from '@/lib/indicators/stage';
 import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
 import { computeTradePlan } from '@/lib/indicators/tradeplan';
@@ -77,6 +78,7 @@ export interface Candidate {
   vol: number;
   dVol: number;
   rvol: number | null;
+  rvolPace?: number | null;   // pace at the data's minute (27 Oct 2026)
   float: number | null;
   shortPct: number | null;
   daysToCover: number | null;
@@ -471,6 +473,7 @@ export function analyzeConsolidation(
     vol,
     dVol: Math.round(price * vol),
     rvol: rvolVal,
+    rvolPace: rvolVal != null ? +(paceOf(rvolVal, etMinuteNow() - 15) as number).toFixed(2) : null,   // 27 Oct 2026
     float,
     shortPct,
     daysToCover,
@@ -801,6 +804,7 @@ export function analyze(
     vol,
     dVol: Math.round(price * vol),
     rvol: rvolVal,
+    rvolPace: rvolVal != null ? +(paceOf(rvolVal, etMinuteNow() - 15) as number).toFixed(2) : null,   // 27 Oct 2026
     float,
     shortPct,
     daysToCover,

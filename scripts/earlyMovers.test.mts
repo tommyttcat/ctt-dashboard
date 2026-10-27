@@ -2,13 +2,15 @@
 
 import { earlyMovers, paceOf, avgSharesOf, EARLY_MIN_PACE } from '../src/lib/summary/earlyMovers.ts';
 import { eq, near, ok, done } from './testkit.mts';
+import { volumeShareAt } from '../src/lib/scans/checklist.ts';
 
-const AT_1030 = 10 * 60 + 30;           // an hour in: a normal day's share is 60/390
+const AT_1030 = 10 * 60 + 30;           // an hour in: a normal day's share is the U-curve's 22% (27 Oct 2026; was 60/390)
 const name = (ticker: string, extra: Record<string, unknown> = {}) => ({
   ticker, price: 50, avgVol: 1_000_000, rsRating: 90, _source: 'swing',
   plan: { tradeable: true, trigger: 51, stop: 47, triggerLabel: 'pivot' }, ...extra,
 });
-const normalHour = 1_000_000 * (60 / 390);
+const normalHour = 1_000_000 * volumeShareAt(AT_1030);
+near('U-curve: the first hour is ~22% of a day, not 15%', volumeShareAt(AT_1030), 0.22, 1e-9);
 
 near('pace is volume over the average day pro rata', paceOf(normalHour * 2, 1_000_000, 60), 2, 1e-9);
 eq('no pace in the first minutes', paceOf(50_000, 1_000_000, 3), null);

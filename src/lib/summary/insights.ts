@@ -13,6 +13,7 @@
  */
 
 import { tierForScan, type EdgeTier } from '@/lib/scans/edge';
+import { sessionShare } from '@/lib/scans/checklist';
 import { isTradingDay } from '@/lib/marketCalendar';
 import { isEtfSector, industryHeat } from '@/lib/sectors';
 import {
@@ -764,7 +765,8 @@ export const buildLocalInsights = (
     .slice(0, 8);
 
   const watching: WatchItem[] = ranked
-    .filter(s => Math.abs(chgOf(s)) >= 4 && (Number(s?.volume ?? s?.vol) || 0) >= 1e6)
+    /* 1M shares is a whole-day number; scaled to the share of a day's volume done by now (27 Oct 2026). */
+    .filter(s => Math.abs(chgOf(s)) >= 4 && (Number(s?.volume ?? s?.vol) || 0) >= 1e6 * sessionShare(new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })))
     .map(s => ({
       symbol: s.ticker,
       score: scoreOf(s) || undefined,

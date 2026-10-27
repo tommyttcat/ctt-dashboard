@@ -161,24 +161,37 @@ export function etMinuteNow(d: Date = new Date()): number {
   const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(d).map(x => [x.type, x.value]));
   return (Number(p.hour) % 24) * 60 + Number(p.minute);
 }
+/* A typical US stock's cumulative share of a day's volume at the end of each half hour from 9:30
+   to 16:00 (27 Oct 2026). Volume is U-shaped — about 13% in the first half hour and 12% in the
+   last — so a straight-line clock overstated the pace roughly 3x in the first 30 minutes and every
+   gapper looked "2x usual". */
+const VOL_CURVE = [0, 0.13, 0.22, 0.30, 0.37, 0.43, 0.49, 0.55, 0.61, 0.67, 0.73, 0.80, 0.88, 1];
+/** Share of a typical day's volume traded by `etMin` (minutes after midnight ET). */
+export function volumeShareAt(etMin: number): number {
+  const x = (etMin - (9 * 60 + 30)) / 30;
+  if (x <= 0) return 0;
+  if (x >= 13) return 1;
+  const i = Math.floor(x);
+  return VOL_CURVE[i] + (VOL_CURVE[i + 1] - VOL_CURVE[i]) * (x - i);
+}
 /* A scan row's RVOL is volume so far against a whole average day, so at 11:00 even a hot name
-   reads 0.5x. During the session it is scaled to the share of the day gone (the pace), with a
-   15-minute floor; before the open and after the close it is left as it is. Early Movers rows
-   already carry a pace. */
+   reads 0.5x. During the session it is scaled to the share of a day's volume normally done by then
+   (volumeShareAt), with a 15-minute floor; before the open and after the close it is left as it
+   is. Early Movers rows already carry a pace. */
 export function paceOf(rvol: number | null, etMin: number, alreadyPace = false): number | null {
   if (rvol == null || alreadyPace || etMin < 570 || etMin >= 960) return rvol;
-  return rvol / (Math.max(15, etMin - 570) / 390);
+  return rvol / volumeShareAt(Math.max(etMin, 585));
 }
 
-/** Share of the regular session an intraday (15-min delayed) bar dated `targetDate` covers, for
-    scaling whole-day volume floors (27 Oct 2026). 1 for a finished session or another day's bar;
-    never below 10%. */
+/** Share of the regular session's volume an intraday (15-min delayed) bar dated `targetDate`
+    normally covers, for scaling whole-day volume floors (27 Oct 2026; U-shaped since the same day).
+    1 for a finished session or another day's bar; never below 10%. */
 export function sessionShare(targetDate: string, etMin: number = etMinuteNow(), nowEtDate?: string): number {
   const today = nowEtDate ?? new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
   if (targetDate !== today) return 1;
   const m = etMin - 15;                       // the feed's delay
   if (m >= 16 * 60) return 1;
-  return Math.max(0.1, (m - (9 * 60 + 30)) / 390);
+  return Math.max(0.1, volumeShareAt(m));
 }
 
 /* The scans' own red rules were measured on 20-session holds (a wide range, $5-10), so the

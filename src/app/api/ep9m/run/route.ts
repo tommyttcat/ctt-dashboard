@@ -149,7 +149,7 @@ import { cleanSectorDescription } from '@/lib/sectors';
 import { sma, ema, atr, adrPct, stochK, pctReturn } from '@/lib/indicators/marketMath';
 import { runInBackground, isDetachedRun, BG_HEADERS } from '@/lib/background';
 import { pickBestNews, polygonNewsPath, type NewsItem } from '@/lib/indicators/news';
-import { paceOf, etMinuteNow } from '@/lib/scans/checklist';
+import { sessionShare } from '@/lib/scans/checklist';
 import { fetchFreeNewsIndex } from '@/lib/indicators/newsAlt';
 /* The pure half of the scan — shortlist, score, EP type and the derived
    inputs — lives in lib/scans/ep9m so the historical backtest replays the
@@ -559,7 +559,7 @@ async function runScan(request: Request) {
     for (const sym of stale) snapMap.delete(sym);
     const raw9m = symbols.length - stale.length;
 
-    const shortlist = shortlistAbnormal(profile, snapMap, { lastBarIsToday: false });   // the profile ends yesterday
+    const shortlist = shortlistAbnormal(profile, snapMap, { lastBarIsToday: false, volShare: sessionShare(today) });   // the profile ends yesterday
 
     const registry = await readRegistry();
     const priorCounts = new Map<string, number>();
@@ -774,7 +774,7 @@ async function runScan(request: Request) {
       const priorTriggers = priorCounts.get(ab.sym) || 0;
 
       const scored = scoreEp9m({
-        rvol: ab.rvol,
+        rvol: ab.rvolPace,   // the score's RVOL bands are whole-day numbers (27 Oct 2026)
         volVs60dMax: ab.volVs60dMax,
         floatTurnover: raw.floatTurnover,
         daysToCover: raw.daysToCover,
@@ -810,7 +810,7 @@ async function runScan(request: Request) {
         avgVol: Math.round(ab.avgVol),
         rvol: +ab.rvol.toFixed(2),
         /* Volume pace at the data's minute (15-min delayed feed) — the day checklist's input (26 Oct 2026). */
-        rvolPace: +(paceOf(ab.rvol, etMinuteNow() - 15) as number).toFixed(2),
+        rvolPace: +ab.rvolPace.toFixed(2),
         volVs60dMax: ab.volVs60dMax != null ? +ab.volVs60dMax.toFixed(2) : null,
         unprecedented: ab.unprecedented,
         floatTurnover: raw.floatTurnover != null ? +raw.floatTurnover.toFixed(3) : null,

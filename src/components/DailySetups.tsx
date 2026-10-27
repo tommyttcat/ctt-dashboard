@@ -449,7 +449,7 @@ export default function DailySetups() {
               changePct: Number((item.change ?? item.changePct) || 0),
               vol: Number((item.volume ?? item.vol) || 0),
               dVol: Number(item.dVol) || (Number(item.price || 0) * Number((item.volume ?? item.vol) || 0)),
-              rvol: item.rvol || null,
+              rvol: item.rvolPace ?? item.rvol ?? null,   // pace: vs usual by this time of day (27 Oct 2026)
               float: item.float || null,
               shortPct: item.shortPct || null,
               daysToCover: item.daysToCover ?? null,

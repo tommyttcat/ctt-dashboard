@@ -1,5 +1,6 @@
 /* scripts/scanFixes.test.mts — the 27 Oct 2026 scanner audit fixes. */
-import { passesSipFinal } from '../src/lib/scans/scanner.ts';
+import { passesSipFinal, passesScannerUniverse } from '../src/lib/scans/scanner.ts';
+import { volumeShareAt } from '../src/lib/scans/checklist.ts';
 import { shortlistAbnormal, type LiteBar, type SnapInfo } from '../src/lib/scans/ep9m.ts';
 import { eq, done } from './testkit.mts';
 
@@ -19,4 +20,20 @@ const old = shortlistAbnormal(series, snapMap)[0];
 eq('EP9M live: yesterday\'s 60M is in the 20-day average (5.85M)', Math.round(live.avgVol / 1e4) / 100, 5.85);
 eq('EP9M live: day 2 at 25M is not "unprecedented" next to yesterday\'s 60M', live.unprecedented, false);
 eq('EP9M replay default unchanged: drops the last bar (avg 3M)', old.avgVol, 3e6);
+// ---- Batch 2: whole-day thresholds on part-day data
+eq('U-curve: nothing before the open', volumeShareAt(560), 0);
+eq('U-curve: 13% in the first half hour', volumeShareAt(600), 0.13);
+eq('U-curve: all of it by the close', volumeShareAt(960), 1);
+eq('universe: 200K shares at 10% of the day passes the scaled 500K floor', passesScannerUniverse('ABCD', 20, 200_000, 0.1), true);
+eq('universe: the replay (share 1) still needs 500K', passesScannerUniverse('ABCD', 20, 200_000), false);
+eq('SIP final: 1M shares / $15M at 22% of the day passes', passesSipFinal({ ...row, vol: 1e6, dVol: 1.5e6, volShare: 0.22, avgDollarVol: 25e6 }), true);
+{
+  // 10:30 AM (22% of a day): 6M so far on a 5M average = 1.2x raw, 5.5x pace.
+  const s2 = new Map<string, LiteBar[]>([['MV', Array.from({ length: 60 }, () => bar(5e6))]]);
+  const sn = new Map([['MV', { ...snap, vol: 6e6, price: 10 } as SnapInfo]]);
+  eq('EP9M: raw 1.2x fails the 2x gate on a whole-day reading', shortlistAbnormal(s2, sn, { lastBarIsToday: false }).length, 0);
+  const paced = shortlistAbnormal(s2, sn, { lastBarIsToday: false, volShare: 0.22 })[0];
+  eq('EP9M: at 22% of the day it passes on pace', paced?.sym, 'MV');
+  eq('EP9M: rvolPace = 1.2 / 0.22', +paced.rvolPace.toFixed(2), 5.45);
+}
 done('scan audit fixes');

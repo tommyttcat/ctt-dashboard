@@ -103,8 +103,11 @@ export const twoCol = (left: string, right: string, footer: string[] = []): stri
    NULL IS PRINTED, NOT SKIPPED. A row with a missing reading has to keep
    the slot and show a dash. */
 
+/* Pace first (27 Oct 2026): rvolPace is volume against what is usual BY THIS TIME OF DAY; raw rvol
+   (volume so far / a whole day) read 0.2x at 11 AM on names trading heavy, and the summary text
+   called them faders. */
 export const rvolOf = (s: any): number | null => {
-  const raw = s?.rvol;
+  const raw = s?.rvolPace ?? s?.rvol;
   if (raw == null || isNaN(Number(raw))) return null;
   const v = Number(raw);
   if (v <= 0) return null;

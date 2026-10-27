@@ -130,6 +130,9 @@ export interface Abnormality {
   sym: string;
   avgVol: number;
   rvol: number;
+  /* rvol scaled by the share of a day's volume the snapshot covers (27 Oct 2026) — what the
+     RVOL gate and the score read. Equal to rvol for a finished session. */
+  rvolPace: number;
   vol60dMax: number | null;
   volVs60dMax: number | null;
   unprecedented: boolean;
@@ -142,9 +145,13 @@ export function shortlistAbnormal(
      stops at YESTERDAY (getVolumeProfile walks back from day 1), so dropping its last bar threw
      yesterday away: a name that did 60M yesterday on a 3M average read RVOL 8.3 and
      "unprecedented" on day 2 instead of 4.3. The replay keeps the default it was measured with. */
-  opts: { lastBarIsToday?: boolean } = {},
+  opts: { lastBarIsToday?: boolean; volShare?: number } = {},
 ): Abnormality[] {
   const lastBarIsToday = opts.lastBarIsToday ?? true;
+  /* Whole-day RVOL and $ floors on an intraday snapshot: scaled by the share of a day's volume
+     done so far (lib/scans/checklist sessionShare). The 9M-share floor stays absolute — it is
+     what the scan is. The replay passes nothing (1). */
+  const volShare = opts.volShare ?? 1;
   const picks: Abnormality[] = [];
 
   series.forEach((bars, sym) => {
@@ -161,10 +168,11 @@ export function shortlistAbnormal(
     if (avgVol <= 0) return;
 
     const rvol = snap.vol / avgVol;
-    if (rvol < EP9M.minRvol) return;
+    const rvolPace = rvol / volShare;
+    if (rvolPace < EP9M.minRvol) return;
 
     const dVol = snap.vol * snap.price;
-    if (dVol < EP9M.minDollarVol) return;
+    if (dVol < EP9M.minDollarVol * volShare) return;
 
     const priorVols = prior.map(b => b.v).filter(v => v > 0);
     const vol60dMax = priorVols.length > 0 ? Math.max(...priorVols) : null;
@@ -174,6 +182,7 @@ export function shortlistAbnormal(
       sym,
       avgVol,
       rvol,
+      rvolPace,
       vol60dMax,
       volVs60dMax,
       // "Never traded anywhere near this level" — literally, not rhetorically.
