@@ -122,6 +122,14 @@ eq("classify: 'After Blowout Q3' is earnings", classifyNews("CLS Stock Soars Pre
   eq('keep: real earnings release', one('SoFi Reports Third Quarter 2026 with Record Net Revenue of $1.4 Billion and Raises Full-Year Guidance', 'Business Wire')?.tag, 'Earnings');
   eq('keep: real partnership', one("AMD and Meta Advance Strategic Partnership to Power Meta's Superintelligence Infrastructure", 'GlobeNewsWire')?.publisher, 'GlobeNewsWire');
   eq('zero-width characters do not hide a question', one('\u200b\u200bWill Nvidia Keep Rising?', 'Business Wire'), null);
+  // ★★ needs a headline that says why (27 Oct 2026): a category read only from the summary is not enough.
+  const withDesc = (title: string, description: string) => pickBestNews([{ title, description, published_utc: '2026-10-27T14:00:00Z', tickers: ['X'], publisher: { name: 'Business Wire' } }], 'X', at);
+  eq('not causal: title names nothing, summary mentions earnings', withDesc('Triple Plays Striking Out?', 'Three names reported earnings beats this week.')?.causal, false);
+  eq('not causal: compliance notice', one('Cleveland-Cliffs Confirms Full Compliance with Stelco Undertakings', 'Business Wire')?.causal, false);
+  eq('not causal: "going on ... on Monday"', one('What Is Going on with Intel Stock on Monday?', 'Benzinga')?.causal, false);
+  eq('causal: event named in the title', one('PayPal Reports Third Quarter 2026 Results', 'PRNewsWire')?.causal, true);
+  eq('causal: move explained', one('STX Stock Surges Over 6% After Rosenblatt Upgrade', 'Stocktwits')?.causal, true);
+  eq('causal: study results', one('New Progyny Study Finds Significant Improvement in Menopause Symptoms', 'GlobeNewsWire')?.causal, true);
 }
 {
   const at = Date.parse('2026-10-27T16:00:00Z');

@@ -225,9 +225,16 @@ const RX_MOVE_LANGUAGE = /\b(?:shares?|stock|sinks?|soars?|surges?|jumps?|plunge
 
 const RX_CAUSAL_JOIN = /\b(?:on|after|as|following|amid|because|due to|thanks to|over|behind|driven by|spurred by|sparked by|boosted by|hit by|weighed (?:down )?by)\b/i;
 
+/* "on Monday" is a date and "going on" is a question, not a cause: "What Is Going on with Intel
+   Stock on Monday?" read as causal and earned ★★ (27 Oct 2026). */
+const RX_ON_A_DAY = /\bgoing on\b|\bon (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|today|the day|the session)\b/gi;
+
 const isCausal = (title: string): boolean => {
-  if (!RX_MOVE_LANGUAGE.test(title)) return true;   // pure event reporting
-  if (RX_CAUSAL_JOIN.test(title)) return true;
+  /* Pure event reporting counts only when the HEADLINE names the event (27 Oct 2026). Before, any
+     title without move words passed — "Triple Plays Striking Out?" and "Cleveland-Cliffs Confirms
+     Full Compliance…" were "causal", and with a category read from the summary they showed ★★. */
+  if (!RX_MOVE_LANGUAGE.test(title)) return classifyNews(title) !== 'News';
+  if (RX_CAUSAL_JOIN.test(title.replace(RX_ON_A_DAY, ' '))) return true;
   const m = title.match(RX_MOVE_LANGUAGE);
   if (m && m.index! > 20) {
     const before = title.slice(0, m.index!);
@@ -249,7 +256,7 @@ export function classifyNews(title: string, description?: string | null): string
   if (/\b(?:offering|dilut|priced? (?:public|underwritten)|secondary offering|registered direct|at-the-market|atm program|capital raise|warrant (?:exercise|inducement)|shelf registration|reverse (?:stock )?split)\b/.test(s)) return 'Offering';
   if (/\b(?:lawsuit|sued|litigation|sec (?:probe|investigation|charges)|doj|subpoena|fraud|settle(?:s|d|ment)|recall|halt(?:ed)?|delist|going concern|bankrupt|chapter 11)\b/.test(s)) return 'Legal / Risk';
   if (/\b(?:earnings|eps|revenue|beats?|missed?|quarterly results|q[1-4] (?:results|report)|after (?:\w+ )?q[1-4]|top(?:s|ped) estimates|reports? (?:first|second|third|fourth) quarter)\b/.test(s)) return 'Earnings';
-  if (/\b(?:fda|approval|approved|phase\s*[123]|clinical|trial results|topline|nda|bla|510\(k\)|breakthrough therapy|orphan drug|ind clearance)\b/.test(s)) return 'FDA / Data';
+  if (/\b(?:fda|approval|approved|phase\s*[123]|clinical|trial results|topline|nda|bla|510\(k\)|breakthrough therapy|orphan drug|ind clearance|multicenter|stud(?:y|ies) (?:finds?|shows?|results|data|met|meets))\b/.test(s)) return 'FDA / Data';
   if (/\b(?:merger|acquir|acquisition|buyout|takeover|to be acquired|definitive agreement|stake in|going private|tender offer|spin[- ]?off)\b/.test(s)) return 'M&A';
   if (/\b(?:upgrade[sd]?|downgrade[sd]?|price target|initiat(?:es|ed) coverage|reiterat|overweight|underweight|outperform|analyst)\b/.test(s)) return 'Analyst';
   if (/\b(?:guidance|raises? (?:its )?(?:outlook|forecast|guidance)|lowers? (?:its )?(?:outlook|forecast|guidance)|reaffirm|updates? outlook|preliminary results)\b/.test(s)) return 'Guidance';
