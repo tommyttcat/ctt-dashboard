@@ -12,7 +12,7 @@ import { decodeEntities, headlineOf } from '../src/lib/catalyst.tsx';
 import { tagOf, tagCounts, tapeLine, relTime, minutesSince, ageLabelMinutes, etDateKey, fmtMove } from '../src/lib/newsView.ts';
 import { eq, done } from './testkit.mts';
 import { headlineFromExhibit } from '../src/lib/indicators/newsAlt.ts';
-import { RX_FUND_LETTER, RX_STOCK_PITCH, isQuestionFluff } from '../src/lib/indicators/news.ts';
+import { RX_FUND_LETTER, RX_STOCK_PITCH, isQuestionFluff, pickBestNews, classifyNews, SEC_LABEL_ONLY } from '../src/lib/indicators/news.ts';
 
 eq('numeric apostrophe', decodeEntities('Nvidia&#39;s AI Token Trade'), "Nvidia's AI Token Trade");
 eq('hex numeric', decodeEntities('Nvidia&#x27;s'), "Nvidia's");
@@ -98,6 +98,21 @@ eq('move unknown', fmtMove(null), '');
 eq('exhibit: stacked EX-99.1 / Exhibit 99.1 tags go', headlineFromExhibit("EX-99.1 Exhibit 99.1 EQT Announces Strategic Acquisition of Range Resources, Creating America's Largest Gas Producer PITTSBURGH, Oct. 26, 2026 -- body"), "EQT Announces Strategic Acquisition of Range Resources, Creating America's Largest Gas Producer");
 eq('exhibit: an all-caps dateline does not eat the last words', headlineFromExhibit('<p>Exhibit 99.1</p><p>HealthSpan Partners to Acquire Surgery Partners, Establishing a Leading Outpatient Platform</p><p>NASHVILLE, Tenn., Oct. 26, 2026 (BUSINESS WIRE) -- text</p>'), 'HealthSpan Partners to Acquire Surgery Partners, Establishing a Leading Outpatient Platform');
 eq('exhibit: cover line and &reg; go', headlineFromExhibit('PRESENTATION DATED OCTOBER 26, 2026 Exhibit 99.1 &reg; Designing Proteins Delivering Medicines -- more'), 'Designing Proteins Delivering Medicines');
+eq('exhibit: slide-deck glyphs + financial table is no headline (CLS 27 Oct)', headlineFromExhibit('Exhibit 99.1 •••• ➜➜➜ •••• ➜➜➜ ➜➜➜➜ •• ➜ • • • • ➜ • ✓✓ ✓✓ ✓✓ ✓✓ •••••• ••• ➜➜➜ (In millions of U.S. dollars, except percentages) FY 2025 FY 2024 FY 2023 Revenue $ 12,390.9 $ 9,646.0 $ 7,961.0 Net earnings 832.5'), null);
+eq('exhibit: a table without glyphs is no headline either', headlineFromExhibit('Exhibit 99.1 Selected Financial Data (in thousands, except per share amounts) Revenue 1,204 980 Net income 88 61'), null);
+eq('exhibit: a headline with one dollar figure survives', headlineFromExhibit('Exhibit 99.1 Acme Wins $1.2 Billion Navy Contract, Raises Full-Year Outlook DALLAS, Oct. 27, 2026 -- body'), 'Acme Wins $1.2 Billion Navy Contract, Raises Full-Year Outlook');
+eq('exhibit: cover line before the 99.1 banner goes (UPS 27 Oct)', headlineFromExhibit('EX-99.1 2 exhibit991-earningspressre.htm EX-99.1 PRESS RELEASE FIRST QUARTER EARNINGS Document Exhibit 99.1 UPS RELEASES 3Q 2026 EARNINGS (BUSINESS WIRE) -- body'), 'UPS RELEASES 3Q 2026 EARNINGS');
+eq('exhibit: an investor deck disclaimer is no headline (GLXY 27 Oct)', headlineFromExhibit('EX-99.2 3 exhibit992-glxyq32026ove.htm EX-99.2 exhibit992-glxyq32026ove 1 GALAXY As of September 30, 2026 Q3 26 Investor.galaxy.com Exhibit 99.2 2 GALAXY Disclaimer This presentation, and the information contained herein'), null);
+eq("classify: 'After Blowout Q3' is earnings", classifyNews("CLS Stock Soars Premarket After Blowout Q3"), 'Earnings');
+{
+  const at = Date.parse('2026-10-27T16:00:00Z');
+  const label = { title: 'CELESTICA INC 8-K: reports quarterly results', description: '8-K items 2.02, 9.01: reports quarterly results', published_utc: '2026-10-27T11:00:00Z', tickers: ['CLS'], publisher: { name: 'SEC' }, keywords: [SEC_LABEL_ONLY] };
+  const st = { title: "CLS Stock Soars Premarket After Blowout Q3 - Retail Calls It 'Very Inexpensive'", description: 'Celestica shares jumped premarket after third-quarter results topped estimates and the company raised its outlook.', published_utc: '2026-10-27T08:17:00Z', tickers: ['CLS', 'CRWV', 'NBIS'], publisher: { name: 'Stocktwits' } };
+  eq('label-only 8-K yields to a same-day press headline', pickBestNews([label, st], 'CLS', at)?.publisher, 'Stocktwits');
+  const real = { ...label, title: 'Celestica Reports Third Quarter 2026 Financial Results, Raises Outlook', keywords: undefined };
+  eq('an 8-K with a real headline keeps the row', pickBestNews([real, st], 'CLS', at)?.publisher, 'SEC');
+  eq('label-only 8-K still shows when nothing else exists', pickBestNews([label], 'CLS', at)?.publisher, 'SEC');
+}
 // Fund letters blocked (26 Oct 2026)
 for (const t of ['Baron Health Care Fund Q3 2026 Top Contributors And Detractors', 'Ariel Fund Q3 2026 Leaders And Laggards', 'Longleaf Partners Q3 2026 Commentary', 'Greenlight Capital Q3 2026 Investor Letter'])
   eq(`fund letter blocked: ${t}`, RX_FUND_LETTER.test(t), true);

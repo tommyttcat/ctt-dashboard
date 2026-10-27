@@ -52,7 +52,10 @@ export interface PolygonNewsRaw {
   insights?: { ticker?: string; sentiment?: string; sentiment_reasoning?: string }[];
 }
 
-export type CatalystTier = 'strong' | 'neutral' | 'headline' | 'negative' | 'none';
+/* Marks an SEC 8-K whose title is only its item label (newsAlt) — see qualityOf. */
+export const SEC_LABEL_ONLY = 'sec-label-only';
+
+export type CatalystTier ='strong' | 'neutral' | 'headline' | 'negative' | 'none';
 export type NewsSentiment = 'positive' | 'negative' | 'neutral' | null;
 
 export interface NewsItem {
@@ -226,7 +229,7 @@ export function classifyNews(title: string, description?: string | null): string
 
   if (/\b(?:offering|dilut|priced? (?:public|underwritten)|secondary offering|registered direct|at-the-market|atm program|capital raise|warrant (?:exercise|inducement)|shelf registration|reverse (?:stock )?split)\b/.test(s)) return 'Offering';
   if (/\b(?:lawsuit|sued|litigation|sec (?:probe|investigation|charges)|doj|subpoena|fraud|settle(?:s|d|ment)|recall|halt(?:ed)?|delist|going concern|bankrupt|chapter 11)\b/.test(s)) return 'Legal / Risk';
-  if (/\b(?:earnings|eps|revenue|beats?|missed?|quarterly results|q[1-4] (?:results|report)|top(?:s|ped) estimates|reports? (?:first|second|third|fourth) quarter)\b/.test(s)) return 'Earnings';
+  if (/\b(?:earnings|eps|revenue|beats?|missed?|quarterly results|q[1-4] (?:results|report)|after (?:\w+ )?q[1-4]|top(?:s|ped) estimates|reports? (?:first|second|third|fourth) quarter)\b/.test(s)) return 'Earnings';
   if (/\b(?:fda|approval|approved|phase\s*[123]|clinical|trial results|topline|nda|bla|510\(k\)|breakthrough therapy|orphan drug|ind clearance)\b/.test(s)) return 'FDA / Data';
   if (/\b(?:merger|acquir|acquisition|buyout|takeover|to be acquired|definitive agreement|stake in|going private|tender offer|spin[- ]?off)\b/.test(s)) return 'M&A';
   if (/\b(?:upgrade[sd]?|downgrade[sd]?|price target|initiat(?:es|ed) coverage|reiterat|overweight|underweight|outperform|analyst)\b/.test(s)) return 'Analyst';
@@ -288,6 +291,16 @@ function qualityOf(
   tickerCount: number
 ): number {
   let q = 50;
+
+  /* An 8-K with no exhibit headline is titled with its item label ("CELESTICA 8-K: reports
+     quarterly results") — it says what was filed, not why the stock moved. It keeps its row
+     only until a real headline turns up: no publisher or causal bonus, so a same-day press
+     headline or any causal one outranks it, and on a tie the filing (listed first) stays. */
+  if (item.keywords?.includes(SEC_LABEL_ONLY)) {
+    pubTier = 'unknown';
+    causal = false;
+    tag = 'Filing';   // the topic is inferred from the item code, not a headline: no topic bonus
+  }
 
   if (pubTier === 'primary') q += 22;
   else if (pubTier === 'press') q += 14;

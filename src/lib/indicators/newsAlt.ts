@@ -26,7 +26,7 @@
    "focused" (+8); a known bias in FMP's favour.
    ================================================================== */
 
-import type { PolygonNewsRaw } from './news';
+import { SEC_LABEL_ONLY, type PolygonNewsRaw } from './news';
 
 const SEC_UA = 'ConfluenceTradingTools/1.0 noreply@confluencetradingtools.com';
 const secFetch = (url: string, signal: AbortSignal) =>
@@ -136,6 +136,10 @@ export function headlineFromExhibit(htmlText: string): string | null {
       .trim();
     if (t === before) break;
   }
+  /* A cover line before the exhibit banner ("PRESS RELEASE FIRST QUARTER EARNINGS Document
+     Exhibit 99.1 UPS RELEASES 3Q 2026 EARNINGS", 27 Oct 2026): the headline starts after it. */
+  const banner = t.search(/\b(?:Exhibit|EX-)\s*99(?:\.\d+)?\b/i);
+  if (banner > 0 && banner < 120) t = t.slice(banner).replace(/^(?:Exhibit|EX-)\s*99(?:\.\d+)?\s*/i, '').trim();
   /* The dateline ends the headline. Wire datelines put the city in capitals ("NASHVILLE, Tenn.,
      Oct. 26, 2026"), so that form is tried first: the mixed-case pattern alone also matched the
      headline's own last words ("…Outpatient Platform NASHVILLE,") and cut them (26 Oct 2026). */
@@ -146,6 +150,14 @@ export function headlineFromExhibit(htmlText: string): string | null {
   const cut = [wire, caps >= 0 ? caps : mixed].filter(i => i > 0).reduce((m, i) => Math.min(m, i), Infinity);
   const head = (Number.isFinite(cut) ? t.slice(0, cut) : t.slice(0, 200)).trim();
   if (head.length < 15) return null;
+  /* Slide-deck exhibits have no headline line: CLS's Q3 8-K (27 Oct 2026) opened with arrow and
+     check-mark glyphs then its financial table. Mostly-symbol or table text is no headline; the
+     caller falls back to the item label. */
+  const solid = head.replace(/\s/g, '');
+  if ((solid.match(/[A-Za-z]/g)?.length ?? 0) < solid.length * 0.6) return null;
+  // An investor deck's cover and disclaimer page (GLXY's Q3 EX-99.2, 27 Oct 2026).
+  if (/\bthis presentation\b|\bdisclaimer\b|\binvestor\.\w+\.com\b/i.test(head)) return null;
+  if (/\(in (?:millions|thousands|billions)\b|except (?:per share|percentages)\b|(?:\$\s?[\d,.]+\s+){2}/i.test(head)) return null;
   return head.length > 200 ? `${head.slice(0, 197).trimEnd()}…` : head;
 }
 
@@ -226,6 +238,8 @@ export async function fetchEdgarNewsIndex(
         published_utc: f.acceptedUtc,
         tickers: [t],
         publisher: { name: 'SEC' },
+        // No exhibit headline: the title is only the item label, which says WHAT was filed, not why.
+        ...(head ? {} : { keywords: [SEC_LABEL_ONLY] }),
       };
       const bucket = index.get(t);
       if (bucket) bucket.push(raw);
