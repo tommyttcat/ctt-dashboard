@@ -165,6 +165,17 @@ export function paceOf(rvol: number | null, etMin: number, alreadyPace = false):
   return rvol / (Math.max(15, etMin - 570) / 390);
 }
 
+/** Share of the regular session an intraday (15-min delayed) bar dated `targetDate` covers, for
+    scaling whole-day volume floors (27 Oct 2026). 1 for a finished session or another day's bar;
+    never below 10%. */
+export function sessionShare(targetDate: string, etMin: number = etMinuteNow(), nowEtDate?: string): number {
+  const today = nowEtDate ?? new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  if (targetDate !== today) return 1;
+  const m = etMin - 15;                       // the feed's delay
+  if (m >= 16 * 60) return 1;
+  return Math.max(0.1, (m - (9 * 60 + 30)) / 390);
+}
+
 /* The scans' own red rules were measured on 20-session holds (a wide range, $5-10), so the
    day checklist ignores them — a +100% gapper on a 60% ADR is exactly what it is for. */
 export function dayCheck(r: Row | null | undefined, _ruleRed = false, etMin: number = etMinuteNow()): Checked | null {

@@ -1,5 +1,5 @@
 /* scripts/checklist.test.mts — the day and swing checklists (lib/scans/checklist). */
-import { swingCheck, dayCheck, setMarketUp, checkTip, daysToEarnings, paceOf, setEarnings, setGroups } from '../src/lib/scans/checklist.ts';
+import { swingCheck, dayCheck, setMarketUp, checkTip, daysToEarnings, paceOf, setEarnings, setGroups, sessionShare } from '../src/lib/scans/checklist.ts';
 import { tightnessOf, lowerHighOf } from '../src/lib/scans/tightness.ts';
 import { neglectOf } from '../src/lib/scans/neglect.ts';
 import { swingPrecheck } from '../src/lib/scans/swingWide.ts';
@@ -123,4 +123,9 @@ const dip = [...up(40), ...[118, 117, 116.5, 116, 115.5].map(c => ({ c, h: c * 1
 eq('swingWide: a dip to the 21 EMA passes', swingPrecheck(dip), true);
 eq('swingWide: a stock at its highs does not', swingPrecheck(up(45)), false);
 eq('swingWide: too few bars', swingPrecheck(up(20)), false);
+// Session share for whole-day volume floors (27 Oct 2026)
+eq('session share: 9:40 -> the 10% floor', sessionShare('2026-10-27', 580, '2026-10-27'), 0.1);
+eq('session share: 1:00 PM -> half', +sessionShare('2026-10-27', 780, '2026-10-27').toFixed(3), 0.5);
+eq('session share: after the close -> full', sessionShare('2026-10-27', 980, '2026-10-27'), 1);
+eq('session share: yesterday\'s bar -> full', sessionShare('2026-10-26', 652, '2026-10-27'), 1);
 done('checklist');

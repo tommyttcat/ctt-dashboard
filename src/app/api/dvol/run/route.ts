@@ -47,6 +47,7 @@ import { swingFieldsOf } from '@/lib/scans/swingFields';
 import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
 import { computeCnfScore } from '@/lib/indicators/confluence';
 import { cleanSectorDescription } from '@/lib/sectors';
+import { sessionShare } from '@/lib/scans/checklist';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -164,6 +165,10 @@ async function runScan(req: Request) {
 
     const targetDate = dates[dates.length - 1];
     const priorDates = dates.slice(0, -1);
+    /* Whole-day share and dollar floors scaled to the session the intraday bar covers (27 Oct
+       2026, owner: at 10:52 AM the full 5M-share floor alone cut 10,605 names to 110). */
+    const share = sessionShare(targetDate);
+    const minVolNow = Math.round(MIN_VOL * share), floorNow = Math.round(DVOL_FLOOR * share);
 
     const [targetRes, ...priorRes] = await Promise.all([
       safeJson<{ results?: any[] }>(
@@ -227,9 +232,9 @@ async function runScan(req: Request) {
 
       universeSize++;
       if (close < MIN_PRICE) continue;
-      if (vol < MIN_VOL) continue;
+      if (vol < minVolNow) continue;
       const dvol = close * vol;
-      if (dvol < DVOL_FLOOR) continue;
+      if (dvol < floorNow) continue;
 
       const hist = volHistory.get(ticker) ?? [];
       const avgVol = hist.length ? hist.reduce((a, b) => a + b, 0) / hist.length : null;
@@ -551,7 +556,8 @@ async function runScan(req: Request) {
       droppedOnQuality,
       minRs: MIN_RS,
       minChangePct: MIN_CHANGE_PCT,
-      minVol: MIN_VOL,
+      minVol: minVolNow,
+      sessionShare: +share.toFixed(3),
       minMktCap: MIN_MKT_CAP,
       minPrice: MIN_PRICE,
       rsAvailable: rs.available,
@@ -563,7 +569,7 @@ async function runScan(req: Request) {
       stagesResolved,
       dtcResolved,
       historyDays: priorDates.length,
-      floor: DVOL_FLOOR,
+      floor: floorNow,
     };
 
     await Promise.all([
