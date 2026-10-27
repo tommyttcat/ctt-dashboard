@@ -195,14 +195,28 @@ export async function webullCapitalFlow(symbol: string, count = 5): Promise<Webu
   }));
 }
 
-/** The base for a day change (27 Oct 2026). Before the open, Webull's snapshot still describes
-    YESTERDAY's regular session: `price` is yesterday's close and `pre_close` is the close BEFORE
-    it. Measuring the pre-market print against `pre_close` counted yesterday's move twice — CART
-    showed +7.80% at 9:01 AM when it was -0.07% on yesterday's 60.88 close; CLRO +82.9% for +19.5%.
-    After the open (and after the close) `pre_close` is yesterday's close, as it should be. */
-export function dayBase(q: { price: number; preClose: number; open?: number }, preMarket: boolean): number {
-  if (preMarket && q.price > 0) return q.price;
-  return q.preClose || q.open || q.price;
+/** The base for a day change (27 Oct 2026). Before the open a snapshot can describe either day:
+    - CART (a stock) at 9:01 AM: `price` was YESTERDAY's close (60.88) and `pre_close` the close
+      BEFORE it (Friday, 56.44) — measuring the pre-market print against `pre_close` counted
+      yesterday's move twice (+7.80% for a -0.07% morning; CLRO +82.9% for +19.5%).
+    - SPY (an ETF) at the same minute: `price` was already the live pre-market print and
+      `pre_close` yesterday's close — so using `price` as the base read 0%.
+    The regular-session `lastTradeTime` tells them apart: from an earlier ET date means `price` is
+    yesterday's close (base = price); otherwise `pre_close` already is. With no timestamp, a
+    `price` that differs from the extended print is taken to be yesterday's close. */
+const etDay = (ms: number) => new Date(ms).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+export function dayBase(
+  q: { price: number; preClose: number; open?: number; lastTradeTime?: number | null; extPrice?: number | null },
+  preMarket: boolean,
+  nowMs: number = Date.now(),
+): number {
+  const fallback = q.preClose || q.open || q.price;
+  if (!preMarket || !(q.price > 0)) return fallback;
+  const t = q.lastTradeTime != null && q.lastTradeTime > 0 ? (q.lastTradeTime < 1e12 ? q.lastTradeTime * 1000 : q.lastTradeTime) : null;
+  const priceIsYesterdaysClose = t != null
+    ? etDay(t) < etDay(nowMs)
+    : q.extPrice != null && q.extPrice > 0 && q.extPrice !== q.price;
+  return priceIsYesterdaysClose ? q.price : fallback;
 }
 
 export type WebullRankRow = {
