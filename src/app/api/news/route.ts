@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { pickBestNews, polygonNewsPath, RX_FUND_LETTER, RX_STOCK_PITCH, isQuestionFluff } from '@/lib/indicators/news';
-import { nyToIso } from '@/lib/indicators/newsAlt';
+import { nyToIso, fetchStocktwitsNews } from '@/lib/indicators/newsAlt';
 
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 
@@ -194,6 +194,31 @@ async function fetchFmpLatest(apiKey: string): Promise<Normalized[]> {
   return capPerTicker(normalized).slice(0, MAX_ITEMS);
 }
 
+/* StockTwits' own newsroom (27 Oct 2026) — "why it's moving" articles, the closest free thing to
+   the WIIM desk FMP doesn't have. One page (30 posts, ~9h) per CDN refresh. The first tagged
+   symbol is the subject; market wraps lead with SPY. Same junk filters as the FMP wire. */
+async function fetchStocktwits(): Promise<Normalized[]> {
+  const raw = await fetchStocktwitsNews(1);
+  return raw
+    .filter(it => it.title && !isSpamNews(it.title) && !FLUFF.test(it.title) && !isQuestionFluff(it.title) && !RX_STOCK_PITCH.test(it.title))
+    .map((it): Normalized => {
+      const tickers = (it.tickers ?? []).map(normalizeTicker);
+      return {
+        id: it.id || it.title!,
+        ticker: tickers[0],
+        tickers,
+        title: it.title!,
+        originalTitle: it.title!,
+        cleanHeadline: shorten(it.title!),
+        aiTag: deriveTag(it.title!),
+        url: it.article_url || '',
+        publishedUtc: it.published_utc || '',
+        publisher: 'Stocktwits',
+        summary: summarize(it.description, it.title!),
+      };
+    });
+}
+
 async function fetchPolygon(apiKey: string): Promise<Normalized[]> {
   const res = await fetch(`https://api.polygon.io/v2/reference/news?limit=40&apiKey=${apiKey}`);
   if (!res.ok) throw new Error('News API Failed');
@@ -278,6 +303,13 @@ export async function GET(req: Request) {
       sources.fmpBytes = fmpBytes;
     } catch (e: any) {
       sources.fmp = `error: ${e.message}`;
+    }
+
+    // StockTwits newsroom mixes in by time with FMP, under the same per-ticker cap.
+    const st = await fetchStocktwits().catch(() => [] as Normalized[]);
+    sources.stocktwits = st.length;
+    if (st.length) {
+      results = capPerTicker([...results, ...st].sort((a, b) => (b.publishedUtc > a.publishedUtc ? 1 : -1))).slice(0, MAX_ITEMS);
     }
 
     // Polygon tops up a short FMP list (or stands in when FMP fails), skipping names already shown.

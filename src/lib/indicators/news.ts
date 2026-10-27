@@ -100,7 +100,7 @@ const PUBLISHER_PRIMARY = new Set([
 const PUBLISHER_PRESS = new Set([
   'reuters', 'the associated press', 'associated press', 'bloomberg',
   'the wall street journal', 'wall street journal', 'cnbc', 'barrons',
-  "barron's", 'financial times', 'marketwatch', 'benzinga', 'axios',
+  "barron's", 'financial times', 'marketwatch', 'benzinga', 'stocktwits', 'axios',
   'the information', 'stat news', 'endpoints news', 'the new york times',
   'forbes', 'fortune', 'business insider', 'seeking alpha',
 ]);

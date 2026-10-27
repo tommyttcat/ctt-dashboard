@@ -341,6 +341,55 @@ export async function fetchFmpNewsBatched(
   return { index, calls, bytes, errors };
 }
 
+/* ---- StockTwits newsroom (27 Oct 2026) ----------------------------------
+   @StocktwitsNews is StockTwits' own desk: short "why it's moving" articles tagged with
+   cashtags — the nearest free thing to the Benzinga WIIM desk. Public API, no key. A page is
+   capped at 30 posts (~9 hours at ~3 an hour, measured 27 Oct 2026), so the scans read two
+   pages (~18h, enough to reach last evening's posts at the open). Thin: mostly large caps and
+   earnings names, so most small scan names get nothing here. The account's general symbol
+   streams are blogs and YouTube; only this account is used. No rate-limit headers are sent;
+   Social Sentiment calls the same API, so pages are memoised for 4 minutes per instance. */
+const ST_NEWS_URL = 'https://api.stocktwits.com/api/2/streams/user/StocktwitsNews.json';
+const ST_UA = { 'User-Agent': 'Mozilla/5.0 (compatible; CTT/1.0)', Accept: 'application/json' };
+/* Plain equity tickers only: drops crypto (BTC.X) and private-company tags (ANTHZZX.P). */
+const ST_EQUITY = /^[A-Z]{1,5}(?:\.[A-B])?$/;
+
+const stToRaw = (m: any): PolygonNewsRaw | null => {
+  const link = Array.isArray(m?.links) ? m.links[0] : null;
+  const title = String(link?.title || String(m?.body ?? '').split('\n')[0] || '').trim();
+  const tickers = (Array.isArray(m?.symbols) ? m.symbols : [])
+    .map((s: any) => String(s?.symbol ?? '').toUpperCase())
+    .filter((t: string) => ST_EQUITY.test(t));
+  if (!title || !tickers.length) return null;
+  return {
+    id: `st-${m?.id}`,
+    title,
+    description: link?.description || '',
+    article_url: link?.url || '',
+    published_utc: m?.created_at || '',
+    tickers,
+    publisher: { name: 'Stocktwits' },
+  };
+};
+
+/** The last `pages` × 30 @StocktwitsNews posts, newest first. Never throws. */
+export async function fetchStocktwitsNews(pages = 1): Promise<PolygonNewsRaw[]> {
+  return memoized(`st-news-${pages}`, 4 * 60_000, async () => {
+    const out: PolygonNewsRaw[] = [];
+    let max: number | null = null;
+    for (let p = 0; p < pages; p++) {
+      const res = await fetch(max ? `${ST_NEWS_URL}?max=${max}` : ST_NEWS_URL,
+        { headers: ST_UA, cache: 'no-store', signal: AbortSignal.timeout(8_000) as any });
+      if (!res.ok) { if (p === 0) throw new Error(`Stocktwits ${res.status}`); break; }
+      const j: any = await res.json();
+      for (const m of j?.messages ?? []) { const r = stToRaw(m); if (r) out.push(r); }
+      max = j?.cursor?.more ? j.cursor.max : null;
+      if (!max) break;
+    }
+    return out;
+  }).catch(() => []);
+}
+
 /** The scans' news index without Benzinga (26 Oct 2026): SEC 8-Ks + FMP stock news for
     `tickers`, merged per ticker, in PolygonNewsRaw so pickBestNews judges it unchanged.
     `batched` uses the 25-symbol FMP calls (long shortlists). Never throws. */
@@ -352,11 +401,17 @@ export async function fetchFreeNewsIndex(
   const uniq = [...new Set(tickers.filter(Boolean).map(t => String(t).toUpperCase()))];
   const out = new Map<string, PolygonNewsRaw[]>();
   if (!uniq.length) return out;
-  const [sec, fmp] = await Promise.all([
+  const [sec, fmp, st] = await Promise.all([
     fetchEdgarNewsIndex(uniq).catch(() => ({ index: new Map<string, PolygonNewsRaw[]>() })),
     (opts.batched ? fetchFmpNewsBatched(uniq, fmpKey) : fetchFmpNewsIndex(uniq, fmpKey)).catch(() => ({ index: new Map<string, PolygonNewsRaw[]>() })),
+    fetchStocktwitsNews(2),
   ]);
   for (const [t, arr] of sec.index) out.set(t, [...arr]);
   for (const [t, arr] of fmp.index) out.set(t, [...(out.get(t) ?? []), ...arr]);
+  // StockTwits: one feed for every ticker, so file each post under the scan names it tags.
+  const want = new Set(uniq);
+  for (const r of st) for (const t of r.tickers ?? []) {
+    if (want.has(t)) out.set(t, [...(out.get(t) ?? []), r]);
+  }
   return out;
 }
