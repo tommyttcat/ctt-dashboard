@@ -17,7 +17,7 @@ import { kv } from '@vercel/kv';
 import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
 import { getMarketSession } from '@/lib/indicators/marketScorecard';
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
-import { webullConfigured, webullSnapshot, webullCapitalFlow, type WebullCapitalFlowDay } from '@/lib/webull';
+import { webullConfigured, webullSnapshot, dayBase, webullCapitalFlow, type WebullCapitalFlowDay } from '@/lib/webull';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -99,7 +99,7 @@ export async function GET() {
     if (snapRes.status === 'fulfilled') {
       for (const q of snapRes.value) {
         if (q.price > 0) {
-          live[q.symbol] = { price: q.price, baseline: q.preClose || q.open || q.price, volume: q.volume, extPrice: q.extPrice };
+          live[q.symbol] = { price: q.price, baseline: dayBase(q, session === 'Pre-Market'), volume: q.volume, extPrice: q.extPrice };   // lib/webull dayBase
         }
       }
     } else {

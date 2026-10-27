@@ -12,7 +12,7 @@ import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 import { getMarketSession } from '@/lib/indicators/marketScorecard';
-import { webullConfigured, webullSnapshot } from '@/lib/webull';
+import { webullConfigured, webullSnapshot, dayBase } from '@/lib/webull';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -81,7 +81,7 @@ export async function GET() {
     try {
       const rows = await webullSnapshot(tickerList, 'US_ETF', { extendedHours: isExtended });
       for (const r of rows) {
-        const base = r.preClose || r.open;
+        const base = dayBase(r, session === 'Pre-Market');   // lib/webull dayBase
         const last = isExtended && r.extPrice != null && r.extPrice > 0 ? r.extPrice : r.price;
         if (!(base > 0) || !(last > 0)) continue;
         const typical = r.high > 0 && r.low > 0 ? (r.high + r.low + last) / 3 : last;

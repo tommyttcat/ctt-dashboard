@@ -17,7 +17,7 @@ import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 import { getMarketDay, previousTradingDay, isMarketSessionWindow } from '@/lib/marketCalendar';
-import { webullConfigured, webullSnapshot } from '@/lib/webull';
+import { webullConfigured, webullSnapshot, dayBase } from '@/lib/webull';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -380,7 +380,7 @@ export async function GET(request: Request) {
         try {
           const rows = await webullSnapshot(TAPE_TICKERS, 'US_STOCK', { extendedHours: isExtendedNow });
           for (const r of rows) {
-            const base = r.preClose || r.open;
+            const base = dayBase(r, currentHourDecimal >= 4 && currentHourDecimal < 9.5);   // lib/webull dayBase
             const price = isExtendedNow && r.extPrice != null && r.extPrice > 0 ? r.extPrice : r.price;
             if (!(price > 0)) continue;
             const pct = base > 0 ? ((price - base) / base) * 100 : 0;

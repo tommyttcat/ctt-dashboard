@@ -23,7 +23,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { verifySession, SESSION_COOKIE } from '@/lib/auth';
-import { webullConfigured, webullSnapshot } from '@/lib/webull';
+import { webullConfigured, webullSnapshot, dayBase } from '@/lib/webull';
 import { getMarketSession } from '@/lib/indicators/marketScorecard';
 import { cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 
@@ -66,7 +66,7 @@ export async function GET(req: Request) {
          the pre-market print is the live number. After the close, today's
          regular close stays the day's price — the card is about the session. */
       const price = preMarket && q.extPrice ? q.extPrice : q.price;
-      const prevClose = q.preClose;
+      const prevClose = dayBase(q, preMarket);   // yesterday's close before the open (lib/webull dayBase)
       if (!(price > 0) || !(prevClose > 0)) continue;
       const vol = preMarket ? q.extVolume : q.volume;
       quotes[q.symbol] = { price, prevClose, pct: +(((price - prevClose) / prevClose) * 100).toFixed(2), vol: vol != null && vol > 0 ? vol : null };

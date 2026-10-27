@@ -195,6 +195,16 @@ export async function webullCapitalFlow(symbol: string, count = 5): Promise<Webu
   }));
 }
 
+/** The base for a day change (27 Oct 2026). Before the open, Webull's snapshot still describes
+    YESTERDAY's regular session: `price` is yesterday's close and `pre_close` is the close BEFORE
+    it. Measuring the pre-market print against `pre_close` counted yesterday's move twice — CART
+    showed +7.80% at 9:01 AM when it was -0.07% on yesterday's 60.88 close; CLRO +82.9% for +19.5%.
+    After the open (and after the close) `pre_close` is yesterday's close, as it should be. */
+export function dayBase(q: { price: number; preClose: number; open?: number }, preMarket: boolean): number {
+  if (preMarket && q.price > 0) return q.price;
+  return q.preClose || q.open || q.price;
+}
+
 export type WebullRankRow = {
   symbol: string;
   price: number;
