@@ -59,7 +59,10 @@ function adrOf(r: Row): number | null { return num(r.adrPct) ?? num(r.atrPct); }
 function stageOf(r: Row): string { return String(r.stage ?? '').replace(/^Stage\s*/i, '').trim(); }
 
 /** Days from today (ET date) to the row's next earnings date; null when unknown. */
-export function daysToEarnings(r: Row, today: string = new Date().toISOString().slice(0, 10)): number | null {
+/* The New York date (27 Oct 2026): the UTC date rolls to tomorrow at 8 PM ET (7 PM in EST), which
+   made earnings four days out read three — red a day early every evening. */
+const etToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+export function daysToEarnings(r: Row, today: string = etToday()): number | null {
   const own = typeof r.earningsDate === 'string' ? r.earningsDate : null;
   const d = (own ?? earnings?.[tickerOf(r)] ?? null)?.slice(0, 10) ?? null;
   if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
@@ -98,7 +101,9 @@ export function swingCheck(r: Row | null | undefined, ruleRed = false, today?: s
   const offHigh = offRaw != null ? Math.abs(offRaw) : null;
   /* Selling today: down on 1.5x+ the usual volume pace — distribution, not a quiet pullback. */
   const chg = num(r.changePct);
-  const pace = paceOf(num(r.rvol), etMin);
+  /* rvolPace: the scan's pace at its data's minute, or a card's own time-adjusted pace (Liquid
+     Leaders' 1 + track/100) — preferred over scaling raw RVOL by the page's clock. */
+  const pace = num(r.rvolPace) ?? paceOf(num(r.rvol), etMin);
   const heavySelling = chg != null && pace != null ? chg < 0 && pace >= 1.5 : null;
   /* Lower high (lib/scans/tightness lowerHighOf): the row carries the failed bounce high, or 0
      for none. Tested against the row's own (live) price, so getting back above it today clears

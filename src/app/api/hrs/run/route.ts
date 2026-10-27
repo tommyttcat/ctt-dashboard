@@ -251,8 +251,10 @@ async function confirm(
     const snap = snapMap.get(c.symbol);
     if (!snap) return null;
 
+    /* An unrated name fails the gate (27 Oct 2026): `rs != null && rs < 60` let every name with
+       no rating through, and with the ratings missing, every name at all. */
     const rs = rsLookup.get(c.symbol);
-    if (rs != null && rs < HRS.minRsRating) return null;
+    if (rs == null || rs < HRS.minRsRating) return null;
 
     try {
       // Fetch 1-year daily bars + ticker details in parallel
@@ -364,6 +366,12 @@ async function runScan(): Promise<void> {
     loadRsRatings(),
     fetchVix(),
   ]);
+
+  /* No ratings, no scan — the previous results stay (as VCP does). */
+  if (!rsLookup.available) {
+    console.error(`[HRS] RS ratings unavailable — ${rsLookup.reason ?? 'unknown'}; leaving the previous scan in place`);
+    return;
+  }
 
   const { seriesMap, dates } = windowData;
   console.log(`[HRS] Universe: ${snapMap.size} tickers, ${dates.length} trading days`);

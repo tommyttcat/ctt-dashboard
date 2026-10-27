@@ -1725,7 +1725,9 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
           /* A swing card (26 Oct 2026): the swing checklist on this row — live price against last
              night's EMAs (lib/leaders checkFields), with the stage when known — not the scans'
              colour, which is the day checklist on SIP / Daily names. */
-          const own = swingCheck({ ...r, ticker: r.t, stage: stg ?? undefined } as unknown as Record<string, unknown>);
+          /* changePct and rvolPace by the checklist's names (27 Oct 2026): the row calls them chg and
+             track, so "no heavy selling" never ran on this card. track is already paced. */
+          const own = swingCheck({ ...r, ticker: r.t, stage: stg ?? undefined, changePct: r.chg, rvolPace: r.track == null ? undefined : Math.max(0, 1 + r.track / 100) } as unknown as Record<string, unknown>);
           const edge: EdgeTier | null = own?.tier ?? null;
           return (
             /* Colour reasons in the InfoDot panel (12 Oct 2026: no native title tooltips). */

@@ -37,9 +37,15 @@ export interface ScannerRowGates {
   vol: number; dVol: number; changePct: number;
   atr: number; avgVol: number; adrPct: number | null;
   price?: number;
+  /* 20-day average of close x volume over completed sessions (27 Oct 2026). When present it
+     is the liquidity test; avgVol x TODAY's price made a stock that doubled look twice as
+     liquid. The replay, which has no such field, keeps the old product. */
+  avgDollarVol?: number | null;
 }
 /** The site-wide floor on the 20-day average dollar volume (scanConfig QUALITY_FLOOR). */
-const avgDollarOk = (r: ScannerRowGates) => r.price == null || r.avgVol * r.price >= SCANNER.minAvgDollarVol;
+const avgDollarOk = (r: ScannerRowGates) => r.avgDollarVol != null
+  ? r.avgDollarVol >= SCANNER.minAvgDollarVol
+  : r.price == null || r.avgVol * r.price >= SCANNER.minAvgDollarVol;
 
 /** Final SIP gate — adds the liquidity and range floors to the candidate test. */
 export function passesSipFinal(r: ScannerRowGates): boolean {

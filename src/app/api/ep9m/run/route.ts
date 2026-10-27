@@ -160,7 +160,7 @@ import {
   epPullbackPlan,
   type Bar, type LiteBar, type OhlcvBar, type SnapInfo, type CatalystTier,
 } from '@/lib/scans/ep9m';
-import { getMarketDay, previousTradingDay } from '@/lib/marketCalendar';
+import { getMarketDay, previousTradingDay, sessionsBetween } from '@/lib/marketCalendar';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -559,7 +559,7 @@ async function runScan(request: Request) {
     for (const sym of stale) snapMap.delete(sym);
     const raw9m = symbols.length - stale.length;
 
-    const shortlist = shortlistAbnormal(profile, snapMap);
+    const shortlist = shortlistAbnormal(profile, snapMap, { lastBarIsToday: false });   // the profile ends yesterday
 
     const registry = await readRegistry();
     const priorCounts = new Map<string, number>();
@@ -567,7 +567,9 @@ async function runScan(request: Request) {
     for (const e of registry) {
       if (e.date === today) continue;
       priorCounts.set(e.ticker, (priorCounts.get(e.ticker) || 0) + 1);
-      const daysAgo = Math.round((Date.now() - new Date(e.date + 'T00:00:00Z').getTime()) / 86400000);
+      /* Trading sessions, not rounded-up calendar days (27 Oct 2026): a Friday EP re-triggering
+         Monday read 4 "days" and was typed Delayed after one session. */
+      const daysAgo = sessionsBetween(e.date, today);
       if (daysAgo > 0) {
         const cur = priorRecent.get(e.ticker);
         if (cur == null || daysAgo < cur) priorRecent.set(e.ticker, daysAgo);

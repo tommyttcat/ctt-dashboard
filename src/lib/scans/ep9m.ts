@@ -137,8 +137,14 @@ export interface Abnormality {
 
 export function shortlistAbnormal(
   series: Map<string, LiteBar[]>,
-  snapMap: Map<string, SnapInfo>
+  snapMap: Map<string, SnapInfo>,
+  /* Whether the series' last bar is today's partial one (27 Oct 2026). The live route's profile
+     stops at YESTERDAY (getVolumeProfile walks back from day 1), so dropping its last bar threw
+     yesterday away: a name that did 60M yesterday on a 3M average read RVOL 8.3 and
+     "unprecedented" on day 2 instead of 4.3. The replay keeps the default it was measured with. */
+  opts: { lastBarIsToday?: boolean } = {},
 ): Abnormality[] {
+  const lastBarIsToday = opts.lastBarIsToday ?? true;
   const picks: Abnormality[] = [];
 
   series.forEach((bars, sym) => {
@@ -146,7 +152,7 @@ export function shortlistAbnormal(
     if (!snap) return;
     if (bars.length < 25) return;
 
-    const prior = bars.slice(0, -1);
+    const prior = lastBarIsToday ? bars.slice(0, -1) : bars;
     if (prior.length < 20) return;
 
     const recent20 = prior.slice(-20).map(b => b.v).filter(v => v > 0);

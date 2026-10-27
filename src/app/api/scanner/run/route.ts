@@ -1165,9 +1165,12 @@ async function runScan(request: Request) {
       .sort((a: any, b: any) => (b._livePrice * b._liveVol) - (a._livePrice * a._liveVol))
       .slice(0, 30);
 
+    /* Up-movers only, by dollar volume, BEFORE the 40-name cut (27 Oct 2026): the candidate test
+       is |change| >= 4% but the final gate needs +4%, so names down 4% holding VWAP took slots
+       and were then rejected; share-volume ranking also filled slots with cheap names. */
     const sipCandidates = [...viableSetups]
-      .filter((t: any) => isSipCandidate(t._liveChg, t._livePrice, t._liveVwap))
-      .sort((a: any, b: any) => b._liveVol - a._liveVol)
+      .filter((t: any) => t._liveChg >= SCANNER.minChange && isSipCandidate(t._liveChg, t._livePrice, t._liveVwap))
+      .sort((a: any, b: any) => (b._livePrice * b._liveVol) - (a._livePrice * a._liveVol))
       .slice(0, 40);
 
     const MEGA_CAP_TICKERS = new Set(['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'BRK.B', 'AVGO', 'LLY', 'JPM', 'XOM', 'UNH', 'V', 'PG', 'MA', 'JNJ', 'HD', 'AMD', 'NFLX', 'COST']);
@@ -1180,8 +1183,12 @@ async function runScan(request: Request) {
     /* Gainers: RS 50+ first (12 Oct 2026, owner's call) — the rating is already loaded, so
        the 40 that get enriched are ones that can pass; not-Stage-3/4 and the $20M floor are
        checked after enrichment (finalTopMovers). */
-    let gainersRaw = [...regularStocksRaw].filter((t: any) => t._liveChg >= SCANNER.minChange && (rsLookup.get(t.ticker) ?? -1) >= TOPMOVER_MIN_RS).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 40);
-    let losersRaw = [...regularStocksRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 40);
+    /* A cheap liquidity screen BEFORE the 40-name cut (27 Oct 2026): yesterday's dollar volume
+       at a fifth of the $20M floor. The biggest % losers are mostly illiquid small caps that the
+       floor removes after enrichment, which left the Losers tab thin. */
+    const liquidEnough = (t: { prevDay?: { c?: number; v?: number } }) => (t.prevDay?.c ?? 0) * (t.prevDay?.v ?? 0) >= SCANNER.minAvgDollarVol / 5;
+    let gainersRaw = [...regularStocksRaw].filter((t: any) => t._liveChg >= SCANNER.minChange && (rsLookup.get(t.ticker) ?? -1) >= TOPMOVER_MIN_RS && liquidEnough(t)).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 40);
+    let losersRaw = [...regularStocksRaw].filter(liquidEnough).sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 40);
     /* Surfaced to the Top Movers card via scan_meta so it can label the
        Gainers/Losers tabs as pre-market or after-hours when they come from
        Webull's extended-session ranking. */
@@ -1299,10 +1306,19 @@ async function runScan(request: Request) {
 
       let avgVol = 0;
       let atr = 0;
+      /* Averages over COMPLETED sessions only (27 Oct 2026): today's partial bar, when Polygon
+         returns one, dragged the 20-day average volume down in the morning (inflating RVOL) and
+         the dollar figure was avgVol x today's price. */
+      const etDateOf = (ms: number) => new Date(ms).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+      const todayEt = etDateOf(Date.now());
+      const completed = dailyBars.filter((b: { t?: number }) => b?.t == null || etDateOf(b.t) < todayEt).slice(0, 20);
+      const avgDollarVol = completed.length >= 10
+        ? completed.reduce((a: number, b: { c?: number; v?: number }) => a + (b.c || 0) * (b.v || 0), 0) / completed.length
+        : null;
       if (dailyBars.length > 0) {
         let sumVol = 0, barCount = 0, sumTR = 0, trCount = 0;
+        completed.forEach((bar: { v?: number }) => { if (bar.v) { sumVol += bar.v; barCount++; } });
         dailyBars.slice(0, 20).forEach((bar: any, index: number) => {
-          if (bar.v) { sumVol += bar.v; barCount++; }
           if (index < 14 && dailyBars[index+1]) {
             const prevClose = dailyBars[index+1].c;
             sumTR += Math.max(bar.h - bar.l, Math.abs(bar.h - prevClose), Math.abs(bar.l - prevClose));
@@ -1554,6 +1570,10 @@ async function runScan(request: Request) {
         ema21: round2(ema21Val),
         ema50: round2(ema50Val),
         dayHigh: round2(dayHigh ?? dailyBars[0]?.h ?? null),
+        /* Today's open, for the day checklist's "above the open" (27 Oct 2026: no row carried
+           it, so that check never ran). Null before the open. */
+        open: t.day?.o > 0 ? round2(t.day.o) : null,
+        avgDollarVol: avgDollarVol != null ? Math.round(avgDollarVol) : null,
         dayLow: round2(dayLow ?? dailyBars[0]?.l ?? null),
         priorSwingHigh: round2(priorSwingHigh),
         plan: plan.tradeable ? {
@@ -1830,7 +1850,7 @@ async function runScan(request: Request) {
     /* Every tab gets the site-wide floor (12 Oct 2026): $3+ (the universe gate) and $20M+ a
        day on the 20-day average. Gainers also need RS 50+ and not Stage 3/4, the $Vol bar.
        Losers and the ETF tabs stay as awareness, floor only. */
-    const floorOk = (r: any) => r !== undefined && r.vol >= SCANNER.minVolume && (r.avgVol ?? 0) * (r.price ?? 0) >= SCANNER.minAvgDollarVol;
+    const floorOk = (r: any) => r !== undefined && r.vol >= SCANNER.minVolume && (r.avgDollarVol ?? (r.avgVol ?? 0) * (r.price ?? 0)) >= SCANNER.minAvgDollarVol;
     const strongOk = (r: any) => (r.rsRating ?? -1) >= TOPMOVER_MIN_RS && !/^(stage\s*)?[34]/i.test(String(r.stage ?? '').trim());
     const finalTopMovers = {
       'Mega Caps': megaCapsRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10),

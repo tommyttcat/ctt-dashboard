@@ -333,13 +333,17 @@ async function executeScan(polygonKey: string) {
   const rawSnap = snapRes.tickers || [];
   if (rawSnap.length === 0) throw new Error('Empty snapshot');
 
+  /* Volume from the LAST FULL SESSION (prevDay) — 27 Oct 2026. The first run each day is 8:15 AM ET
+     and the job then skips 12 hours, so `day.v` was pre-market volume: a name with 20k pre-market
+     shares failed the 50k floor while one with no pre-market trades passed on yesterday's full
+     volume, and the universe was ranked on pre-market dollar volume. Every vol below is prevDay's. */
   // 2. Filter to common stock candidates
   const candidates = rawSnap.filter((t: any) => {
     const ticker = t.ticker;
     if (!ticker || !/^[A-Z]{1,5}$/.test(ticker)) return false;
     const price = t.lastTrade?.p || t.day?.c || t.prevDay?.c || 0;
     if (price < MULTIBAGGER.minPrice || price > 500) return false;
-    const vol = t.day?.v || t.prevDay?.v || 0;
+    const vol = t.prevDay?.v || t.day?.v || 0;
     if (vol < MULTIBAGGER.minAvgVolume) return false;
     return true;
   });
@@ -347,7 +351,7 @@ async function executeScan(polygonKey: string) {
   // Enrich with dollar volume, skip the very top (mega caps) to focus on mid/small
   const withDolVol = candidates.map((t: any) => {
     const price = t.lastTrade?.p || t.day?.c || t.prevDay?.c || 0;
-    const vol = t.day?.v || t.prevDay?.v || 0;
+    const vol = t.prevDay?.v || t.day?.v || 0;
     return { ...t, _price: price, _dolVol: price * vol };
   });
   withDolVol.sort((a: any, b: any) => b._dolVol - a._dolVol);
@@ -396,7 +400,7 @@ async function executeScan(polygonKey: string) {
 
     if (mcap == null || mcap < MULTIBAGGER.minMarketCap || mcap > MULTIBAGGER.maxMarketCap) continue;
 
-    const vol = t.day?.v || t.prevDay?.v || 0;
+    const vol = t.prevDay?.v || t.day?.v || 0;
     const changePct = t.todaysChangePerc ?? 0;
     mcapFiltered.push({ ticker: t.ticker, price: t._price, detail, mcap, changePct, vol, dvol: t._dolVol });
   }
