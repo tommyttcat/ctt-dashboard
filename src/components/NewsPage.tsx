@@ -206,7 +206,7 @@ function Stats({ s }: { s: Partial<StatRow> | null | undefined }) {
    is before reading it; the headline at 15px; the names underneath; the small
    facts last, below a hairline. The day's move for the lead name sits top
    right, where the Confluence report puts it. */
-function NewsCard({ tag, tagHint, headline, summary, url, move, flags, tickers, showName, meta, stats, tier }: {
+function NewsCard({ tag, tagHint, headline, summary, url, move, flags, tickers, showName, meta, stale, stats, tier }: {
   tag: NewsTag;
   tagHint?: string;
   headline: string;
@@ -218,6 +218,8 @@ function NewsCard({ tag, tagHint, headline, summary, url, move, flags, tickers, 
   tickers: Ticker[];
   showName?: boolean;
   meta: string;
+  /** Older than STALE_MIN: the age reads amber so a day-old story next to today's move is visible. */
+  stale?: boolean;
   stats?: Partial<StatRow> | null;
   /** The lead name's tier on its own scan — tints the card like every scan table. */
   tier?: EdgeTier | null;
@@ -231,10 +233,15 @@ function NewsCard({ tag, tagHint, headline, summary, url, move, flags, tickers, 
      headline under them, and the kind of story + source as small print. */
   return (
     <article className={`bg-[#111827] border border-[#1e293b] border-l-4 rounded-2xl p-4 flex flex-col gap-2.5 min-w-0 ${tier ? TIER_EDGE[tier] : 'border-l-[#1e293b]'}`}>
-      <div className="flex items-center gap-2">
+      {/* The name and the day's move on top; how busy it is sits under the move, so the
+          footer is left with only the story's kind, source and age (27 Oct 2026). */}
+      <div className="flex items-start gap-2">
         <div className="flex-1 min-w-0"><TickerRow tickers={tickers} showName={showName} /></div>
-        {move != null && (
-          <span className={`shrink-0 text-[16px] font-bold tabular-nums leading-none ${moveCls(move)}`}>{fmtMove(move)}</span>
+        {(move != null || stats?.rvol != null) && (
+          <div className="shrink-0 flex flex-col items-end gap-1">
+            {move != null && <span className={`text-[16px] font-bold tabular-nums leading-none ${moveCls(move)}`}>{fmtMove(move)}</span>}
+            <span className="text-[11px]"><Stats s={stats} /></span>
+          </div>
         )}
       </div>
       {url ? (
@@ -246,8 +253,7 @@ function NewsCard({ tag, tagHint, headline, summary, url, move, flags, tickers, 
       <div className="mt-auto flex items-center gap-x-2 gap-y-1 flex-wrap text-[11px] text-slate-500 border-t border-[#1e293b] pt-2">
         {tag !== 'general' && <TagPill tag={tag} hint={tagHint} small />}
         {flags}
-        {meta && <span>{meta}</span>}
-        <Stats s={stats} />
+        {meta && <span className={stale ? 'text-amber-400/80' : undefined}>{meta}</span>}
       </div>
     </article>
   );
@@ -269,7 +275,11 @@ const TIER_RANK: Record<string, number> = { green: 0, yellow: 1, red: 2 };
 const poolTag = (it: PoolItem): NewsTag => tagOf(it.catalyst);
 const wireTag = (a: WireItem): NewsTag => tagOf(a.aiTag);
 
-function PoolCard({ it }: { it: PoolItem }) {
+/* A story older than this reads amber: the scans keep a headline up to 5 days, and a day-old
+   opinion piece beside today's move looked like the reason for it (27 Oct 2026). */
+const STALE_MIN = 12 * 60;
+
+function PoolCard({ it, hideStars }: { it: PoolItem; hideStars?: boolean }) {
   const headline = headlineOf(it);
   if (!headline) return null;
   const mins = ageLabelMinutes(it.newsAge);
@@ -285,7 +295,7 @@ function PoolCard({ it }: { it: PoolItem }) {
       showName
       flags={
         <>
-          <Stars n={it.stars} />
+          {!hideStars && <Stars n={it.stars} />}
           {it.newsSentiment === 'negative' && (
             <span className={`${PILL} text-rose-400 bg-rose-500/10 border-rose-500/20`}>Negative</span>
           )}
@@ -293,6 +303,7 @@ function PoolCard({ it }: { it: PoolItem }) {
       }
       tickers={[{ t: it.ticker, cnf: it.cnf, name: it.name, move: it.changePct, tier: it.tier ?? null }]}
       meta={[it.newsPublisher, age, delayed ? 'delayed' : null].filter(Boolean).join(' · ')}
+      stale={delayed || (mins != null && mins > STALE_MIN)}
       stats={it}
       tier={it.tier ?? null}
     />
@@ -315,6 +326,7 @@ function WireCard({ it, stats, now }: { it: WireItem; stats: Record<string, Stat
       move={lead?.changePct ?? null}
       tickers={ordered.map(t => ({ t, cnf: stats[t]?.cnf ?? null, name: stats[t]?.name ?? null, move: stats[t]?.changePct ?? null, tier: stats[t]?.tier ?? null }))}
       meta={[it.publisher, relTime(minutesSince(it.publishedUtc, now))].filter(Boolean).join(' · ')}
+      stale={(minutesSince(it.publishedUtc, now) ?? 0) > STALE_MIN}
       stats={lead}
       tier={lead?.tier ?? null}
     />
@@ -342,10 +354,11 @@ function Section({ title, count, info, controls, children }: {
 /* Two INDEPENDENT columns, as the page had before: split the list and stack
    each half, so a two-line headline never leaves a hole beside a one-line
    one. One column on a phone. */
-/* Every card the same size: a two-column grid whose rows are all as tall as
-   the tallest card (auto-rows-fr), filled left-to-right. One column on a phone. */
+/* Two columns, filled left-to-right; the two cards in a row share a height, but a row is only as
+   tall as its own longer headline (auto-rows-fr made every row the page's tallest card, leaving
+   one-line headlines in half-empty boxes — 27 Oct 2026). One column on a phone. */
 const Grid = ({ children }: { children: React.ReactNode }) => (
-  <div className="grid grid-cols-1 md:grid-cols-2 md:auto-rows-fr gap-3.5 [&>*]:h-full">{children}</div>
+  <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 [&>*]:h-full">{children}</div>
 );
 
 const Note = ({ children }: { children: React.ReactNode }) => (
@@ -564,7 +577,7 @@ export default function NewsPage() {
                         : 'No headline matches the active filter.'}
                     </Note>
                   ) : (
-                    <Grid>{shown.map(it => <PoolCard key={`${it.ticker}-${it.scan}`} it={it} />)}</Grid>
+                    <Grid>{shown.map(it => <PoolCard key={`${it.ticker}-${it.scan}`} it={it} hideStars={causalOnly} />)}</Grid>
                   )}
                 </Section>
 

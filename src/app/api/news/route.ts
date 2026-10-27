@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { pickBestNews, polygonNewsPath, RX_FUND_LETTER, RX_STOCK_PITCH, isQuestionFluff } from '@/lib/indicators/news';
+import { pickBestNews, polygonNewsPath, RX_FUND_LETTER, RX_STOCK_PITCH, isQuestionFluff, isNewsNoise } from '@/lib/indicators/news';
 import { nyToIso, fetchStocktwitsNews } from '@/lib/indicators/newsAlt';
 
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
@@ -48,7 +48,8 @@ const BLOCKED_PUBLISHERS = new Set([
   'simply wall st', 'simply wall street',
   'insider monkey', 'validea', 'talkmarkets', 'invezz',
   'stocknews.com', 'stocknews', 'quiverquant',
-  '24/7 wall st', '24/7 wall street',
+  '24/7 wall st', '24/7 wall street', '247 wallst', '247wallst',
+  'defense world', 'marketbeat', 'etf daily news', 'american banking news', 'ticker report', 'finbold',
 ]);
 
 const isSpamNews = (title: string) => {
@@ -173,7 +174,7 @@ async function fetchFmpLatest(apiKey: string): Promise<Normalized[]> {
   const arr: any[] = JSON.parse(body);
   if (!Array.isArray(arr)) throw new Error('FMP: not a list');
   const normalized = arr
-    .filter(it => it?.symbol && it?.title && !isSpamNews(it.title) && !FLUFF.test(it.title) && !RX_FUND_LETTER.test(it.title) && !isQuestionFluff(it.title) && !RX_STOCK_PITCH.test(it.title) && !isBlockedPublisher(it.publisher || it.site || ''))
+    .filter(it => it?.symbol && it?.title && !isSpamNews(it.title) && !FLUFF.test(it.title) && !RX_FUND_LETTER.test(it.title) && !isQuestionFluff(it.title) && !RX_STOCK_PITCH.test(it.title) && !isNewsNoise(it.title, it.url) && !isBlockedPublisher(it.publisher || it.site || ''))
     .map((it): Normalized => {
       const t = normalizeTicker(it.symbol);
       return {
@@ -200,7 +201,7 @@ async function fetchFmpLatest(apiKey: string): Promise<Normalized[]> {
 async function fetchStocktwits(): Promise<Normalized[]> {
   const raw = await fetchStocktwitsNews(1);
   return raw
-    .filter(it => it.title && !isSpamNews(it.title) && !FLUFF.test(it.title) && !isQuestionFluff(it.title) && !RX_STOCK_PITCH.test(it.title))
+    .filter(it => it.title && !isSpamNews(it.title) && !FLUFF.test(it.title) && !isQuestionFluff(it.title) && !RX_STOCK_PITCH.test(it.title) && !isNewsNoise(it.title, it.article_url))
     .map((it): Normalized => {
       const tickers = (it.tickers ?? []).map(normalizeTicker);
       return {
@@ -229,6 +230,7 @@ async function fetchPolygon(apiKey: string): Promise<Normalized[]> {
   const normalized = results
     .filter(item =>
       !isSpamNews(item.title) &&
+      !isNewsNoise(item.title || '', item.article_url) &&
       !isBlockedPublisher(item.publisher?.name) &&
       item.tickers?.length > 0
     )

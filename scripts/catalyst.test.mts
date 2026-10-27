@@ -105,6 +105,25 @@ eq('exhibit: cover line before the 99.1 banner goes (UPS 27 Oct)', headlineFromE
 eq('exhibit: an investor deck disclaimer is no headline (GLXY 27 Oct)', headlineFromExhibit('EX-99.2 3 exhibit992-glxyq32026ove.htm EX-99.2 exhibit992-glxyq32026ove 1 GALAXY As of September 30, 2026 Q3 26 Investor.galaxy.com Exhibit 99.2 2 GALAXY Disclaimer This presentation, and the information contained herein'), null);
 eq("classify: 'After Blowout Q3' is earnings", classifyNews("CLS Stock Soars Premarket After Blowout Q3"), 'Earnings');
 {
+  // News page review, 27 Oct 2026: each of these reached a ★★ card.
+  const at = Date.parse('2026-10-27T16:00:00Z');
+  const one = (title: string, publisher: string, url = '') => pickBestNews([{ title, article_url: url, published_utc: '2026-10-27T14:00:00Z', tickers: ['X'], publisher: { name: publisher } }], 'X', at);
+  eq('drop: Seeking Alpha contributor article', one('Lumentum: Sold Out Is Not The Same As Scalable', 'Seeking Alpha', 'https://seekingalpha.com/article/4957554-lumentum'), null);
+  eq('keep: Seeking Alpha news item', one('Lumentum raises Q2 guidance on datacenter demand', 'Seeking Alpha', 'https://seekingalpha.com/news/4500000-lumentum')?.publisher, 'Seeking Alpha');
+  eq('drop: earnings-date notice', one('Iovance Biotherapeutics to Report Third Quarter 2026 Financial Results and Corporate Updates on Thursday, November 5, 2026', 'GlobeNewsWire'), null);
+  eq('drop: webinar notice', one('Recursion to Host Webinar Focused on Updated REC-4881 (FAP) Data', 'GlobeNewsWire'), null);
+  eq('drop: 13F holdings post', one('Hewlett Packard Enterprise Company $HPE Stake Raised by Citizens Financial Group Inc.', 'Business Wire'), null);
+  eq('drop: new-investment post', one('Citizens Financial Group Inc. RI Makes New $1.90 Million Investment in ProShares UltraPro QQQ', 'Business Wire'), null);
+  eq('drop: small insider sale post', one('Zoom Communications (NASDAQ:ZM) Director Sells $69,283.71 in Stock', 'Business Wire'), null);
+  eq('drop: Zacks #1 pitch', one('This Top Transportation Stock is a #1 (Strong Buy): Why It Should Be on Your Radar', 'Benzinga'), null);
+  eq('drop: analyst roundup', one('UnitedHealth Group To Rally Over 29%? Here Are 10 Top Analyst Forecasts For Tuesday', 'Benzinga'), null);
+  eq('drop: list ranking', one("GigaCloud Technology Inc Ranks Among Top 15 on Fortune's Fastest Growing Companies", 'GlobeNewswire'), null);
+  eq('drop: MarketBeat network publisher', one('Danaher Corporation Announces Dividend', 'Defense World'), null);
+  eq('keep: real earnings release', one('SoFi Reports Third Quarter 2026 with Record Net Revenue of $1.4 Billion and Raises Full-Year Guidance', 'Business Wire')?.tag, 'Earnings');
+  eq('keep: real partnership', one("AMD and Meta Advance Strategic Partnership to Power Meta's Superintelligence Infrastructure", 'GlobeNewsWire')?.publisher, 'GlobeNewsWire');
+  eq('zero-width characters do not hide a question', one('\u200b\u200bWill Nvidia Keep Rising?', 'Business Wire'), null);
+}
+{
   const at = Date.parse('2026-10-27T16:00:00Z');
   const label = { title: 'CELESTICA INC 8-K: reports quarterly results', description: '8-K items 2.02, 9.01: reports quarterly results', published_utc: '2026-10-27T11:00:00Z', tickers: ['CLS'], publisher: { name: 'SEC' }, keywords: [SEC_LABEL_ONLY] };
   const st = { title: "CLS Stock Soars Premarket After Blowout Q3 - Retail Calls It 'Very Inexpensive'", description: 'Celestica shares jumped premarket after third-quarter results topped estimates and the company raised its outlook.', published_utc: '2026-10-27T08:17:00Z', tickers: ['CLS', 'CRWV', 'NBIS'], publisher: { name: 'Stocktwits' } };

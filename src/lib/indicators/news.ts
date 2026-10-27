@@ -122,7 +122,12 @@ const PUBLISHER_BLOCKED = new Set([
   'talkmarkets', 'invezz',
   'stocknews.com', 'stocknews',
   'quiverquant',
-  '24/7 wall st', '24/7 wall street',
+  '24/7 wall st', '24/7 wall street', '247 wallst', '247wallst',
+  /* MarketBeat's syndication network (27 Oct 2026): auto-written 13F and Form 4 posts
+     ("Citizens Financial Makes New $1.90 Million Investment in…", "Director Sells $69,283"). */
+  'defense world', 'marketbeat', 'etf daily news', 'american banking news', 'ticker report',
+  'the enterprise leader', 'the cerbat gem', 'modern readers', 'the lincolnian online', 'wkrb news',
+  'finbold',   // crypto-market opinion ("Which AI bubble burst?")
 ]);
 
 const PUBLISHER_AGGREGATOR = new Set([
@@ -158,6 +163,20 @@ const RX_LISTICLE = /^\s*(?:the\s+)?(?:top\s+)?\d+\s+(?:best\s+|top\s+|cheap\s+|
 
 // Auto-generated valuation and rank content. Published on a schedule.
 const RX_ALGO_CONTENT = /\b(?:intrinsic value|fair value estimate|is (?:it|this stock) (?:over|under)valued|dcf (?:model|valuation)|zacks rank|style scores?|value score|momentum score|earnings esp|analyst blog highlights|new strong buy|added to (?:the )?zacks)\b/i;
+
+/* News page review, 27 Oct 2026 — headlines that reached ★★ cards without saying why anything moved:
+   event notices ("to Report Third Quarter Results on November 5", "to Host Webinar"), fund-holding
+   and small insider-sale posts, Zacks "#1 (Strong Buy)" pitches, analyst roundups, list rankings. */
+export const RX_EVENT_NOTICE = /\bto (?:report|announce|release|host|hold|present at|participate in|webcast)\b.{0,80}\b(?:results|earnings|conference call|webcast|webinar|investor day|conference|fireside chat)\b|\b(?:announces|schedules|sets) (?:the )?(?:date|timing|release date)\b|\b(?:conference call|earnings call|webcast) (?:date|schedule|notification)\b/i;
+const RX_HOLDINGS = /\b(?:stake|position|holdings?|shares)\s+(?:in\s+.{1,40}?\s+)?(?:raised|lowered|cut|trimmed|boosted|increased|decreased|reduced|sold|acquired|purchased|bought)\s+by\b|\bmakes? (?:a )?new \$[\d.,]+\s*(?:million|thousand|billion|[mkb])?\s+investment in\b|\bshares (?:newly )?(?:acquired|bought|sold) by\b|\b(?:director|officer|insider|evp|svp|vp|cfo|coo|cto|ceo|president|chairman)\b.{0,40}\bsells? \$[\d,.]+ in stock\b/i;
+const RX_ROUNDUP = /#\d+ \((?:strong )?buy\)|should be on your radar|\btop (?:wall street )?analyst (?:forecasts|research calls|calls|ratings)\b|\d+ top analyst forecasts|\branks? (?:among|#\d|no\. ?\d)|\bnamed (?:to|one of|among) .{0,40}\b(?:list|best|top|fastest)\b|\bleads \d+ stocks\b/i;
+
+/** The 27 Oct rules in one call, for the market feed (/api/news) as well as pickBestNews. */
+export const isNewsNoise = (title: string, url?: string | null): boolean =>
+  RX_EVENT_NOTICE.test(title) || RX_HOLDINGS.test(title) || RX_ROUNDUP.test(title)
+  /* Seeking Alpha's /article/ pages are contributor opinion ("Lumentum: Sold Out Is Not The Same
+     As Scalable", "Wait For A Further Pullback"); its reporting lives under /news/. */
+  || /seekingalpha\.com\/article\//i.test(url || '');
 
 // Opinion and advice framing rather than event reporting.
 const RX_OPINION = /\b(?:should you (?:buy|sell|own)|should (?:investors?|you) (?:consider|worry|care)|is (?:it|now) (?:a|the) (?:good )?time to buy|here(?:'?s| is) (?:why|what)|what (?:investors?|you) (?:need|should|must) (?:to )?know|my top pick|better buy|bull (?:vs\.?|versus) bear|prediction:|where will .{1,30} be in \d+ years?|is under pressure|could (?:be|make)|(?:will|can) .{1,30} keep (?:rising|falling|going)|how to (?:play|trade|invest)|worth (?:buying|selling|watching)|the case (?:for|against)|reasons? to (?:buy|sell|own|avoid)|still a buy|is it too late)\b/i;
@@ -375,7 +394,8 @@ export function pickBestNews(
   const candidates: NewsItem[] = [];
 
   for (const item of results) {
-    const title = (item?.title || '').trim();
+    // Zero-width characters ("\u200b\u200bWhich AI bubble…") hide a title's first word from the filters.
+    const title = (item?.title || '').replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
     if (!title) continue;
 
     // --- shape rejection ---
@@ -386,6 +406,7 @@ export function pickBestNews(
     if (RX_FUND_LETTER.test(title)) continue;
     if (isQuestionFluff(title)) continue;
     if (RX_STOCK_PITCH.test(title)) continue;
+    if (isNewsNoise(title, item.article_url)) continue;
 
     // --- breadth ---
     const tickers = Array.isArray(item.tickers) ? item.tickers : [];
