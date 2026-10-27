@@ -250,6 +250,19 @@ const isCausal = (title: string): boolean => {
    ORDER MATTERS: an offering announced alongside earnings is an Offering,
    because dilution is what the stock will trade on. The dilutive and legal
    categories are tested first for that reason. */
+const RATING = '(?:buy|strong buy|outperform|overweight|neutral|hold|sell|strong sell|underperform|underweight|market perform|sector perform|peer perform|equal[- ]weight|in[- ]line|accumulate|reduce)';
+/** A broker's rating action in a headline: "upgraded", "Rosenblatt upgrades NVDA", "upgrade to Buy",
+    "rating upgrade", price targets, coverage. The bare noun ("Major Upgrade to RADIUS CX Platform")
+    and "upgrades its fleet" are not. */
+export const RX_ANALYST_ACTION = new RegExp(
+  '\\b(?:(?:up|down)graded'
+  + '|(?:up|down)grades(?!\\s+(?:its|their|the|our|a|an)\\b)'
+  + '|(?:rating|analyst) (?:up|down)grade'
+  + `|(?:up|down)grades?\\s+(?:to|from)\\s+${RATING}`
+  + '|price target|initiat(?:es|ed|ing) coverage|reiterat|overweight|underweight|outperform|analysts?)\\b',
+  'i',
+);
+
 export function classifyNews(title: string, description?: string | null): string {
   const s = `${title} ${description || ''}`.toLowerCase();
 
@@ -258,10 +271,13 @@ export function classifyNews(title: string, description?: string | null): string
   if (/\b(?:earnings|eps|revenue|beats?|missed?|quarterly results|q[1-4] (?:results|report)|after (?:\w+ )?q[1-4]|top(?:s|ped) estimates|reports? (?:first|second|third|fourth) quarter)\b/.test(s)) return 'Earnings';
   if (/\b(?:fda|approval|approved|phase\s*[123]|clinical|trial results|topline|nda|bla|510\(k\)|breakthrough therapy|orphan drug|ind clearance|multicenter|stud(?:y|ies) (?:finds?|shows?|results|data|met|meets))\b/.test(s)) return 'FDA / Data';
   if (/\b(?:merger|acquir|acquisition|buyout|takeover|to be acquired|definitive agreement|stake in|going private|tender offer|spin[- ]?off)\b/.test(s)) return 'M&A';
-  if (/\b(?:upgrade[sd]?|downgrade[sd]?|price target|initiat(?:es|ed) coverage|reiterat|overweight|underweight|outperform|analyst)\b/.test(s)) return 'Analyst';
+  /* Analyst = a rating action, read from the TITLE only (27 Oct 2026): "Braiin Targets … Major
+     Upgrade to RADIUS CX Platform" matched the bare word "upgrade", and release summaries say
+     "analysts" in passing. A product upgrade falls through to Product below. */
+  if (RX_ANALYST_ACTION.test(title.toLowerCase())) return 'Analyst';
   if (/\b(?:guidance|raises? (?:its )?(?:outlook|forecast|guidance)|lowers? (?:its )?(?:outlook|forecast|guidance)|reaffirm|updates? outlook|preliminary results)\b/.test(s)) return 'Guidance';
   if (/\b(?:contract|awarded|partnership|collaborat|agreement|order(?:s|ed)? (?:worth|valued)|selected by|wins?|deal with|loi|letter of intent|purchase order)\b/.test(s)) return 'Contract';
-  if (/\b(?:launch|unveil|introduc|debut|releases? (?:its )?new|announces? (?:the )?availability|now available|ships?)\b/.test(s)) return 'Product';
+  if (/\b(?:launch|unveil|introduc|debut|upgrade[sd]?|releases? (?:its )?new|announces? (?:the )?availability|now available|ships?)\b/.test(s)) return 'Product';
   if (/\b(?:ceo|cfo|resign|appoint|steps down|names? (?:new )?(?:chief|president)|board of directors|executive)\b/.test(s)) return 'Management';
   if (/\b(?:short (?:report|seller)|squeeze|halted for volatility)\b/.test(s)) return 'Volatility';
 

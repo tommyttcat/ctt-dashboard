@@ -85,8 +85,9 @@ const TAG_RULES: [string, RegExp][] = [
   ['FDA', /\bfda\b|phase [123]|clinical trial|breakthrough therapy/i],
   ['M&A', /acquir|merger|merge[sd]?\b|takeover|buyout|to buy\b|stake in\b/i],
   ['EARNINGS', /earnings|q[1-4] (results|report)|beats?\b|miss(es|ed)?\b|\beps\b/i],
-  ['UPGRADE', /upgrade[sd]?\b|raises? (price )?target|initiat\w+ .*(buy|outperform)|overweight/i],
-  ['DOWNGRADE', /downgrade[sd]?\b|cuts? (price )?target|underweight|underperform/i],
+  // A rating action, not a product upgrade ("Major Upgrade to RADIUS CX Platform", 27 Oct 2026).
+  ['UPGRADE', /\bupgraded\b|\bupgrades\b(?!\s+(?:its|their|the|our|a|an)\b)|\b(?:rating|analyst) upgrade\b|\bupgrades? (?:to|from) (?:buy|strong buy|outperform|overweight)\b|raises? (price )?target|initiat\w+ .*(buy|outperform)|overweight/i],
+  ['DOWNGRADE', /\bdowngraded\b|\bdowngrades\b(?!\s+(?:its|their|the|our|a|an)\b)|\b(?:rating|analyst) downgrade\b|\bdowngrades? (?:to|from) (?:sell|underperform|underweight|neutral|hold)\b|cuts? (price )?target|underweight|underperform/i],
   ['OFFERING', /offering|public offer|priced? .*shares|dilut|convertible notes|shelf/i],
   ['GUIDANCE', /guidance|outlook|forecast|sees fy|sees q[1-4]/i],
   ['INSIDER', /insider|ceo (buys|sells)|form 4\b|13[dgf]\b/i],

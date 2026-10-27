@@ -130,6 +130,15 @@ eq("classify: 'After Blowout Q3' is earnings", classifyNews("CLS Stock Soars Pre
   eq('causal: event named in the title', one('PayPal Reports Third Quarter 2026 Results', 'PRNewsWire')?.causal, true);
   eq('causal: move explained', one('STX Stock Surges Over 6% After Rosenblatt Upgrade', 'Stocktwits')?.causal, true);
   eq('causal: study results', one('New Progyny Study Finds Significant Improvement in Menopause Symptoms', 'GlobeNewsWire')?.causal, true);
+  // Analyst = a rating action in the title (27 Oct 2026, BRAI).
+  eq('not analyst: product upgrade', classifyNews('Braiin Targets USD 56.9 Billion CX Software Market with Agentic AI Expansion and Major Upgrade to RADIUS CX Platform'), 'Product');
+  eq('not analyst: "upgrades its"', classifyNews('Acme Upgrades Its Fleet With 40 New Aircraft'), 'Product');
+  eq('not analyst: "analysts" only in the summary', classifyNews('Acme Opens New Plant in Ohio', 'Analysts expect the plant to add capacity.'), 'News');
+  eq('analyst: broker upgrades a name', classifyNews('Rosenblatt Upgrades Nvidia, Sees 30% Upside'), 'Analyst');
+  eq('analyst: upgraded to Buy', classifyNews('Seagate Upgraded To Buy At Citi'), 'Analyst');
+  eq('analyst: upgrade to Outperform', classifyNews('STX: Upgrade To Outperform On HAMR Ramp'), 'Analyst');
+  eq('analyst: rating upgrade', classifyNews('Elon Musk Is Wrong About Nebius: Rating Upgrade'), 'Analyst');
+  eq('analyst: price target', classifyNews('Morgan Stanley Raises Price Target On AMD'), 'Analyst');
 }
 {
   const at = Date.parse('2026-10-27T16:00:00Z');
