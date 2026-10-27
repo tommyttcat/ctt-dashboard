@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { todaysLiveChg } from '@/lib/liveChg';
 import { kv } from '@vercel/kv';
 import { SWING_META } from '@/lib/scanConfig';
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
@@ -27,13 +28,15 @@ export async function GET() {
        swing rows could be patched. Same pattern as multibagger/latest and
        dvol/latest — the map is read server-side and only the result crosses
        the wire. */
-    if (liveChgMap && list.length) {
+    /* Only today's overlay (lib/liveChg, 27 Oct 2026). */
+    const todayMap = todaysLiveChg(liveChgMap);
+    if (todayMap && list.length) {
       list = list.map((c: any) => {
         /* These rows key on `symbol`, not `ticker` — mirrors MarketSummary's
            tickerOf() helper. Indexing on c.ticker alone silently matched
            nothing and left the scan's stale price in place. */
         const t = c.ticker ?? c.symbol;
-        const live = t ? liveChgMap[t] : undefined;
+        const live = t ? todayMap[t] : undefined;
         return live ? { ...c, changePct: live[0], price: live[1] } : c;
       });
     }

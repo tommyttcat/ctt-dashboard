@@ -5,6 +5,7 @@
 // hasn't executed yet, this returns an empty list with success:true.
 
 import { NextResponse } from 'next/server';
+import { todaysLiveChg } from '@/lib/liveChg';
 import { kv } from '@vercel/kv';
 import { MULTIBAGGER_META } from '@/lib/scanConfig';
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
@@ -25,9 +26,11 @@ export async function GET() {
     const scanMeta = meta?.scanMeta ?? MULTIBAGGER_META;
 
     let list = Array.isArray(candidates) ? candidates : [];
-    if (liveChgMap && list.length) {
+    /* Only today's overlay (lib/liveChg, 27 Oct 2026). */
+    const todayMap = todaysLiveChg(liveChgMap);
+    if (todayMap && list.length) {
       list = list.map((c: any) => {
-        const live = liveChgMap[c.ticker];
+        const live = todayMap[c.ticker];
         return live ? { ...c, changePct: live[0] } : c;
       });
     }

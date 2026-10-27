@@ -282,7 +282,9 @@ async function getUniverse(): Promise<{ symbols: Set<string>; snapMap: Map<strin
     // Symbol shape, fund exclusion and price band — shared with the backtest.
     if (!passesVcpUniverseGate(sym, price)) continue;
 
-    const vol = t.day?.v || t.prevDay?.v || 0;
+    /* Today's volume only — never prevDay's (27 Oct 2026): before the open a row showed yesterday's
+       volume, RVOL and $ volume as today's. Display / RVOL only; the gates use average $ volume. */
+    const vol = t.day?.v || t.min?.av || 0;
     const prevClose = t.prevDay?.c || 0;
 
     let changePct = 0;

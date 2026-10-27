@@ -139,7 +139,9 @@ async function getUniverse(): Promise<Map<string, SnapInfo>> {
     const price = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || 0;
     if (price < HRS.minPrice) continue;
 
-    const vol = t.day?.v || t.prevDay?.v || 0;
+    /* Today's volume only — never prevDay's (27 Oct 2026): before the open a row showed yesterday's
+       volume, RVOL and $ volume as today's. Display / RVOL only; the gates use average $ volume. */
+    const vol = t.day?.v || t.min?.av || 0;
     const prevClose = t.prevDay?.c || 0;
     let changePct = 0;
     if (t.todaysChangePerc != null && t.todaysChangePerc !== 0) {
@@ -392,8 +394,12 @@ async function runScan(): Promise<void> {
   console.log(`[HRS] Regime: ${regime.severity}, QQQ 5d: ${regime.qqqReturn5d.toFixed(2)}%, weak days: ${regime.weakDays.length}`);
 
   // Stage 3: prefilter
-  const prefiltered = prefilter(snapMap, seriesMap, regime, qqqDailyMap, dates);
-  console.log(`[HRS] Prefiltered: ${prefiltered.length} candidates`);
+  /* The RS gate before the 150 cut, and the count before the cut recorded (27 Oct 2026). */
+  const prefilteredAll = prefilter(snapMap, seriesMap, regime, qqqDailyMap, dates, {
+    keep: sym => (rsLookup.get(sym) ?? -1) >= HRS.minRsRating, cap: Infinity,
+  });
+  const prefiltered = prefilteredAll.slice(0, 150);
+  console.log(`[HRS] Prefiltered: ${prefilteredAll.length} pass RS ${HRS.minRsRating}+, ${prefiltered.length} shortlisted`);
 
   // Stage 4: confirm
   const candidates = await confirm(prefiltered, snapMap, rsLookup);
@@ -432,6 +438,7 @@ async function runScan(): Promise<void> {
     regime,
     universe: snapMap.size,
     prefiltered: prefiltered.length,
+    prefilteredBeforeCap: prefilteredAll.length,
     confirmed: candidates.length,
     rsAvailable: rsLookup.available,
     rsAsOf: rsLookup.asOf,

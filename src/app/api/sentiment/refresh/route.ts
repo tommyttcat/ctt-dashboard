@@ -89,7 +89,7 @@ export async function GET(req: Request) {
   const extra = new Map<string, { rvol: number | null; rs: number | null }>();
   for (const t of names) {
     const h = leaders?.names?.[t], v = quotes.get(t)?.vol ?? 0;
-    const tr = h?.prof?.length && v > 0 ? trackingPct(v, h.prof, clock) : null;
+    const tr = h?.prof?.length && v > 0 ? trackingPct(v, h.prof, clock, h.pre ?? 0) : null;
     extra.set(t, { rvol: tr == null ? null : +Math.max(0, 1 + tr / 100).toFixed(2), rs: rsLookup.available ? rsLookup.get(t) : null });
   }
 

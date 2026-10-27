@@ -31,6 +31,10 @@ export interface LeaderHist {
   maxRs: number;       // highest close / SPY close ratio, same window
   adv: number;         // 20-session average share volume
   prof: number[];      // average cumulative share volume at the end of each half hour (BUCKETS)
+  /* Average PRE-MARKET share volume (4:00-9:30 ET), 27 Oct 2026. The live day volume includes
+     extended-hours trades (Polygon daily volume runs 4-8% above the regular-session sum) while
+     `prof` is regular-session only, so a gapper's pre-market shares read as heavy buying at 9:45. */
+  pre?: number;
   /* Swing-checklist inputs at the last close (12 Oct 2026), from 70 sessions of whole-market
      bars: [EMA10, EMA21, EMA21 a session earlier, EMA50, ADR %, tight5, volDry, lowerHigh]. The
      live update compares the live price with these, so every row gets the universal colour.
@@ -171,8 +175,9 @@ export function expectedCum(prof: number[], etMin: number): number | null {
 }
 
 /** Today's volume against usual at the same time, as % over (+91 = 1.91x usual). */
-export function trackingPct(cumVol: number, prof: number[], etMin: number): number | null {
-  const e = expectedCum(prof, etMin);
+export function trackingPct(cumVol: number, prof: number[], etMin: number, pre = 0): number | null {
+  const reg = expectedCum(prof, etMin);
+  const e = reg ? reg + (pre > 0 ? pre : 0) : null;   // the live volume includes pre-market shares
   return e && cumVol > 0 ? (cumVol / e - 1) * 100 : null;
 }
 
@@ -252,7 +257,7 @@ export function buildLive(state: LeadersState, quotes: Quote[], spyPrice: number
       if (os) oversold.push({ ...os, etf: true });
       continue;
     }
-    const track = trackingPct(q.vol, h.prof, clockEt);
+    const track = trackingPct(q.vol, h.prof, clockEt, h.pre ?? 0);
     const raw = h.adv > 0 && q.vol > 0 ? (q.vol / h.adv - 1) * 100 : null;
     rows.push({
       t: q.t, n: h.n, price: q.price, chg: +chg.toFixed(2),

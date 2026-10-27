@@ -5,6 +5,7 @@
 // success:true when the run route has not executed yet.
 
 import { NextResponse } from 'next/server';
+import { todaysLiveChg } from '@/lib/liveChg';
 import { kv } from '@vercel/kv';
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 
@@ -27,7 +28,8 @@ export async function GET() {
        not show a change percentage from the last completed session. */
     const overlay = (arr: DvolRow[] | null): DvolRow[] => {
       const l = Array.isArray(arr) ? arr : [];
-      return liveChgMap && l.length ? l.map(r => { const live = liveChgMap[r.ticker]; return live ? { ...r, changePct: live[0] } : r; }) : l;
+      const todayMap = todaysLiveChg(liveChgMap);   // only today's overlay (lib/liveChg, 27 Oct 2026)
+      return todayMap && l.length ? l.map(r => { const live = todayMap[r.ticker]; return live ? { ...r, changePct: live[0] } : r; }) : l;
     };
     const list = overlay(rows);
     const bounces = overlay(bounceRows);

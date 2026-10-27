@@ -1,6 +1,8 @@
 /* scripts/scanFixes.test.mts — the 27 Oct 2026 scanner audit fixes. */
 import { passesSipFinal, passesScannerUniverse } from '../src/lib/scans/scanner.ts';
 import { volumeShareAt } from '../src/lib/scans/checklist.ts';
+import { stampLiveChg, todaysLiveChg } from '../src/lib/liveChg.ts';
+import { trackingPct, profileOf, BUCKETS } from '../src/lib/leaders.ts';
 import { shortlistAbnormal, type LiteBar, type SnapInfo } from '../src/lib/scans/ep9m.ts';
 import { eq, done } from './testkit.mts';
 
@@ -35,5 +37,17 @@ eq('SIP final: 1M shares / $15M at 22% of the day passes', passesSipFinal({ ...r
   const paced = shortlistAbnormal(s2, sn, { lastBarIsToday: false, volShare: 0.22 })[0];
   eq('EP9M: at 22% of the day it passes on pace', paced?.sym, 'MV');
   eq('EP9M: rvolPace = 1.2 / 0.22', +paced.rvolPace.toFixed(2), 5.45);
+}
+// ---- Batch 3: yesterday's data shown as today's
+{
+  const fri = Date.parse('2026-10-23T23:50:00Z'), sat = Date.parse('2026-10-24T15:00:00Z');
+  const m = stampLiveChg({ AAPL: [2.5, 200] }, fri);
+  eq('live overlay: used the same New York day', todaysLiveChg(m, Date.parse('2026-10-23T23:55:00Z')) != null, true);
+  eq('live overlay: Friday\'s map is skipped on Saturday', todaysLiveChg(m, sat), null);
+  eq('live overlay: an unstamped (old) map is skipped', todaysLiveChg({ AAPL: [2.5, 200] }, fri), null);
+  const prof = profileOf([Array.from({ length: BUCKETS }, () => 100)]);   // 100 shares a half hour
+  // 10:00 ET: 100 regular-session shares expected; a gapper did 300 pre-market + 100 since the open.
+  eq('leaders RVOL: pre-market shares no longer read as heavy buying', Math.round(trackingPct(400, prof, 600, 300) ?? NaN), 0);
+  eq('leaders RVOL: without the pre-market term it read +300%', Math.round(trackingPct(400, prof, 600) ?? NaN), 300);
 }
 done('scan audit fixes');

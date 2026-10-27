@@ -118,7 +118,11 @@ export function prefilter(
   seriesMap: Map<string, Bar[]>,
   regime: MarketRegime,
   qqqDailyMap: Map<string, number>,
-  dates: string[]
+  dates: string[],
+  /* keep: a gate applied BEFORE the shortlist cap (27 Oct 2026: the RS 60 gate ran after the
+     150 cut, so high-beta bouncers took slots and failed later while eligible names ranked below
+     150 were never checked). cap: the shortlist size (Infinity = all). The replay passes neither. */
+  opts: { keep?: (sym: string) => boolean; cap?: number } = {},
 ): PrefilterResult[] {
   const results: PrefilterResult[] = [];
 
@@ -228,7 +232,8 @@ export function prefilter(
 
   // Sort by alpha descending and take a generous shortlist for the confirm stage
   results.sort((a, b) => b.alphaOnWeakDays - a.alphaOnWeakDays);
-  return results.slice(0, 150);
+  const kept = opts.keep ? results.filter(r => opts.keep!(r.symbol)) : results;
+  return kept.slice(0, opts.cap ?? 150);
 }
 
 // ---------------------------------------------------------------

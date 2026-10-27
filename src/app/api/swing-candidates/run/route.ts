@@ -254,7 +254,9 @@ async function getUniverse(): Promise<{ symbols: string[]; snapMap: Map<string, 
     const livePrice = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || null;
     const prevClose = t.prevDay?.c || 0;
     const vwap = t.day?.vw || null;
-    const vol = t.day?.v || t.prevDay?.v || 0;
+    /* Today's volume only — never prevDay's (27 Oct 2026): before the open a row showed yesterday's
+       volume, RVOL and $ volume as today's. Display / RVOL only; the gates use average $ volume. */
+    const vol = t.day?.v || t.min?.av || 0;
     let changePct = 0;
     if (t.todaysChangePerc !== undefined && t.todaysChangePerc !== null && t.todaysChangePerc !== 0) {
       changePct = t.todaysChangePerc;

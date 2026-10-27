@@ -130,6 +130,9 @@ import { loadRsRatings, type RsLookup } from '@/lib/indicators/rs';
 import { rawRsScore, percentileRank } from '@/lib/indicators/vcp';
 import { pickBestNews, type NewsItem } from '@/lib/indicators/news';
 import { paceOf, etMinuteNow, sessionShare } from '@/lib/scans/checklist';
+import { previousTradingDay } from '@/lib/marketCalendar';
+import { stampLiveChg } from '@/lib/liveChg';
+import { isPriorSessionBar, type OhlcvBar } from '@/lib/scans/ep9m';
 import { fetchFreeNewsIndex } from '@/lib/indicators/newsAlt';
 import {
   computeCnfScore, atrsAboveAnchor, isBreakoutSetupName, isReversalSetupName,
@@ -897,14 +900,30 @@ async function runScan(request: Request) {
       const rawSnapshot = snapRes.tickers || [];
       if (rawSnapshot.length === 0) return NextResponse.json({ error: 'No snapshot data returned' }, { status: 500 });
 
+      /* Before the open Polygon's `day` can still be the PREVIOUS session (lib/scans/ep9m
+         isPriorSessionBar), with `prevDay` the one before it — so `todaysChangePerc` was yesterday's
+         move and the volume, VWAP and open were yesterday's (27 Oct 2026). One grouped call for
+         yesterday's bars, pre-open runs only, tells such rows apart; their change is measured from
+         that bar's close (yesterday's) and their day fields are dropped. */
+      const nowEtDate = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+      const priorBars = new Map<string, OhlcvBar>();
+      if (etMinuteNow() < 9 * 60 + 30) {
+        const g = await fetchSafeJson(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${previousTradingDay(nowEtDate)}?adjusted=true&apiKey=${polygonApiKey}`, { results: [] });
+        for (const r of g?.results ?? []) if (r?.T) priorBars.set(r.T, { o: r.o, h: r.h, l: r.l, c: r.c, v: r.v });
+      }
+
       processedSnapshot = rawSnapshot.map((t: any) => {
         const livePrice = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || 0;
-        const prevClose = t.prevDay?.c || 0;
-        const vol = t.day?.v || t.prevDay?.v || t.min?.v || 0;
-        const vwap = t.day?.vw || t.prevDay?.vw || livePrice;
+        const stale = priorBars.size > 0 && t.day && isPriorSessionBar({ o: t.day.o ?? null, h: t.day.h ?? null, l: t.day.l ?? null, c: t.day.c ?? null, v: t.day.v || 0 }, priorBars.get(t.ticker));
+        const prevClose = stale ? (t.day.c || 0) : (t.prevDay?.c || 0);
+        if (stale) t.day = undefined;
+        /* No borrowing from prevDay (27 Oct 2026): a name with no trades today got yesterday's 3M
+           shares and VWAP, cleared the floors and read ~1x RVOL. */
+        const vol = t.day?.v || t.min?.av || 0;
+        const vwap = t.day?.vw || livePrice;
 
         let liveChg = 0;
-        if (t.todaysChangePerc !== undefined && t.todaysChangePerc !== null && t.todaysChangePerc !== 0) {
+        if (!stale && t.todaysChangePerc !== undefined && t.todaysChangePerc !== null && t.todaysChangePerc !== 0) {
           liveChg = t.todaysChangePerc;
         } else if (prevClose > 0 && livePrice > 0) {
           liveChg = ((livePrice - prevClose) / prevClose) * 100;
@@ -1291,7 +1310,7 @@ async function runScan(request: Request) {
       const vol = t._liveVol;
       const chgPct = t._liveChg;
       const vwap = t._liveVwap;
-      const currentOpen = t.day?.o || t.prevDay?.o || price;
+      const currentOpen = t.day?.o || price;   // never prevDay's open (27 Oct 2026)
       const dayHigh = t.day?.h ?? null;
       const dayLow = t.day?.l ?? null;
 
@@ -1316,6 +1335,12 @@ async function runScan(request: Request) {
          the dollar figure was avgVol x today's price. */
       const etDateOf = (ms: number) => new Date(ms).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
       const todayEt = etDateOf(Date.now());
+      /* The newest daily bar must be TODAY's (27 Oct 2026): before Polygon has one, bar 0 was
+         yesterday and bar 1 the day before — the gap, the move in ATRs and the pattern detector
+         then counted yesterday's move twice. A bar built from the snapshot stands in. */
+      if (!dailyBars.length || (dailyBars[0]?.t != null && etDateOf(dailyBars[0].t) < todayEt)) {
+        dailyBars.unshift({ t: Date.now(), o: currentOpen, h: dayHigh ?? price, l: dayLow ?? price, c: price, v: vol, vw: vwap });
+      }
       const completed = dailyBars.filter((b: { t?: number }) => b?.t == null || etDateOf(b.t) < todayEt).slice(0, 20);
       const avgDollarVol = completed.length >= 10
         ? completed.reduce((a: number, b: { c?: number; v?: number }) => a + (b.c || 0) * (b.v || 0), 0) / completed.length
@@ -2002,7 +2027,7 @@ async function runScan(request: Request) {
     }
 
     if (Object.keys(liveChgMap).length > 500) {
-      await kv.set('live_chg_map_v1', liveChgMap);
+      await kv.set('live_chg_map_v1', stampLiveChg(liveChgMap));   // dated (lib/liveChg)
     }
 
     if (benchmark) await kv.set('benchmark_v6', benchmark);

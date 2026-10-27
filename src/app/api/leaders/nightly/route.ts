@@ -164,14 +164,19 @@ export async function GET(req: Request) {
   const profDone = await inBatches(withHist, 25, deadline, async t => {
     const j = await pg<{ results?: { t: number; v: number }[] }>(`/v2/aggs/ticker/${encodeURIComponent(t)}/range/30/minute/${from30}/${today.d}?adjusted=true&sort=asc&limit=50000`);
     const byDay = new Map<string, number[]>();
+    const preByDay = new Map<string, number>();   // pre-market shares a day (27 Oct 2026)
     for (const b of j?.results ?? []) {
-      const m = etMinute(b.t); if (m < OPEN || m >= OPEN + BUCKETS * 30) continue;
+      const m = etMinute(b.t);
+      if (m >= 4 * 60 && m < OPEN) { const d = etDay(b.t); preByDay.set(d, (preByDay.get(d) ?? 0) + b.v); continue; }
+      if (m < OPEN || m >= OPEN + BUCKETS * 30) continue;
       const d = etDay(b.t); const k = Math.floor((m - OPEN) / 30);
       const arr = byDay.get(d) ?? new Array(BUCKETS).fill(-1); arr[k] = b.v; byDay.set(d, arr);
     }
     const sessions = [...byDay.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(-20).map(([, a]) => a.map(v => (v < 0 ? 0 : v)));
     const prof = profileOf(sessions);
     if (prof.length) out[t].prof = prof.map(v => Math.round(v));
+    const days = [...byDay.keys()].sort().slice(-20);
+    if (days.length) out[t].pre = Math.round(days.reduce((a, d) => a + (preByDay.get(d) ?? 0), 0) / days.length);
   });
 
   const state: LeadersState = { date: today.d, builtAt: new Date().toISOString(), names: out };
