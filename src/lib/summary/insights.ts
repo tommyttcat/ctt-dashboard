@@ -697,36 +697,37 @@ export const buildMultibaggerPara = (mbList: any[]): string => {
    tiebreak — the same default every table on the site uses. DVol rows carry
    `cnfScore` / `changePct` / `vol` which stdCols reads through scoreOf /
    chgOf / fmtVolStr, so no adapter is needed. */
-export const buildDvolPara = (dvolRows: any[]): string => {
-  const rows = (Array.isArray(dvolRows) ? dvolRows : [])
-    .filter((r: any) => r?.ticker && r.cnfScore != null)
+/* Two lists side by side (27 Oct 2026, owner): today's 4%+ movers by dollar volume, split by the
+   quality gate — into strength (RS 50+, not Stage 3/4) on the left, bounces in beaten-down names
+   (the rest) on the right. Top 10 each. */
+export const buildDvolPara = (dvolRows: any[], bounceRows: any[] = []): string => {
+  type Rows = typeof dvolRows;
+  const prep = (arr: Rows): Rows => (Array.isArray(arr) ? arr : [])
+    .filter(r => r?.ticker && r.cnfScore != null)
     .slice()
-    .sort((a: any, b: any) => num(b.dvol) - num(a.dvol))
-    .slice(0, 20);
+    .sort((a, b) => num(b.dvol) - num(a.dvol));
+  const strong = prep(dvolRows), weak = prep(bounceRows);
+  const rows = [...strong.slice(0, 10), ...weak.slice(0, 10)];
 
   if (rows.length === 0) return '';
 
   const fmtRow = (r: any): string => `${r.ticker} ${stdCols(r)}`;
 
-  const left = rows.slice(0, 10);
-  const right = rows.slice(10, 20);
+  const left = strong.slice(0, 10);
+  const right = weak.slice(0, 10);
 
   const totalDvol = rows.reduce((a: number, r: any) => a + (num(r.dvol)), 0);
   const advDvol = rows.filter((r: any) => num(r.changePct) > 0).reduce((a: number, r: any) => a + num(r.dvol), 0);
   const advShare = totalDvol > 0 ? Math.round((advDvol / totalDvol) * 100) : 0;
 
+  const sumD = (arr: Rows): number => arr.reduce((a: number, r) => a + num(r.dvol), 0);
   const footer: string[] = [
-    `${fmtDollar(totalDvol)} across ${rows.length} names, ${advShare}% advancing.`,
+    `${fmtDollar(sumD(left))} into strength vs ${fmtDollar(sumD(right))} into bounces (top 10 each), ${advShare}% advancing.`,
   ];
 
-  if (right.length) {
-    return `$Vol Summary: ${twoCol(
-      left.map(fmtRow).join('\n'),
-      right.map(fmtRow).join('\n'),
-      footer
-    )}`;
-  }
-  return `$Vol Summary: ${left.map(fmtRow).join('\n')}\n${footer.join('\n')}`;
+  const leftCol = `Into strength — ${strong.length}:\n${left.length ? left.map(fmtRow).join('\n') : 'No 4%+ mover with RS 50+ today.'}`;
+  const rightCol = `Bounces (RS under 50 or Stage 3/4) — ${weak.length}:\n${right.length ? right.map(fmtRow).join('\n') : 'None.'}`;
+  return `$Vol Summary: ${twoCol(leftCol, rightCol, footer)}`;
 };
 
 export const buildLocalInsights = (
@@ -740,6 +741,7 @@ export const buildLocalInsights = (
   mbList: any[] = [],
   dvolList: any[] = [],
   repeatPivots: Record<string, { count: number; events: { date: string; price: number; vol: number; rvol: number; score: number }[] }> = {},
+  dvolBounce: any[] = [],   // $Vol Summary's Bounces column (27 Oct 2026)
 ): MacroInsights | null => {
   const sips: any[] = Array.isArray(scan?.stocksInPlay) ? scan.stocksInPlay : [];
   const daily: any[] = Array.isArray(scan?.dailySetups) ? scan.dailySetups : [];
@@ -992,7 +994,7 @@ export const buildLocalInsights = (
      rows already carry live changePct/price. That is what let scanner/latest stop
      shipping the 235 KB map to every browser. */
   const mbPara = buildMultibaggerPara(mbList);
-  const dvolPara = buildDvolPara(dvolList);
+  const dvolPara = buildDvolPara(dvolList, dvolBounce);
 
   /* Setup pool: every name from every scan, tagged with source and deduped
      by ticker (first occurrence wins — the order favours higher-signal scans).

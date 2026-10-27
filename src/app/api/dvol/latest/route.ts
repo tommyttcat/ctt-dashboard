@@ -14,8 +14,10 @@ export const revalidate = 0;
 
 export async function GET() {
   try {
-    const [rows, lastScanTime, meta, liveChgMap] = await Promise.all([
-      kv.get<any[]>('dvol_rows_v1'),
+    /* Rows and bounces (27 Oct 2026) in one MGET, so the second list adds no KV command. */
+    type DvolRow = { ticker: string; changePct?: number } & Record<string, unknown>;
+    const [[rows, bounceRows], lastScanTime, meta, liveChgMap] = await Promise.all([
+      kv.mget<[DvolRow[] | null, DvolRow[] | null]>('dvol_rows_v1', 'dvol_bounce_v1'),
       kv.get<number>('dvol_last_scan_v1'),
       kv.get<any>('dvol_meta_v1'),
       kv.get<Record<string, [number, number]>>('live_chg_map_v1'),
@@ -23,18 +25,18 @@ export async function GET() {
 
     /* Same live-change overlay the other cards use, so an intraday reload does
        not show a change percentage from the last completed session. */
-    let list = Array.isArray(rows) ? rows : [];
-    if (liveChgMap && list.length) {
-      list = list.map(r => {
-        const live = liveChgMap[r.ticker];
-        return live ? { ...r, changePct: live[0] } : r;
-      });
-    }
+    const overlay = (arr: DvolRow[] | null): DvolRow[] => {
+      const l = Array.isArray(arr) ? arr : [];
+      return liveChgMap && l.length ? l.map(r => { const live = liveChgMap[r.ticker]; return live ? { ...r, changePct: live[0] } : r; }) : l;
+    };
+    const list = overlay(rows);
+    const bounces = overlay(bounceRows);
 
     return NextResponse.json(
       {
         success: true,
         rows: list,
+        bounceRows: bounces,
         lastScanTime: lastScanTime || null,
         count: list.length,
         ...(meta ?? {}),

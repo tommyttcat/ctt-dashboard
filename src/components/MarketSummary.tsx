@@ -2317,7 +2317,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: 'Liquid Leaders', color: 'cyan', blurb: 'The ~1,000 most traded stocks: which are outrunning the market most, and which trade the heaviest volume.' },
   { label: 'Oversold Bounce', color: 'emerald', blurb: 'Monis-style: liquid, fast-moving names that dropped 1.5 ADRs under their 5-day high. GO only in a market washout — the only time it tested well.' },
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, and who is on air.' },
-  { label: '$Vol Summary', color: 'teal', blurb: 'Top 20 by dollar volume among names with RS 50+ and not in Stage 3/4 — where the money is going into strength today.' },
+  { label: '$Vol Summary', color: 'teal', blurb: 'Today\'s 4%+ movers by dollar volume. Left: into strength (RS 50+, not Stage 3/4). Right: bounces in beaten-down names (RS under 50 or Stage 3/4). Top 10 each.' },
   { label: 'Daily Setups Thesis', color: 'cyan', blurb: 'Day trades vs multi-day swing holds from the daily scanner — sorted by blended score.' },
   { label: 'Reversal Swing Thesis', color: 'amber', blurb: 'Swing candidates split by reversals (reclaims, blue dots) vs pullback entries.' },
   { label: '10/21 Thesis', color: 'violet', blurb: 'Top names by holding period. Percentages are distance from the 21 and 10 EMA.' },
@@ -2872,7 +2872,7 @@ export default function MarketSummary() {
         }
 
         if (isMounted) {
-          const local = buildLocalInsights(scannerData, ep9mList, econList, earningsList, swingList, consolList, vcpList, mbList, dvolList, ep9mRepeatPivots);
+          const local = buildLocalInsights(scannerData, ep9mList, econList, earningsList, swingList, consolList, vcpList, mbList, dvolList, ep9mRepeatPivots, Array.isArray(dvolRes?.bounceRows) ? dvolRes.bounceRows : []);
           if (local) setMacroInsights(local);
           else if (scannerData.macroInsights) setMacroInsights(scannerData.macroInsights);
 

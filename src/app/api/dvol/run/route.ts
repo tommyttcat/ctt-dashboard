@@ -58,6 +58,10 @@ const FMP_KEY = (process.env.FMP_API_KEY || '').trim();
 const BENZINGA_KEY = (process.env.NEXT_PUBLIC_BENZINGA_API_KEY || process.env.BENZINGA_API_KEY || '').trim();
 
 const KV_ROWS = 'dvol_rows_v1';
+/* The movers the quality gate drops — RS under 50 or Stage 3/4 — kept as their own list, the
+   card's "Bounces" column (27 Oct 2026, owner: SOFI +13% on $1.3B traded, RS 8, Stage 4B, was
+   invisible; on a bounce day 26 of 30 movers failed the gate and the card showed 3 names). */
+const KV_BOUNCE = 'dvol_bounce_v1';
 const KV_TIME = 'dvol_last_scan_v1';
 const KV_META = 'dvol_meta_v1';
 
@@ -534,6 +538,7 @@ async function runScan(req: Request) {
        unknown stage passes; an unrated name does not. ETFs stay, judged the same way. */
     const quality = capped.filter(r => (r.rsRating ?? -1) >= MIN_RS && !/^(stage\s*)?[34]/i.test(String(r.stage ?? '').trim()));
     const kept = quality.slice(0, KEEP);
+    const bounces = capped.filter(r => !quality.includes(r)).slice(0, 20);   // same dollar-volume order; the card shows 10
     const droppedOnCap = candidates.length - capped.length;
     const droppedOnQuality = capped.length - quality.length;
 
@@ -553,6 +558,7 @@ async function runScan(req: Request) {
       rsReason: rs.reason,
       newsResolved,
       kept: kept.length,
+      bounces: bounces.length,
       capsResolved,
       stagesResolved,
       dtcResolved,
@@ -562,6 +568,7 @@ async function runScan(req: Request) {
 
     await Promise.all([
       kv.set(KV_ROWS, kept),
+      kv.set(KV_BOUNCE, bounces),
       kv.set(KV_TIME, Date.now()),
       kv.set(KV_META, meta),
     ]);
