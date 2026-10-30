@@ -2,7 +2,7 @@
 
 /* NetHighsLowsChart — net new 52-week highs − new lows, with EMA 8 / 20 (13 Oct 2026, the
    owner's ask). Data: lib/netHighsLows, built nightly by the System job, served inside the
-   CDN-cached /api/exposure/latest the Exposure strip already reads. Inline SVG, scales to the
+   CDN-cached /api/exposure/latest. Inline SVG, scales to the
    card's width (phones included). A breadth description, not a stand-aside rule: our own test
    found weak breadth preceded better QQQ returns. */
 

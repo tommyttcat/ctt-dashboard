@@ -65,7 +65,6 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import MacroScorecardPanel from './MacroScorecardPanel';
 import BenchmarkStrips from './BenchmarkStrip';
 import TickerChartHover from './TickerChartHover';
-import ExposureStrip from './ExposureStrip';
 import NetHighsLowsChart from './NetHighsLowsChart';
 
 import {
@@ -1164,7 +1163,7 @@ export default function MacroScorecard() {
             tapeFlash={tapeFlash}
           />
 
-          <ExposureStrip />
+          {/* Market Exposure strip removed 30 Oct 2026 (owner: "its useless"); its nightly state still feeds the cards below. */}
           <NetHighsLowsChart />
 
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4 relative z-10">

@@ -49,7 +49,7 @@ import {
 import { mfLabelShort, mfArrow } from '@/lib/indicators/moneyflow';
 
 /* S2 breadth — % of liquid US stocks in Weinstein Stage 2 (lib/stageBreadth), from the
-   CDN-cached /api/exposure/latest the Exposure strip already reads. One request per page. */
+   CDN-cached /api/exposure/latest. One request per page. */
 type S2 = { asOf: string; pct: number; n: number; history: { d: string; pct: number }[] };
 let s2Pending: Promise<S2 | null> | null = null;
 function useStage2(): S2 | null {
