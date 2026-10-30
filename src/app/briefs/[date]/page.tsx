@@ -73,9 +73,8 @@ export async function generateMetadata({
     ? extractRegimeLabel(brief.regimeDetail.regime)
     : null;
   const tickers = allTickers(brief, 6);
-  const headline = brief.summary?.conviction?.[0]
-    ? String(brief.summary.conviction[0]).replace(/\*\*/g, '')
-    : brief.regimeDetail?.posture || '';
+  /* 30 Oct 2026: never lead with a conviction setup — trade recommendations are gone from the archive. */
+  const headline = brief.regimeDetail?.posture || '';
 
   // Unique per date — a shared title across every archived brief is what gets
   // these pages deduplicated out of the index.
@@ -89,7 +88,7 @@ export async function generateMetadata({
   ].filter(Boolean);
   const description =
     parts.join(' ') ||
-    `Market brief for ${pretty} — tape reading, regime context and setups.`;
+    `Market brief for ${pretty} — tape reading and regime context.`;
 
   return {
     title,

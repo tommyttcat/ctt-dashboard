@@ -11,14 +11,14 @@ export const revalidate = 3600;
 const SITE = 'https://app.confluencetradingtools.com';
 
 export const metadata: Metadata = {
-  title: 'Market Brief Archive — Daily Analysis & Setups | Confluence Trading Tools',
+  title: 'Market Brief Archive — Daily Market Analysis | Confluence Trading Tools',
   description:
-    'Free archive of daily market briefs: tape reading by session phase, regime context, sector flow and the setups that were flagged. Published 24 hours after the live brief.',
+    'Free archive of daily market briefs: tape reading by session phase, regime context, sector flow and the news that moved stocks. Published 24 hours after the live brief.',
   alternates: { canonical: `${SITE}/briefs` },
   openGraph: {
     title: 'CTT Market Brief Archive',
     description:
-      'Browse daily market briefs — tape reading, regime calls, sector flow and flagged setups.',
+      'Browse daily market briefs — tape reading, regime calls and sector flow.',
     url: `${SITE}/briefs`,
     type: 'website',
     siteName: 'Confluence Trading Tools',
@@ -27,7 +27,7 @@ export const metadata: Metadata = {
   twitter: {
     card: 'summary_large_image',
     title: 'CTT Market Brief Archive',
-    description: 'Daily market briefs — tape reading, regime calls and flagged setups.',
+    description: 'Daily market briefs — tape reading, regime calls and sector flow.',
     images: ['https://confluencetradingtools.com/og-image.png'],
   },
 };

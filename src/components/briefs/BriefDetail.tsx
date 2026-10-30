@@ -4,7 +4,6 @@ import Link from 'next/link';
 import DashNav from '../DashNav';
 import type { BriefData, UpdateBlock } from '../../lib/briefArchive';
 import { ThemeToggle } from '../ThemeProvider';
-import { levelText } from '../../lib/briefLevel';
 
 const PHASE_ORDER = ['pre', 'morning', 'midday', 'power', 'closing'] as const;
 const PHASE_LABELS: Record<string, string> = {
@@ -142,9 +141,6 @@ function formatBriefDate(dateStr: string) {
  * That is what puts the brief text in the server HTML for crawlers, and it
  * drops the second function invocation + KV read that every view used to cost.
  */
-/* A level as it renders in the table. The coercion and the reason for it
-   live in lib/briefLevel, which the analyst brief uses too. */
-const money = (v: unknown): string => levelText(v);
 
 export default function BriefDetail({
   date,
@@ -175,17 +171,6 @@ export default function BriefDetail({
   const gapperSection = brief?.sections?.find((s) =>
     /Gappers|Intraday Movers/i.test(s.section),
   );
-
-  /* This table has Trigger and Target columns, so it wants setups — but it was
-     flattening every stock row in the brief, and only Top Trades carries levels.
-     The movers and Stocks-in-Play rows share the same schema and rendered as
-     rows of em-dashes. Prefer rows that actually have a trigger, and fall back
-     to the flat list so briefs without any leveled setup still show something.
-     Also what keeps trimmed archives working, since those drop the mover
-     grids entirely. */
-  const flatStocks = (brief?.sections || []).flatMap((s) => s.stocks || []);
-  const levelled = flatStocks.filter((s) => s.trigger != null);
-  const allStocks = levelled.length > 0 ? levelled : flatStocks;
 
   return (
     <div className="min-h-screen bg-[#05080f] text-slate-300 font-sans md:py-10 flex justify-center">
@@ -290,60 +275,8 @@ export default function BriefDetail({
                 </SectionCard>
               )}
 
-              {/* Conviction setups */}
-              {summary && summary.conviction?.length > 0 && (
-                <SectionCard title="Conviction setups" accent="#34d399">
-                  <div className="space-y-0">
-                    {summary.conviction.map((line, i) => (
-                      <div key={i} className={i > 0 ? 'pt-3 mt-3 border-t border-white/[0.06]' : ''}>
-                        <Prose text={String(line)} />
-                      </div>
-                    ))}
-                  </div>
-                </SectionCard>
-              )}
-
-              {/* Top setups table */}
-              {allStocks.length > 0 && (
-                <SectionCard title="Setups" accent="#8b5cf6">
-                  <div className="overflow-x-auto overflow-y-hidden">
-                    <table className="w-full text-[11px]">
-                      <thead>
-                        <tr className="text-slate-500 uppercase tracking-wider font-bold border-b border-white/5">
-                          <th className="text-left py-2 pr-3">Ticker</th>
-                          <th className="text-right py-2 px-2">Price</th>
-                          <th className="text-right py-2 px-2">Trigger</th>
-                          <th className="text-right py-2 px-2">Target</th>
-                          {allStocks.some((s) => s.stage) && <th className="text-left py-2 px-2">Stage</th>}
-                          {allStocks.some((s) => s.sector) && <th className="text-left py-2 pl-2">Sector</th>}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {allStocks.slice(0, 20).map((s, i) => (
-                          <tr key={i} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
-                            <td className="py-2 pr-3 font-bold text-cyan-400">${s.ticker}</td>
-                            <td className="py-2 px-2 text-right text-slate-300 font-mono">
-                              {money(s.price)}
-                            </td>
-                            <td className="py-2 px-2 text-right text-emerald-400 font-mono">
-                              {money(s.trigger)}
-                            </td>
-                            <td className="py-2 px-2 text-right text-amber-400 font-mono">
-                              {money(s.target)}
-                            </td>
-                            {allStocks.some((st) => st.stage) && (
-                              <td className="py-2 px-2 text-slate-400">{s.stage || '—'}</td>
-                            )}
-                            {allStocks.some((st) => st.sector) && (
-                              <td className="py-2 pl-2 text-slate-400">{s.sector || '—'}</td>
-                            )}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </SectionCard>
-              )}
+              {/* 30 Oct 2026: no trade recommendations in the archive — the Conviction setups card,
+                  the Setups table (trigger/target) and the Summary watchlist are gone (owner). */}
 
               {/* Sectors */}
               {sectorSection && (
@@ -423,16 +356,6 @@ export default function BriefDetail({
               {summary && (
                 <SectionCard title="Summary" accent="#34d399">
                   <div className="space-y-4">
-                    {summary.watchlist?.length > 0 && (
-                      <div>
-                        <div className="text-[12px] font-bold text-slate-500 tracking-wider uppercase mb-2">Watchlist</div>
-                        <div className="space-y-1">
-                          {summary.watchlist.map((line, i) => (
-                            <Prose key={i} text={String(line)} />
-                          ))}
-                        </div>
-                      </div>
-                    )}
                     {summary.traps?.length > 0 && (
                       <div className="pt-3 border-t border-white/[0.06]">
                         <div className="text-[12px] font-bold text-rose-400/80 tracking-wider uppercase mb-2">Traps</div>
@@ -463,7 +386,7 @@ export default function BriefDetail({
                   This brief is 24 hours old
                 </h3>
                 <p className="text-[12px] text-slate-400 mb-4">
-                  Today&apos;s setups and tape reading are live now for subscribers.
+                  Today&apos;s brief and tape reading are live now for subscribers.
                 </p>
                 <a
                   href="/subscribe"

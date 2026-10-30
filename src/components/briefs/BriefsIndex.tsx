@@ -78,7 +78,7 @@ export default function BriefsIndex({ briefs }: { briefs: BriefSummary[] }) {
           {/* Intro */}
           <div className="mb-8">
             <p className="text-[13px] text-slate-400 leading-relaxed max-w-2xl">
-              Daily AI-generated market analysis — tape reading, regime context, and actionable setups.
+              Daily AI-generated market analysis — tape reading, regime context and sector flow.
               Briefs are delayed 24 hours. Want tomorrow&apos;s brief before the open?
             </p>
             <a
@@ -130,12 +130,6 @@ export default function BriefsIndex({ briefs }: { briefs: BriefSummary[] }) {
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${rs.text} ${rs.bg} ${rs.border} uppercase tracking-wider`}>
                             {b.regime}
                           </span>
-                          {/* Setup count */}
-                          {b.setupCount > 0 && (
-                            <span className="text-[10px] text-slate-500">
-                              {b.setupCount} setup{b.setupCount !== 1 ? 's' : ''}
-                            </span>
-                          )}
                           {/* Phase count */}
                           {b.phases.length > 0 && (
                             <span className="text-[10px] text-slate-600">
