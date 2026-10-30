@@ -50,6 +50,19 @@ function calcSMA(data: Bar[], period: number): LineData<Time>[] {
   return result;
 }
 
+/* Bollinger Bands (30 Oct 2026, owner): 20-period, 2 standard deviations, upper and lower only. */
+function calcBB(data: Bar[], period = 20, mult = 2): { upper: LineData<Time>[]; lower: LineData<Time>[] } {
+  const upper: LineData<Time>[] = [], lower: LineData<Time>[] = [];
+  for (let i = period - 1; i < data.length; i++) {
+    let sum = 0, sq = 0;
+    for (let j = i - period + 1; j <= i; j++) { sum += data[j].close; sq += data[j].close * data[j].close; }
+    const mean = sum / period, sd = Math.sqrt(Math.max(0, sq / period - mean * mean));
+    upper.push({ time: data[i].time as Time, value: mean + mult * sd });
+    lower.push({ time: data[i].time as Time, value: mean - mult * sd });
+  }
+  return { upper, lower };
+}
+
 function calcTrendLine(data: Bar[], period: number): LineData<Time>[] {
   const slice = data.slice(-period);
   if (slice.length < 2) return [];
@@ -437,6 +450,17 @@ export default function MiniChart({ symbol, mode = 'candle', showTrend = false, 
         });
         lineSeries.setData(sma ? calcSMA(bars, period) : calcEMA(bars, period));
       }
+      const bb = calcBB(bars);
+      for (const band of [bb.upper, bb.lower]) {
+        const bbSeries = chart.addSeries(LineSeries, {
+          color: 'rgba(255,255,255,0.35)',
+          lineWidth: 1,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+        });
+        bbSeries.setData(band);
+      }
     }
 
     if (trend) {
@@ -610,6 +634,12 @@ export default function MiniChart({ symbol, mode = 'candle', showTrend = false, 
               <span style={{ color }} className="opacity-80">{period}</span>
             </span>
           ))}
+          {chartMode === 'candle' && (
+            <span className="flex items-center gap-0.5 text-[7px] font-bold tracking-wider">
+              <span className="w-2 h-[2px] rounded-full inline-block" style={{ backgroundColor: 'rgba(255,255,255,0.35)' }} />
+              <span style={{ color: 'rgba(255,255,255,0.6)' }}>BB</span>
+            </span>
+          )}
           {trend && (
             <span className="flex items-center gap-0.5 text-[7px] font-bold tracking-wider">
               <span className="w-2 h-[2px] rounded-full inline-block" style={{ backgroundColor: '#ffffff', borderTop: '1px dashed #ffffff' }} />

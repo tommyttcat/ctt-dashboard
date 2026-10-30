@@ -1660,8 +1660,9 @@ const useLeadersLive = (): LeadersLive | null => {
         .then(j => {
           if (!j?.live) return;
           leadersCache = j.live;
-          /* Oversold Bounce key levels onto the pop-up chart (16 Oct 2026), for any card the ticker is hovered on. */
-          for (const r of (j.live as LeadersLive).oversold ?? []) if (r.lvs?.length) chartLevelsGlobal.set(r.t, r.lvs.map(price => ({ price, type: 'S' as const })));
+          /* Oversold Bounce key level onto the pop-up chart (16 Oct 2026), for any card the ticker is hovered on.
+             30 Oct: one line — the level the row's status is about — not all three (owner: "clean up the bounce line to one"). */
+          for (const r of (j.live as LeadersLive).oversold ?? []) { const k = r.key ?? r.lvs?.[0]; if (k) chartLevelsGlobal.set(r.t, [{ price: k, type: 'S' as const }]); }
           leadersSubs.forEach(f => f(j.live));
         }).catch(() => {});
       load();
