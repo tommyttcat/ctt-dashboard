@@ -1810,8 +1810,9 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
    His entry is a dip under a key level and back above it: the levels are drawn on the ticker's
    pop-up chart (chartLevelsGlobal, set by useLeadersLive) and the status colours the row —
    no extra column. Untested: the owner dropped the market-washout gate and the daily-bar test
-   on 16 Oct. PHONE: every cell is shrink-0 and CNF / Stg are hidden below md, so the header
-   stays on the data (a shrinking flex row drifted the columns apart on a 375px screen). */
+   on 16 Oct. PHONE: every cell is shrink-0 and Prc / Stg are hidden below md, so the header
+   stays on the data (a shrinking flex row drifted the columns apart on a 375px screen).
+   31 Oct 2026: the OSB score shows on phones too (owner); Prc and Stg stay md-only. */
 type OsSortKey = 'off' | 'hi' | 'chg' | 'rs' | 'score';
 const OS_STATUS: Record<string, { tint: EdgeTier; word: string; why: string }> = {
   reclaimed: { tint: 'green', word: 'RECLAIMED', why: 'dipped under the key level today and is back above it (his entry)' },
@@ -1849,7 +1850,7 @@ const OversoldBounce = ({ stageMap, newsMap }: {
   const header = (
     <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
       <span className={`${H} w-[38px] md:w-[44px] text-center mx-0.5`}>Ticker</span>
-      <span className={`${H} ${S} hidden md:inline-block w-[22px] text-center ml-1`} onClick={() => onSort('score')}>OSB{arrow('score')}</span>
+      <span className={`${H} ${S} w-[20px] md:w-[22px] text-center ml-1`} onClick={() => onSort('score')}>OSB{arrow('score')}</span>
       <span className={`${H} ${S} w-[46px] md:w-[52px] text-right ml-1`} onClick={() => onSort('chg')}>Chg%{arrow('chg')}</span>
       <span className={`${H} hidden md:inline-block w-[42px] text-right ml-1`}>Prc</span>
       <span className={`${H} ${S} w-[46px] md:w-[50px] text-right ml-2 md:ml-1`} onClick={() => onSort('off')}>OL{arrow('off')}</span>
@@ -1867,7 +1868,7 @@ const OversoldBounce = ({ stageMap, newsMap }: {
       <InfoDot key={r.t} block className={`flex items-center whitespace-nowrap py-[1px] ${st ? `${EDGE_TINT[st.tint]} rounded-sm` : ''}`}
         text={`#${i + 1} ${r.n ?? r.t}${r.etf ? ' (leveraged ETF)' : ''}\n${st && r.key != null ? `${st.word} — ${st.why}: key level ${r.key.toFixed(2)}` : 'No key level under last night\'s close'}\n5-day high ${r.wkHi.toFixed(2)} · today's low ${r.lo.toFixed(2)}, ${r.deep.toFixed(1)}× its ADR under that high · now ${r.offLow.toFixed(1)}% off the low · ADR ${r.adr.toFixed(1)}%${sc}`}>
         <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover>
-        <span className={`${C} hidden md:inline-block w-[22px] text-center ml-1`}>{r.score != null ? <span className={`${badge} ${cnfBadgeCls(r.score)}`}>{r.score}</span> : dash}</span>
+        <span className={`${C} w-[20px] md:w-[22px] text-center ml-1`}>{r.score != null ? <span className={`${badge} ${cnfBadgeCls(r.score)}`}>{r.score}</span> : dash}</span>
         <span className={`${C} text-[9px] tabular-nums font-semibold w-[46px] md:w-[52px] text-right ml-1 ${r.chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{r.chg >= 0 ? '+' : ''}{r.chg.toFixed(2)}%</span>
         <span className={`${C} text-[9px] tabular-nums hidden md:inline-block w-[42px] text-right text-slate-300 ml-1`}>{r.price.toFixed(2)}</span>
         <span className={`${C} text-[9px] tabular-nums font-semibold w-[46px] md:w-[50px] text-right ml-2 md:ml-1 ${r.offLow >= 3 ? 'text-emerald-400' : r.offLow >= 1 ? 'text-white' : 'text-slate-400'}`}>+{r.offLow.toFixed(1)}%</span>
