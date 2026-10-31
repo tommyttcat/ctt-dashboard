@@ -1,6 +1,6 @@
 /* scripts/leaders.test.mts — Liquid Leaders arithmetic (lib/leaders). */
 
-import { expectedCum, trackingPct, profileOf, buildLive, chkOf, checkFields, oversoldOf, isLeveragedBull, keyLevelsOf, levelStatusOf, liveCnf, BUCKETS, type LeadersState } from '../src/lib/leaders.ts';
+import { expectedCum, trackingPct, profileOf, buildLive, chkOf, checkFields, oversoldOf, isLeveragedBull, keyLevelsOf, levelStatusOf, liveCnf, osbScoreOf, BUCKETS, type LeadersState } from '../src/lib/leaders.ts';
 import { eq, near, ok, done } from './testkit.mts';
 
 // A flat day: 100 shares every half hour -> cumulative 100, 200, ... 1300.
@@ -111,5 +111,16 @@ for (const n of ['Direxion Daily Semiconductor Bear 3X Shares', 'ProShares Ultra
   const row = [...lv.gainers, ...lv.volume, ...lv.rsHigh, ...lv.priceHigh].find(r => r.t === 'X');
   eq('stage carried on the row', row?.stg, '2A');
   ok('CNF carried on the row', typeof row?.cnf === 'number');
+}
+
+// OSB score (30 Oct 2026)
+{
+  const full = osbScoreOf({ status: 'reclaimed', offLow: 10, adr: 8, deep: 3.5, track: 150 });
+  eq('OSB: every part maxed is 100', full.score, 100);
+  eq('OSB: parts', JSON.stringify(full.sc), JSON.stringify([40, 30, 18, 12]));
+  eq('OSB: lost, at the low, at the gate, usual volume is 0', osbScoreOf({ status: 'lost', offLow: 0, adr: 8, deep: 1.5, track: 0 }).score, 0);
+  eq('OSB: half an ADR off the low earns 15', osbScoreOf({ status: 'lost', offLow: 4, adr: 8, deep: 1.5, track: 0 }).sc[1], 15);
+  eq('OSB: no volume profile scales from 88', osbScoreOf({ status: 'reclaimed', offLow: 8, adr: 8, deep: 3, track: null }).score, 100);
+  eq('OSB: reclaimed outranks a deeper lost name', osbScoreOf({ status: 'reclaimed', offLow: 2, adr: 8, deep: 1.6, track: 0 }).score > osbScoreOf({ status: 'lost', offLow: 2, adr: 8, deep: 3, track: 100 }).score, true);
 }
 done('liquid leaders');

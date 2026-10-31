@@ -91,6 +91,8 @@ export interface OversoldRow extends LeaderRow {
   key?: number | null;          // the key level the status is about
   lvs?: number[];               // all key levels, for the pop-up chart
   status?: LevelStatus;
+  score?: number;               // OSB score 0-100 (osbScoreOf), the list's order
+  sc?: [number, number, number, number | null];  // its parts: level, off low, stretch, volume (null: no volume profile)
 }
 /* Key levels (16 Oct 2026, from Monis's SOXL entry chart: a horizontal level, the dip under it
    circled). Swing points of the last 60 sessions — a low, or a high price has since cleared,
@@ -133,6 +135,23 @@ export function levelStatusOf(levels: number[] | undefined, price: number, lo: n
   if (near != null) return { status: 'testing', key: near };
   if (price < levels[0]) return { status: 'lost', key: Math.min(...levels.filter(L => L > price)) };
   return { status: 'holding', key: levels[0] };
+}
+/* OSB score (30 Oct 2026, owner asked for a ranking; leadership left out at the owner's call — Monis trades
+   beaten-down names and leveraged ETFs too). UNTESTED. Out of 100:
+   LEVEL 40 — reclaimed 40, testing 23, holding 17, lost or no level 0.
+   OFF LOW 30 — the bounce off today's low in ADRs; one full ADR earns it all.
+   STRETCH 18 — today's low under the 5-day high in ADRs; 1.5 (the gate) earns 0, 3+ earns it all.
+   VOLUME 12 — today's pace against usual; 1x or less earns 0, 2x+ earns it all. Leveraged ETFs carry
+   no volume profile, so theirs is scored out of the other 88 and scaled up. */
+export const OSB_LEVEL_PTS: Record<string, number> = { reclaimed: 40, testing: 23, holding: 17, lost: 0 };
+const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
+export function osbScoreOf(r: Pick<OversoldRow, 'status' | 'offLow' | 'adr' | 'deep' | 'track'>): { score: number; sc: [number, number, number, number | null] } {
+  const lvl = OSB_LEVEL_PTS[r.status ?? ''] ?? 0;
+  const ol = Math.round(30 * clamp01(r.adr > 0 ? r.offLow / r.adr : 0));
+  const str = Math.round(18 * clamp01((r.deep - OVERSOLD.adrs) / 1.5));
+  const vol = r.track == null ? null : Math.round(12 * clamp01(r.track / 100));   // track +100 = 2x usual
+  const raw = lvl + ol + str + (vol ?? 0);
+  return { score: Math.round(vol == null ? (raw * 100) / 88 : raw), sc: [lvl, ol, str, vol] };
 }
 /** The oversold-bounce row for one name, or null when it does not qualify. */
 export function oversoldOf(h: LeaderHist, q: Quote, base: LeaderRow): OversoldRow | null {
@@ -272,8 +291,8 @@ export function buildLive(state: LeadersState, quotes: Quote[], spyPrice: number
     const os = oversoldOf(h, q, base);
     if (os) oversold.push(os);
   }
-  const RANK: Record<string, number> = { reclaimed: 0, testing: 1, holding: 2, lost: 3 };
-  oversold.sort((a, b) => (RANK[a.status ?? ''] ?? 4) - (RANK[b.status ?? ''] ?? 4) || b.offLow - a.offLow);
+  for (const r of oversold) Object.assign(r, osbScoreOf(r));
+  oversold.sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || b.offLow - a.offLow);
   const strip = ({ isRs: _r, isHi: _h, ...r }: LeaderRow & { isRs: boolean; isHi: boolean }): LeaderRow => r;
   const byChg = (a: LeaderRow, b: LeaderRow) => b.chg - a.chg;
   const rsHigh = rows.filter(r => r.isRs).sort(byChg);
