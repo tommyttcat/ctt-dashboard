@@ -1828,10 +1828,33 @@ const OversoldBounce = ({ stageMap, newsMap }: {
 }) => {
   const live = useLeadersLive();
   const [sort, setSort] = React.useState<{ key: OsSortKey | null; dir: SortDir }>({ key: null, dir: 'desc' });
+  /* Chg% and price are real-time (2 Nov 2026, owner: "it should reflect the current change %"):
+     /api/live-quotes (Webull; pre-market measured from yesterday's close, lib/webull dayBase), as on
+     the Setups Summary. One sorted list of every oversold name, so every viewer sends the same URL
+     and the 15s edge cache holds it: at most 4 Webull calls a minute, flat in users, 0 KV. The rest
+     of the row (OL, OH, score) stays the 15-minute-delayed Liquid Leaders snapshot. */
+  const osSyms = React.useMemo(
+    () => [...new Set((live?.oversold ?? []).map(r => r.t.toUpperCase()))].sort().slice(0, 100).join(','),
+    [live],
+  );
+  const [lq, setLq] = React.useState<LiveQuotesView | null>(null);
+  React.useEffect(() => {
+    if (!osSyms) return;
+    let on = true;
+    const load = () => fetch(`/api/live-quotes?s=${osSyms}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => { if (on) setLq(j && typeof j === 'object' ? j : null); })
+      .catch(() => { if (on) setLq(null); });
+    load();
+    const stop = poll(load, pollMs.marketHours(30_000, 300_000));
+    return () => { on = false; stop(); };
+  }, [osSyms]);
+  const lqOf = (t: string) => (lq?.live ? lq.quotes?.[t] ?? null : null);
+  const [openedAt] = React.useState(() => Date.now());
   if (!live) return <p className="text-[10px] text-slate-500">Builds with Liquid Leaders: after the nightly run, updated every 5 minutes in market hours.</p>;
   if (!live.oversold) return <p className="text-[10px] text-slate-500">{"Starts with the first Liquid Leaders update after tonight's nightly run."}</p>;
   const val = (r: OversoldRow, k: OsSortKey): number | null =>
-    k === 'off' ? r.offLow : k === 'hi' ? offHi(r) : k === 'chg' ? r.chg : k === 'rs' ? (r.rs ?? null) : (r.score ?? null);
+    k === 'off' ? r.offLow : k === 'hi' ? offHi(r) : k === 'chg' ? (lqOf(r.t)?.pct ?? r.chg) : k === 'rs' ? (r.rs ?? null) : (r.score ?? null);
   /* Default: the payload's order (OSB score, lib/leaders osbScoreOf). A header click sorts the 20. */
   /* A payload written before the score existed (30 Oct 2026) is scored here and re-ranked, so the
      OSB column is never blank (2 Nov). Pure arithmetic on the row — no fetch. */
@@ -1842,7 +1865,7 @@ const OversoldBounce = ({ stageMap, newsMap }: {
   /* Before the first live run of the day (9:45 ET — the data is 15 minutes delayed) the payload is the
      last session's close; say so, or yesterday's moves read as today's (2 Nov 2026). */
   const etDay = (ms: number) => new Date(ms).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
-  const stale = etDay(live.asOf) !== etDay(Date.now());
+  const stale = etDay(live.asOf) !== etDay(lq?.asOf ?? openedAt);   // the live-quotes clock, else when the card opened
   const staleLabel = new Date(live.asOf).toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' });
   const rows = !sort.key ? top : [...top].sort((a, b) => {
     const av = val(a, sort.key!), bv = val(b, sort.key!);
@@ -1874,13 +1897,14 @@ const OversoldBounce = ({ stageMap, newsMap }: {
     const stg = stageMap?.[r.t] ?? r.stg ?? null, news = newsMap?.[r.t] ?? null;
     const sc = r.sc ? `\nOSB ${r.score} = level ${r.sc[0]}/40 · off low ${r.sc[1]}/30 · stretch ${r.sc[2]}/18 · ${r.sc[3] == null ? 'no volume profile (scaled from 88)' : `volume ${r.sc[3]}/12`}` : '';
     const st = r.status ? OS_STATUS[r.status] : null;
+    const q = lqOf(r.t), chg = q?.pct ?? r.chg, px = q?.price ?? r.price;
     return (
       <InfoDot key={r.t} block className={`flex items-center whitespace-nowrap py-[1px] ${st ? `${EDGE_TINT[st.tint]} rounded-sm` : ''}`}
         text={`#${i + 1} ${r.n ?? r.t}${r.etf ? ' (leveraged ETF)' : ''}\n${st && r.key != null ? `${st.word} — ${st.why}: key level ${r.key.toFixed(2)}` : 'No key level under last night\'s close'}\n5-day high ${r.wkHi.toFixed(2)} · today's low ${r.lo.toFixed(2)}, ${r.deep.toFixed(1)}× its ADR under that high · now ${r.offLow.toFixed(1)}% off the low · ADR ${r.adr.toFixed(1)}%${sc}`}>
         <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover>
         <span className={`${C} w-[20px] md:w-[22px] text-center ml-1`}>{r.score != null ? <span className={`${badge} ${cnfBadgeCls(r.score)}`}>{r.score}</span> : dash}</span>
-        <span className={`${C} text-[9px] tabular-nums font-semibold w-[46px] md:w-[52px] text-right ml-1 ${r.chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{r.chg >= 0 ? '+' : ''}{r.chg.toFixed(2)}%</span>
-        <span className={`${C} text-[9px] tabular-nums hidden md:inline-block w-[42px] text-right text-slate-300 ml-1`}>{r.price.toFixed(2)}</span>
+        <span className={`${C} text-[9px] tabular-nums font-semibold w-[46px] md:w-[52px] text-right ml-1 ${chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>
+        <span className={`${C} text-[9px] tabular-nums hidden md:inline-block w-[42px] text-right text-slate-300 ml-1`}>{px.toFixed(2)}</span>
         <span className={`${C} text-[9px] tabular-nums font-semibold w-[46px] md:w-[50px] text-right ml-2 md:ml-1 ${r.offLow >= 3 ? 'text-emerald-400' : r.offLow >= 1 ? 'text-white' : 'text-slate-400'}`}>+{r.offLow.toFixed(1)}%</span>
         <span className={`${C} text-[9px] tabular-nums w-[40px] md:w-[44px] text-right text-rose-300 ml-2 md:ml-1`}>{offHi(r).toFixed(1)}%</span>
         <span className={`${C} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`}>{r.rs != null ? <span className={`${badge} ${rsBadge(r.rs)}`}>{r.rs}</span> : dash}</span>
@@ -1907,7 +1931,7 @@ const OversoldBounce = ({ stageMap, newsMap }: {
         <span className="text-[9px] text-slate-500 flex-1">Ranked by OSB score (level, bounce off the low, stretch, volume). OL = % off today&apos;s low · OH = % off the 5-day high. Key levels on each ticker&apos;s chart. Untested.</span>
         <InfoDot text={OS_TIP} />
       </div>
-      {stale && <p className="text-[9px] text-amber-300/90 font-semibold mb-1.5">Showing the {staleLabel} close. Today&apos;s list starts at 9:45 AM ET (the data is 15 minutes delayed).</p>}
+      {stale && <p className="text-[9px] text-amber-300/90 font-semibold mb-1.5">Showing the {staleLabel} close{lq?.live ? ' — Chg% and price are live' : ''}. Today&apos;s list starts at 9:45 AM ET (the data is 15 minutes delayed).</p>}
       {rows.length === 0 ? <p className="text-[9px] text-slate-500 py-1">Nothing has reached 1.5 ADRs under its 5-session high today.</p> : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-3">
           {list(rows.slice(0, 10), 0)}
@@ -1915,7 +1939,7 @@ const OversoldBounce = ({ stageMap, newsMap }: {
         </div>
       )}
       <p className="text-[10px] text-slate-500 font-medium mt-2">
-        Top {rows.length} of {total} oversold · {live.universe} liquid names · data 15 min delayed, as of {stale ? `${staleLabel}, ` : ''}{clock} ET
+        Top {rows.length} of {total} oversold · {live.universe} liquid names · {lq?.live ? `Chg% and price live${lq.session === 'Pre-Market' ? ' (pre-market)' : ''}; the rest` : 'data'} 15 min delayed, as of {stale ? `${staleLabel}, ` : ''}{clock} ET
       </p>
     </div>
   );
