@@ -118,7 +118,7 @@ import InfoDot from './InfoDot';
 import { etMinute, type OrbWatchStatus, type OrbWatchState } from '@/lib/orb';
 import { earlyMovers, EARLY_MIN_PCT, EARLY_MIN_PACE } from '@/lib/summary/earlyMovers';
 import { swingCheck, checkTip } from '@/lib/scans/checklist';
-import { type LeadersLive, type LeaderRow, type OversoldRow } from '@/lib/leaders';
+import { type LeadersLive, type LeaderRow, type OversoldRow, osbScoreOf } from '@/lib/leaders';
 import { chartLevelsGlobal } from '@/lib/chartLevels';
 import { bullShare, type SentimentLive } from '@/lib/sentiment';
 import { EARLY_PASS_N, type EarlySummary } from '@/lib/earlyTrack';
@@ -1833,7 +1833,17 @@ const OversoldBounce = ({ stageMap, newsMap }: {
   const val = (r: OversoldRow, k: OsSortKey): number | null =>
     k === 'off' ? r.offLow : k === 'hi' ? offHi(r) : k === 'chg' ? r.chg : k === 'rs' ? (r.rs ?? null) : (r.score ?? null);
   /* Default: the payload's order (OSB score, lib/leaders osbScoreOf). A header click sorts the 20. */
-  const top = live.oversold.slice(0, 20);
+  /* A payload written before the score existed (30 Oct 2026) is scored here and re-ranked, so the
+     OSB column is never blank (2 Nov). Pure arithmetic on the row — no fetch. */
+  const scored = live.oversold.some(r => r.score == null)
+    ? live.oversold.map(r => (r.score != null ? r : { ...r, ...osbScoreOf(r) })).sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || b.offLow - a.offLow)
+    : live.oversold;
+  const top = scored.slice(0, 20);
+  /* Before the first live run of the day (9:45 ET — the data is 15 minutes delayed) the payload is the
+     last session's close; say so, or yesterday's moves read as today's (2 Nov 2026). */
+  const etDay = (ms: number) => new Date(ms).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const stale = etDay(live.asOf) !== etDay(Date.now());
+  const staleLabel = new Date(live.asOf).toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' });
   const rows = !sort.key ? top : [...top].sort((a, b) => {
     const av = val(a, sort.key!), bv = val(b, sort.key!);
     if (av == null || bv == null) return av == null ? (bv == null ? 0 : 1) : -1;
@@ -1897,6 +1907,7 @@ const OversoldBounce = ({ stageMap, newsMap }: {
         <span className="text-[9px] text-slate-500 flex-1">Ranked by OSB score (level, bounce off the low, stretch, volume). OL = % off today&apos;s low · OH = % off the 5-day high. Key levels on each ticker&apos;s chart. Untested.</span>
         <InfoDot text={OS_TIP} />
       </div>
+      {stale && <p className="text-[9px] text-amber-300/90 font-semibold mb-1.5">Showing the {staleLabel} close. Today&apos;s list starts at 9:45 AM ET (the data is 15 minutes delayed).</p>}
       {rows.length === 0 ? <p className="text-[9px] text-slate-500 py-1">Nothing has reached 1.5 ADRs under its 5-session high today.</p> : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-3">
           {list(rows.slice(0, 10), 0)}
@@ -1904,7 +1915,7 @@ const OversoldBounce = ({ stageMap, newsMap }: {
         </div>
       )}
       <p className="text-[10px] text-slate-500 font-medium mt-2">
-        Top {rows.length} of {total} oversold · {live.universe} liquid names · data 15 min delayed, as of {clock} ET
+        Top {rows.length} of {total} oversold · {live.universe} liquid names · data 15 min delayed, as of {stale ? `${staleLabel}, ` : ''}{clock} ET
       </p>
     </div>
   );
