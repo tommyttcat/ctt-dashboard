@@ -14,6 +14,7 @@
 // ---------------------------------------------------------------------------
 
 import { NextResponse } from 'next/server';
+import { etTimeGate } from '@/lib/etCron';
 import { kv } from '@vercel/kv';
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 import { getMarketDay, previousTradingDay, isMarketSessionWindow } from '@/lib/marketCalendar';
@@ -303,6 +304,10 @@ function buildBlocks(
 // ---------------------------------------------------------------
 // Route handler
 // ---------------------------------------------------------------
+/* The tape refresh's New York times: pre, morning, midday, power, closing. Mirrored in
+   scripts/etCron.test.mts against vercel.json. */
+const TAPE_REFRESH_ET = ['08:25', '10:25', '13:25', '14:55', '17:55'];
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const dateParam = searchParams.get('date');
@@ -312,6 +317,14 @@ export async function GET(request: Request) {
      pinned at the edge — otherwise a manual regenerate would be served back
      from cache for the rest of the TTL. */
   const headers = forceRefresh ? noCacheHeaders() : cacheHeaders(CACHE.NARRATIVE);
+
+  /* The cron refreshes (2 Nov 2026, EST): vercel.json fires them at both candidate UTC hours and
+     only the firing on the intended New York time goes on — before the kv.del below, so a skipped
+     firing never wipes the tape. A manual ?refresh=true (no cron user agent) is not gated. */
+  if (forceRefresh && /vercel-cron/i.test(request.headers.get('user-agent') ?? '')) {
+    const gate = etTimeGate(TAPE_REFRESH_ET, 'tape refresh');
+    if (gate) return gate;
+  }
 
   const estStr = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
   const est = new Date(estStr);

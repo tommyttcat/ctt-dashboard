@@ -75,6 +75,16 @@ for (const g of GUARDED) {
   ok(`${g.match} keeps ${g.wants} in EST`, est.includes(g.wants));
 }
 
+// ---- the tape refresh (2 Nov 2026): exact ET times, not hours (13:25 runs, 13:55 must not)
+{
+  const WANT = ['08:25', '10:25', '13:25', '14:55', '17:55'];
+  const tape = crons.filter(c => c.path.includes('/api/market-summary?refresh'));
+  for (const [y, mo, d, season] of [[2026, 10, 28, 'EDT'], [2026, 11, 4, 'EST']] as const) {
+    const allowed = tape.flatMap(c => expand(c.schedule)).map(({ h, m }) => etParts(new Date(Date.UTC(y, mo - 1, d, h, m))).hhmm).filter(t => WANT.includes(t)).sort();
+    eq(`tape refresh hits every slot once in ${season}`, allowed.join(' '), WANT.join(' '));
+  }
+}
+
 // ---- the primitives --------------------------------------------------------
 // 12:45 UTC is 08:45 in New York in October and 07:45 in November. That one
 // hour is the entire bug this machinery exists for.

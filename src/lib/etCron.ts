@@ -68,3 +68,13 @@ export function etGate(hours: number[], label: string, d: Date = new Date()): Ne
     expectedEtHours: hours,
   });
 }
+
+/**
+ * etGate by exact New York clock time (2 Nov 2026), for a job whose slots share an hour with a
+ * slot it must skip — the tape refresh runs at 13:25 but not at 13:55. `times` are 'HH:MM' ET.
+ */
+export function etTimeGate(times: string[], label: string, d: Date = new Date()): NextResponse | null {
+  const { hhmm } = etParts(d);
+  if (times.includes(hhmm)) return null;
+  return NextResponse.json({ success: true, skipped: `outside the ET times for ${label}`, etNow: hhmm, expectedEtTimes: times });
+}
