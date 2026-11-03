@@ -173,7 +173,7 @@ export function useMacroScorecard(): MacroScorecardData {
     intraVal != null && !intraStale ? `Composite blends 70% hourly/daily + 30% intraday.` : '',
     chopSpreadNote(hourVal != null ? chop?.hourly?.qqq ?? null : chop?.qqq ?? null, hourVal != null ? chop?.hourly?.spy ?? null : chop?.spy ?? null),
     intraVal != null
-      ? `\nIntraday (${chop?.intraday?.windowMinutes ?? 210} min, 15m bars): ${intraVal.toFixed(1)} — ${chopZoneLabel(intraVal, bands)}. Raw, unadjusted.` +
+      ? `\nIntraday (${chop?.intraday?.windowMinutes ?? 210} min, ${chop?.intraday?.barMinutes ?? 15}m bars): ${intraVal.toFixed(1)} — ${chopZoneLabel(intraVal, bands)}. Raw, unadjusted.` +
         (divergence.label ? `\n${divergence.label}: ${divergence.detail}` : '')
       : '',
     '',

@@ -16,6 +16,8 @@ import { webullConfigured, webullBars, webullDailyBarsWithToday } from '@/lib/we
    v1.1: + INTRADAY leg (14 × 15-minute bars ≈ 3.5 hours).
    v1.2: closed bars only; TTL matched to the bar period; feed delay
          stated on the wire.
+   v1.3: intraday leg reads today's 5-minute session bars once there are
+         enough (see SESSION_BAR_MINUTES); 15m bars before that.
 
    WHY A SECOND TIMEFRAME AND NOT AN EMA. The strip's claim is that
    chop is DIRECTIONALLY AGNOSTIC — it says whether a range resolves,
@@ -73,6 +75,19 @@ const CACHE_KEY = 'chop_regime_v2';
 const INTRADAY_BAR_MINUTES = 15;
 const HOURLY_BAR_MINUTES = 60;
 
+/* SESSION leg — v1.3, 3 Nov 2026. Once today's regular session has enough
+   closed 5-minute bars, the intraday leg reads TODAY ONLY instead of the last
+   14 fifteen-minute bars. The 15m window at 10:00 ET was mostly pre-market
+   plus yesterday's close, so a session that opened into a tight whipsaw
+   (QQQ 3 Nov: 9:35-10:05 inside a $3 range, 5m CHOP 60) read as the tail of
+   the prior day's clean sell-off (composite 44, MIXED). Up to 14 bars = the
+   last 70 minutes; at least 6 measured bars, so it takes over at 10:05 ET.
+   Before that, and on any day the session has not started, the 15m leg below
+   runs exactly as before. Not backtested: the bands were measured on daily
+   bars, and a 5m reading on 6-14 bars is noisier than either. */
+const SESSION_BAR_MINUTES = 5;
+const SESSION_MIN_PERIOD = 6;
+
 /* Feed delay, in minutes, FOR THE POLYGON FALLBACK. Since 10 Sep 2026 the
    bars come from Webull's real-time Level 1 feed first (delay 0); each leg
    records the delay of whichever feed actually served it, and the payload
@@ -84,7 +99,7 @@ const WEBULL_DELAY_MINUTES = 0;
    period — never more than a single bar behind what the feed can offer, and
    no refresh that returns the same number twice. */
 const CACHE_TTL_DAILY = 900;
-const CACHE_TTL_INTRADAY = INTRADAY_BAR_MINUTES * 60;
+const CACHE_TTL_INTRADAY = SESSION_BAR_MINUTES * 60;
 const CACHE_TTL_HOURLY = HOURLY_BAR_MINUTES * 60;
 
 // Calendar days back for the daily leg. 14 trading bars plus one for the
@@ -274,6 +289,10 @@ interface IntradayLeg {
   lastBarAt: string | null;
   feedDelayMinutes: number;
   computedAt: string;
+  /* Set on the intraday leg only: which bars it was measured on. Absent on
+     legs cached before v1.3, which were always 14 x 15m. */
+  barMinutes?: number;
+  windowMinutes?: number;
 }
 
 async function computeDailyLeg(apiKey: string): Promise<DailyLeg> {
@@ -306,7 +325,62 @@ async function computeDailyLeg(apiKey: string): Promise<DailyLeg> {
   };
 }
 
+const etDay = (ms: number): string =>
+  new Date(ms).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+const etMinuteOf = (ms: number): number => {
+  const [h, m] = new Date(ms)
+    .toLocaleTimeString('en-GB', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false })
+    .split(':').map(Number);
+  return (h % 24) * 60 + m;
+};
+
+/* Today's regular-session 5-minute bars, closed only, oldest first. Webull
+   with no `sessions` serves regular hours; the Polygon fallback is filtered
+   to 09:30-16:00 ET here. */
+async function fetchSessionBars(symbol: string, apiKey: string): Promise<Sourced> {
+  const { bars, delayMinutes } = await withFallback(
+    async () => (await webullBars(symbol, 'M5', 100)).filter(b => b.t >= sinceMs(1)).map(toBar),
+    () => fetchBars(symbol, apiKey, { multiplier: 5, timespan: 'minute', lookbackDays: 1, limit: 500 }),
+  );
+  const today = etDay(Date.now());
+  const rth = bars.filter(b => etDay(b.t) === today && etMinuteOf(b.t) >= 570 && etMinuteOf(b.t) < 960);
+  return { bars: dropForming(rth, SESSION_BAR_MINUTES), delayMinutes };
+}
+
+/* The session reading, or null when either benchmark has too few bars yet.
+   Both must qualify so the blend never silently becomes QQQ-only. */
+async function computeSessionLeg(apiKey: string): Promise<IntradayLeg | null> {
+  const empty: Sourced = { bars: [], delayMinutes: FEED_DELAY_MINUTES };
+  const [qqqSrc, spySrc] = await Promise.all([
+    fetchSessionBars('QQQ', apiKey).catch(() => empty),
+    fetchSessionBars('SPY', apiKey).catch(() => empty),
+  ]);
+  const period = Math.min(CHOP_PERIOD, qqqSrc.bars.length - 1, spySrc.bars.length - 1);
+  if (period < SESSION_MIN_PERIOD) return null;
+
+  const qqq = choppiness(qqqSrc.bars, period);
+  const spy = choppiness(spySrc.bars, period);
+  if (qqq == null || spy == null) return null;
+  const newest = Math.max(qqqSrc.bars[qqqSrc.bars.length - 1].t, spySrc.bars[spySrc.bars.length - 1].t);
+
+  return {
+    qqq,
+    spy,
+    blended: blend(qqq, spy),
+    barsUsed: { qqq: period + 1, spy: period + 1 },
+    droppedForming: true,
+    lastBarAt: new Date(newest).toISOString(),
+    feedDelayMinutes: Math.max(qqqSrc.delayMinutes, spySrc.delayMinutes),
+    computedAt: new Date().toISOString(),
+    barMinutes: SESSION_BAR_MINUTES,
+    windowMinutes: period * SESSION_BAR_MINUTES,
+  };
+}
+
 async function computeIntradayLeg(apiKey: string): Promise<IntradayLeg> {
+  const session = await computeSessionLeg(apiKey).catch(() => null);
+  if (session) return session;
+
   const empty: Sourced = { bars: [], delayMinutes: FEED_DELAY_MINUTES };
   const [qqqSrc, spySrc] = await Promise.all([
     fetchIntradayBars('QQQ', apiKey).catch(() => empty),
@@ -342,6 +416,8 @@ async function computeIntradayLeg(apiKey: string): Promise<IntradayLeg> {
     lastBarAt: newest > 0 ? new Date(newest).toISOString() : null,
     feedDelayMinutes,
     computedAt: new Date().toISOString(),
+    barMinutes: INTRADAY_BAR_MINUTES,
+    windowMinutes: CHOP_PERIOD * INTRADAY_BAR_MINUTES,
   };
 }
 
@@ -453,8 +529,8 @@ export async function GET(request: Request) {
       intraday: {
         ...intraday,
         zone: intraday.blended != null ? zoneOf(intraday.blended) : 'unknown',
-        windowMinutes: CHOP_PERIOD * INTRADAY_BAR_MINUTES,
-        barMinutes: INTRADAY_BAR_MINUTES,
+        windowMinutes: intraday.windowMinutes ?? CHOP_PERIOD * INTRADAY_BAR_MINUTES,
+        barMinutes: intraday.barMinutes ?? INTRADAY_BAR_MINUTES,
         /* Stated so the component can label the marker honestly. 0 when the
            bars came from Webull; legs cached under the old shape carry none
            and are labelled with the Polygon delay they were computed on. */
