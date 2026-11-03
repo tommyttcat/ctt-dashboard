@@ -122,7 +122,7 @@ export function useMacroScorecard(): MacroScorecardData {
   const chopRawPrev = chop?.daily?.blendedPrev ?? chop?.blendedPrev ?? null;
 
   const intraVal = chop?.intraday?.blended ?? null;
-  const intraLastBar = chop?.intraday?.lastBar ?? null;
+  const intraLastBar = chop?.intraday?.lastBarAt ?? null;
   const intraAgeMin = minutesSince(intraLastBar);
   const intraStale = intraAgeMin != null && intraAgeMin > INTRADAY_STALE_MINUTES;
 
