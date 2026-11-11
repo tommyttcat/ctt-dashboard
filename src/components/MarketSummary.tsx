@@ -1698,7 +1698,7 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
         {column('sell', sells)}
       </div>
       <p className="text-[10px] text-slate-500 font-medium mt-2">
-        Unusual Whales flow {sessionLabel}, as of {fmtEtClock(data.asOf)} ET.
+        Options flow {sessionLabel}, as of {fmtEtClock(data.asOf)} ET.
         {' '}{liveCount > 0 && live
           ? <span className="text-emerald-400/80">Prices live · {fmtEtClock(live.asOf)} ET</span>
           : liveSyms ? <span className="text-amber-400/80">Prices as of the alert</span> : null}
@@ -2527,7 +2527,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   /* Best Setups Today removed 9 Oct 2026 at the user's request: the
      breakout-watch picks lost money live (Model Book v2 down to $96.8k). */
   { label: 'Setups Summary', color: 'violet', blurb: 'All scans pooled — filter by source or setup pattern. One stop shop.' },
-  { label: 'Institutional Buys', color: 'indigo', blurb: 'What big money is buying and selling today in options (Unusual Whales). Left: net bullish flow. Right: net bearish flow. Top 5 each, ranked by CNF = how strong the one-way bet is.' },
+  { label: 'Institutional Buys', color: 'indigo', blurb: 'What big money is buying and selling today in options. Left: net bullish flow. Right: net bearish flow. Top 5 each, ranked by CNF = how strong the one-way bet is.' },
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves now. Volume-confirmed is tradeable; a thin gap is a fade.' },
   { label: 'Social Sentiment', color: 'violet', blurb: 'What StockTwits, Reddit and Bluesky are talking about most, and which way they lean. The crowd, not a signal.' },
   { label: 'Liquid Leaders', color: 'cyan', blurb: 'The ~1,000 most traded stocks: which are outrunning the market most, and which trade the heaviest volume.' },

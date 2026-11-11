@@ -36,7 +36,7 @@ export async function GET() {
 
   const s = flowSession();
   const empty: InstBuysPayload = { ok: false, asOf: Date.now(), session: s.date, since: s.openUtc, buy: [], sell: [] };
-  if (!uwConfigured()) return NextResponse.json({ ...empty, error: 'Unusual Whales key not set' }, { headers: noCacheHeaders() });
+  if (!uwConfigured()) return NextResponse.json({ ...empty, error: 'flow feed key not set' }, { headers: noCacheHeaders() });
   try {
     return NextResponse.json(await cachedBuild(s.date), { headers: noCacheHeaders() });
   } catch (e) {

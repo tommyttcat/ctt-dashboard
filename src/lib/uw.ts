@@ -21,7 +21,7 @@ export async function uwGet<T = any>(path: string): Promise<T> {
     cache: 'no-store',
     signal: AbortSignal.timeout(15_000),
   });
-  if (!res.ok) throw new Error(`Unusual Whales ${res.status} on ${path.split('?')[0]}`);
+  if (!res.ok) throw new Error(`flow feed error ${res.status}`);
   return res.json() as Promise<T>;
 }
 
