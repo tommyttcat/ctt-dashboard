@@ -1676,7 +1676,8 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
         {dir === 'buy' ? 'Buying — net bullish flow' : 'Selling — net bearish flow'}
       </div>
       <div className="flex items-center gap-0">
-        <div className="w-[28px] shrink-0" />
+        {/* The gutter number is the name's net flow — labelled so it reads as a column. */}
+        <div className="w-[28px] shrink-0 flex justify-end pr-1.5 py-[2px] border-b border-white/5 mb-0.5 text-[7px] font-bold tracking-widest uppercase text-slate-600" title="Net flow today: bullish $ minus bearish $">NET</div>
         <div className="flex-1 min-w-0"><SortableHeader sortKey={sortKey} sortDir={sortDir} onSort={handleSort} /></div>
       </div>
       {items.length > 0
