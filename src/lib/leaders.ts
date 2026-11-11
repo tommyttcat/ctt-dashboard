@@ -77,9 +77,10 @@ export const VOLUME_MIN_RS = 50;
 export const OVERSOLD = { minAdr: 6, maxAdr: 15, adrs: 1.5, max: 40 } as const;
 /* Leveraged BULL ETFs by fund name (15 Oct 2026): "Bull 3X", "2X Long", "UltraPro", "Leveraged".
    Inverse funds (Bear, Short, Inverse) are left out — they go "oversold" when the market rips,
-   which is a bet against the bounce this card is for. */
+   which is a bet against the bounce this card is for. So are long-VIX funds (11 Nov 2026,
+   owner dropped UVIX "2x Long VIX Futures ETF": it rises when the market falls). */
 export const isLeveragedBull = (name: string): boolean =>
-  /\b[23](?:\.\d)?x\b|\bultra|\bbull\b|leveraged/i.test(name) && !/\bbear\b|\bshort\b|inverse|ultrashort|-[123]x/i.test(name);
+  /\b[23](?:\.\d)?x\b|\bultra|\bbull\b|leveraged/i.test(name) && !/\bbear\b|\bshort\b|inverse|ultrashort|-[123]x|\bvix\b/i.test(name);
 export interface OversoldRow extends LeaderRow {
   adr: number;      // 20-day ADR, %
   level: number;    // 5-session high less 1.5 ADR
@@ -157,6 +158,7 @@ export function osbScoreOf(r: Pick<OversoldRow, 'status' | 'offLow' | 'adr' | 'd
 export function oversoldOf(h: LeaderHist, q: Quote, base: LeaderRow): OversoldRow | null {
   const adr = h.chk?.[4];
   if (adr == null || !(adr >= OVERSOLD.minAdr && adr <= OVERSOLD.maxAdr)) return null;
+  if (h.etf && h.n && !isLeveragedBull(h.n)) return null;   // the fund filter re-checked live, so a change applies before the nightly
   if (!(h.wkHi && h.wkHi > 0) || !(q.lo && q.lo > 0) || !(q.price > 0)) return null;
   const level = h.wkHi * (1 - (OVERSOLD.adrs * adr) / 100);
   if (q.lo > level) return null;

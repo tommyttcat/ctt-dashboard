@@ -66,9 +66,9 @@ eq('no chk = no fields', Object.keys(checkFields({ maxClose: 1, maxRs: 1, adv: 1
   eq('count', lv.counts.oversold, 2);
 }
 // ---- Leveraged bull ETFs (15 Oct 2026)
-for (const n of ['Direxion Daily Semiconductor Bull 3X Shares', 'ProShares UltraPro QQQ', 'GraniteShares 2x Long NVDA Daily ETF', 'T-Rex 2X Long MSTR Daily Target ETF', 'ProShares Ultra Bitcoin ETF', 'Direxion Daily TSLA Bull 2X Shares'])
+for (const n of ['Direxion Daily Semiconductor Bull 3X Shares', 'ProShares UltraPro QQQ', 'GraniteShares 2x Long NVDA Daily ETF', 'T-Rex 2X Long MSTR Daily Target ETF', 'ProShares Ultra Bitcoin ETF', 'Direxion Daily TSLA Bull 2X Shares', 'Volatility Shares 2x Ether ETF'])
   ok(`leveraged bull: ${n}`, isLeveragedBull(n));
-for (const n of ['Direxion Daily Semiconductor Bear 3X Shares', 'ProShares UltraPro Short QQQ', 'ProShares UltraShort S&P500', 'Direxion Daily S&P 500 Bear 1X Shares', 'SPDR S&P 500 ETF Trust', 'Invesco QQQ Trust', 'Tradr 2X Short TSLA Daily ETF', 'MicroSectors FANG+ -3X Inverse Leveraged ETN'])
+for (const n of ['Direxion Daily Semiconductor Bear 3X Shares', 'ProShares UltraPro Short QQQ', 'ProShares UltraShort S&P500', 'Direxion Daily S&P 500 Bear 1X Shares', 'SPDR S&P 500 ETF Trust', 'Invesco QQQ Trust', 'Tradr 2X Short TSLA Daily ETF', 'MicroSectors FANG+ -3X Inverse Leveraged ETN', '2x Long VIX Futures ETF', 'ProShares Ultra VIX Short-Term Futures ETF'])
   ok(`not leveraged bull: ${n}`, !isLeveragedBull(n));
 {
   const chk = [10, 10, 10, 10, 8, null, null, 0] as any;
