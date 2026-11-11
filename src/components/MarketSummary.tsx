@@ -1627,13 +1627,13 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
     });
   }, [pool, live, rsMap, stageMap]);
 
-  /* CNF (the flow score) first, like the Setups Summary. One sort for both sides. */
-  const [sortKey, setSortKey] = React.useState<SortKey | null>('cnf');
+  /* NET (biggest net flow) first by default (owner, 11 Nov). One sort for both sides. */
+  const [sortKey, setSortKey] = React.useState<SortKey | 'net'>('net');
   const [sortDir, setSortDir] = React.useState<SortDir>('desc');
-  const handleSort = (k: SortKey) => {
+  const handleSort = (k: SortKey | 'net') => {
     if (sortKey === k) {
       if (sortDir === 'desc') setSortDir('asc');
-      else { setSortKey('cnf'); setSortDir('desc'); }
+      else { setSortKey('net'); setSortDir('desc'); }
     } else { setSortKey(k); setSortDir('desc'); }
   };
   const sortRows = React.useCallback((items: any[]) => {
@@ -1646,7 +1646,7 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
         case 'rs': return num(s.rsRating);
         case 'stg': return num(s.stage);
         case 'cnf': return scoreOf(s);
-        default: return s._flow.score;
+        default: return Math.abs(s._flow.net);   // 'net'
       }
     };
     return [...items].sort((a, b) => (sortDir === 'desc' ? val(b) - val(a) : val(a) - val(b)));
@@ -1677,8 +1677,11 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
       </div>
       <div className="flex items-center gap-0">
         {/* The gutter number is the name's net flow — labelled so it reads as a column. */}
-        <div className="w-[28px] shrink-0 flex justify-end pr-1.5 py-[2px] border-b border-white/5 mb-0.5 text-[7px] font-bold tracking-widest uppercase text-slate-600" title="Net flow today: bullish $ minus bearish $">NET</div>
-        <div className="flex-1 min-w-0"><SortableHeader sortKey={sortKey} sortDir={sortDir} onSort={handleSort} /></div>
+        <button onClick={() => handleSort('net')} title="Net flow today: bullish $ minus bearish $. Click to sort."
+          className={`w-[28px] shrink-0 flex justify-end pr-1.5 py-[2px] border-b border-white/5 mb-0.5 text-[7px] font-bold tracking-wide uppercase whitespace-nowrap cursor-pointer ${sortKey === 'net' ? 'text-slate-400' : 'text-slate-600 hover:text-slate-400'}`}>
+          NET{sortKey === 'net' ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}
+        </button>
+        <div className="flex-1 min-w-0"><SortableHeader sortKey={sortKey === 'net' ? null : sortKey} sortDir={sortDir} onSort={handleSort} /></div>
       </div>
       {items.length > 0
         ? items.map((s, i) => row(s, dir === 'buy' ? i : 100 + i))
