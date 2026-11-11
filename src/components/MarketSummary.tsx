@@ -184,6 +184,7 @@ import {
 } from '@/lib/summary/insights';
 import type { EarningsEvent, EconEvent, MacroInsights } from '@/lib/summary/insights';
 import { poll, pollMs } from '@/lib/poll';
+import type { InstBuysPayload, InstBuyRow, FlowAlert } from '@/lib/instBuys';
 
 
 
@@ -397,7 +398,7 @@ const PAIRED_SECTIONS = new Set(['Sector Performance', 'Sector Concentration', '
 const ALIGNED_SECTIONS = new Set([
   'Top Movers', 'SIPs Thesis', '$Vol Summary',
   'Daily Setups Thesis', 'Reversal Swing Thesis',
-  '10/21 Thesis', 'VCP Thesis', 'EP9M Thesis', '100-Bagger Thesis', 'Setups Summary', 'Sector Concentration', 'ETF Flow', 'Money Flow',
+  '10/21 Thesis', 'VCP Thesis', 'EP9M Thesis', '100-Bagger Thesis', 'Setups Summary', 'Institutional Buys', 'Sector Concentration', 'ETF Flow', 'Money Flow',
   'Key Events',
 ]);
 
@@ -1545,6 +1546,161 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
   );
 };
 
+/* ---- Institutional Buys (11 Nov 2026) --------------------------------------
+   Today's big bullish option bets from Unusual Whales (lib/instBuys): calls,
+   DTE < 45, 10%+ OTM, $250K+ clusters, 80%+ paid at the ask, single-leg.
+   Rows use the Setups Summary grid; the TINT is the options-flow rating, not
+   the chart checklist. Names with more bearish flow than bullish are listed
+   under the card as OUT. Owner-only (Unusual Whales is an individual licence).
+   COST: /api/inst-buys is edge-cached 10 min, 0 KV; prices ride the shared
+   /api/live-quotes call. See the route for the numbers. */
+const fmtPrem = (x: number) => (x >= 1e6 ? `$${(x / 1e6).toFixed(1)}M` : `$${Math.round(x / 1e3)}K`);
+const fmtAlert = (a: FlowAlert) =>
+  `${a.side === 'call' ? 'C' : 'P'} ${a.strike} ${a.expiry.slice(5)} (${a.dte}d, ${(a.otmPct * 100).toFixed(0)}% OTM) ${fmtPrem(a.premium)}${a.sweep ? ' sweep' : ''}`;
+const flowTip = (r: InstBuyRow): string => {
+  const lines = [
+    `${r.tier.toUpperCase()} — ${fmtPrem(r.bullPrem)} of calls bought at the ask: ${r.bull.map(fmtAlert).join(' · ')}`,
+    r.bearPrem
+      ? `Bearish ${fmtPrem(r.bearPrem)}: ${r.putBuyPrem ? `${fmtPrem(r.putBuyPrem)} puts bought` : ''}${r.putBuyPrem && r.callSellPrem ? ', ' : ''}${r.callSellPrem ? `${fmtPrem(r.callSellPrem)} calls sold (often profit-taking)` : ''} — ${r.bear.slice(0, 4).map(fmtAlert).join(' · ')}`
+      : 'No bearish alerts of $250K+ today.',
+    r.dayBearPct != null ? `Whole day: ${(100 - r.dayBearPct * 100).toFixed(0)}% bullish premium.` : '',
+    r.earnings ? `Earnings ${r.earnings}.` : '',
+  ];
+  return lines.filter(Boolean).join('\n');
+};
+
+const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Record<string, number>; stageMap?: Record<string, string> }) => {
+  const [data, setData] = React.useState<InstBuysPayload | null>(null);
+  React.useEffect(() => {
+    let on = true;
+    const load = () => fetch('/api/inst-buys')
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => { if (on) setData(j && typeof j === 'object' ? j : null); })
+      .catch(() => { if (on) setData(null); });
+    load();
+    const stop = poll(load, pollMs.marketHours(600_000, 3_600_000));
+    return () => { on = false; stop(); };
+  }, []);
+
+  const rows = data?.rows ?? [];
+  const liveSyms = React.useMemo(() => rows.map(r => r.ticker).sort().join(','), [rows]);
+  const [live, setLive] = React.useState<LiveQuotesView | null>(null);
+  React.useEffect(() => {
+    if (!liveSyms) { setLive(null); return; }
+    let on = true;
+    const load = () => fetch(`/api/live-quotes?s=${liveSyms}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => { if (on) setLive(j && typeof j === 'object' ? j : null); })
+      .catch(() => { if (on) setLive(null); });
+    load();
+    const stop = poll(load, pollMs.marketHours(30_000, 300_000));
+    return () => { on = false; stop(); };
+  }, [liveSyms]);
+
+  /* Same row shape as the Setups Summary: a name already on a scan keeps that
+     scan's RVOL / volume / CNF; live price and change go on top. */
+  const items = React.useMemo(() => {
+    const byT = new Map(pool.map((s: any) => [String(s?.ticker ?? '').toUpperCase(), s]));
+    return rows.map(r => {
+      const scan = byT.get(r.ticker);
+      const lq = live?.quotes?.[r.ticker];
+      const base = scan ? { ...scan } : { ticker: r.ticker, price: r.under, changePct: 0, sector: r.sector };
+      return {
+        ...base,
+        ...(lq ? { price: lq.price, last: lq.price, change: lq.pct, changePct: lq.pct, _live: true, ...(scan ? {} : { vol: lq.vol, volume: lq.vol }) } : {}),
+        rsRating: rsMap?.[r.ticker] ?? base.rsRating ?? null,
+        stage: stageMap?.[r.ticker] ?? base.stage,
+        _flow: r,
+      };
+    });
+  }, [rows, pool, live, rsMap, stageMap]);
+
+  const [sortKey, setSortKey] = React.useState<SortKey>('cnf');
+  const [sortDir, setSortDir] = React.useState<SortDir>('desc');
+  const handleSort = (k: SortKey) => {
+    if (sortKey === k) {
+      if (sortDir === 'desc') setSortDir('asc');
+      else { setSortKey('cnf'); setSortDir('desc'); }
+    } else { setSortKey(k); setSortDir('desc'); }
+  };
+  const sorted = React.useMemo(() => {
+    const val = (s: any) => {
+      switch (sortKey) {
+        case 'chg': return chgOf(s);
+        case 'rvol': return rvolOf(s) ?? 0;
+        case 'vol': return num(s.vol);
+        case 'dvol': return dVolOf(s);
+        case 'rs': return num(s.rsRating);
+        case 'stg': return num(s.stage);
+        default: return (s._flow.tier === 'green' ? 1e12 : 0) + s._flow.bullPrem;   // flow rating, then bullish premium
+      }
+    };
+    return [...items].sort((a, b) => (sortDir === 'desc' ? val(b) - val(a) : val(a) - val(b)));
+  }, [items, sortKey, sortDir]);
+
+  const row = (s: any, i: number) => {
+    const parsed = parseStdLine(`${s.ticker} ${stdCols(s)}`);
+    if (!parsed) return null;
+    parsed.price = priceOf(s);
+    const f: InstBuyRow = s._flow;
+    return (
+      <InfoDot key={`ib-${s.ticker}-${i}`} block className={`flex items-center gap-0 ${EDGE_TINT[f.tier]} rounded-sm`} text={flowTip(f)}>
+        <span className="hidden md:inline-flex shrink-0" style={{ width: 0, overflow: 'visible', position: 'relative' }}><span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)' }}><WatchlistBtn symbol={s.ticker} /></span></span>
+        <div className="w-[28px] shrink-0 flex items-center justify-end pr-1.5">
+          <span className="text-[8px] font-bold text-indigo-400/80 tabular-nums">{fmtPrem(f.bullPrem).replace('.0M', 'M')}</span>
+        </div>
+        <div className="flex-1 min-w-0">{renderStdRow(parsed, i, undefined, undefined, undefined, undefined, true, undefined, rsMap, stageMap, true)}</div>
+      </InfoDot>
+    );
+  };
+
+  const head = (
+    <div className="flex items-center gap-0">
+      <div className="w-[28px] shrink-0" />
+      <div className="flex-1 min-w-0"><SortableHeader sortKey={sortKey} sortDir={sortDir} onSort={handleSort} /></div>
+    </div>
+  );
+  const useTwoCols = sorted.length > 5;
+  const mid = useTwoCols ? Math.ceil(sorted.length / 2) : sorted.length;
+  const liveCount = sorted.filter((x: any) => x._live).length;
+  const sessionLabel = data?.session ? new Date(`${data.session}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }) : '';
+
+  if (!data) return <p className="text-[10px] text-slate-500 font-medium">Loading options flow…</p>;
+  if (data.error && !rows.length) return <p className="text-[10px] text-amber-400/80 font-medium">Options flow unavailable — {data.error}.</p>;
+
+  return (
+    <div>
+      {rows.length === 0 ? (
+        <p className="text-[10px] text-slate-500 font-medium">No calls met the rules {sessionLabel ? `on ${sessionLabel}` : 'yet'} — flow builds from 9:30 ET.</p>
+      ) : (
+        <div className={useTwoCols ? 'grid grid-cols-1 md:grid-cols-2 gap-x-6' : ''}>
+          <div className="space-y-0.5">{head}{sorted.slice(0, mid).map(row)}</div>
+          {useTwoCols && <div className="space-y-0.5"><div className="hidden md:block">{head}</div>{sorted.slice(mid).map((s, i) => row(s, 100 + i))}</div>}
+        </div>
+      )}
+      <p className="text-[10px] text-slate-500 font-medium mt-2">
+        {rows.length} name{rows.length !== 1 ? 's' : ''} — Unusual Whales flow {sessionLabel}, as of {fmtEtClock(data.asOf)} ET.
+        {' '}{liveCount > 0 && live
+          ? <span className="text-emerald-400/80">Prices live · {fmtEtClock(live.asOf)} ET</span>
+          : rows.length > 0 ? <span className="text-amber-400/80">Prices as of the alert</span> : null}
+      </p>
+      {data.out.length > 0 && (
+        <p className="text-[10px] text-slate-500 font-medium mt-1">
+          <span className="text-rose-400/80">Out (bearish flow):</span> {data.out.map(o => `${o.ticker} — ${o.why}`).join(' · ')}
+        </p>
+      )}
+      <p className="relative group/ibf text-[10px] text-slate-500 font-medium mt-1 cursor-help inline-flex items-center gap-2">
+        <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-emerald-500/30" />green</span>
+        <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-amber-400/30" />yellow</span>
+        <span className="text-slate-600">left number = calls bought</span>
+        <span className="absolute bottom-full left-0 mb-2 w-72 px-3.5 py-2.5 rounded-lg bg-[#1a2035] border border-white/10 shadow-2xl text-[10px] leading-[1.6] text-slate-300 font-normal whitespace-normal opacity-0 pointer-events-none group-hover/ibf:opacity-100 transition-opacity z-[9999]">
+          Rows: calls only, under 45 days, 10%+ out of the money, $250K+ clusters with 80%+ paid at the ask, single-leg. Colour is the options flow on the same name today: GREEN = no bearish alerts, or bullish premium 3x+ the bearish. YELLOW = bearish flow is there but smaller. OUT = bearish alerts (puts bought or calls sold, $250K+, 80%+ one side) bigger than the bullish, or the whole day 50%+ bearish. Calls sold are often profit-taking. Nothing shows who traded — &quot;institutional&quot; means size at the ask. Rules, not a tested edge. Hover a row for its contracts.
+        </span>
+      </p>
+    </div>
+  );
+};
+
 /* ---- Early Movers ---------------------------------------------------------
    Names already on today's lists (the Setups Summary pool plus 10/21) that are
    moving now, on the live Webull price — lib/summary/earlyMovers holds the
@@ -2357,6 +2513,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   /* Best Setups Today removed 9 Oct 2026 at the user's request: the
      breakout-watch picks lost money live (Model Book v2 down to $96.8k). */
   { label: 'Setups Summary', color: 'violet', blurb: 'All scans pooled — filter by source or setup pattern. One stop shop.' },
+  { label: 'Institutional Buys', color: 'indigo', blurb: 'Big call buying today (Unusual Whales): under 45 days, 10%+ out of the money, $250K+ paid at the ask, single-leg. Coloured by the options flow; names with heavier bearish flow are listed as out.' },
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves now. Volume-confirmed is tradeable; a thin gap is a fade.' },
   { label: 'Social Sentiment', color: 'violet', blurb: 'What StockTwits, Reddit and Bluesky are talking about most, and which way they lean. The crowd, not a signal.' },
   { label: 'Liquid Leaders', color: 'cyan', blurb: 'The ~1,000 most traded stocks: which are outrunning the market most, and which trade the heaviest volume.' },
@@ -2406,6 +2563,7 @@ const SECTION_HEADERS: Record<string, string[]> = {
   'Daily Setups Thesis': STD_HEADERS,
   'Reversal Swing Thesis': STD_HEADERS,
   'Setups Summary': STD_HEADERS,
+  'Institutional Buys': STD_HEADERS,
   '10/21 Thesis': STD_HEADERS,
   'EP9M Thesis': STD_HEADERS,
   '100-Bagger Thesis': STD_HEADERS,
@@ -2442,6 +2600,11 @@ const withInteractive = (paras: string[]): string[] => {
   /* Removed cards: drop their placeholders from briefings built before (Chart Structure
      10 Oct 2026, Momentum Leaders 12 Oct 2026). */
   const out = paras.filter(p => !p.startsWith('Chart Structure:') && !p.startsWith('Momentum Leaders:'));
+  /* Institutional Buys (11 Nov 2026) follows Setups Summary. */
+  if (!out.some(p => p.startsWith('Institutional Buys:'))) {
+    const i = out.findIndex(p => p.startsWith('Setups Summary:'));
+    if (i >= 0) out.splice(i + 1, 0, 'Institutional Buys: interactive');
+  }
   /* Oversold Bounce (15 Oct 2026) follows Liquid Leaders in briefings built before it existed. */
   if (!out.some(p => p.startsWith('Oversold Bounce:'))) {
     const i = out.findIndex(p => p.startsWith('Liquid Leaders:'));
@@ -2665,7 +2828,7 @@ export default function MarketSummary() {
   const [thesisEdge, setThesisEdge] = useState<Record<string, EdgeTier | null>>({});
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() =>
     new Set([
-      ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Best Setups Today' && l !== 'Top Movers' && l !== 'Liquid Leaders' && l !== 'Oversold Bounce' && l !== 'Momentum Leaders'),
+      ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Institutional Buys' && l !== 'Best Setups Today' && l !== 'Top Movers' && l !== 'Liquid Leaders' && l !== 'Oversold Bounce' && l !== 'Momentum Leaders'),
       'hrsTop', 'topSetups',
     ])
   );
@@ -2744,7 +2907,7 @@ export default function MarketSummary() {
     if (!mi?.briefing) return;
     if (!k) {
       setCollapsedSections(new Set([
-        ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Best Setups Today' && l !== 'Top Movers' && l !== 'Liquid Leaders' && l !== 'Oversold Bounce' && l !== 'Momentum Leaders'),
+        ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Institutional Buys' && l !== 'Best Setups Today' && l !== 'Top Movers' && l !== 'Liquid Leaders' && l !== 'Oversold Bounce' && l !== 'Momentum Leaders'),
         'hrsTop', 'topSetups',
       ]));
       return;
@@ -3314,6 +3477,8 @@ export default function MarketSummary() {
                                   orbWatch={orbWatch}
                                   edgeMap={modelEdgeMap}
                                 />
+                              ) : isOpen && label === 'Institutional Buys' ? (
+                                <InstitutionalBuys pool={setupPoolOsb} rsMap={macroInsights?.rsMap} stageMap={macroInsights?.stageMap} />
                               ) : isOpen && label === 'Best Setups Today' ? (
                                 <BestSetups watch={orbWatch} />
                               ) : isOpen && label === 'Social Sentiment' ? (
