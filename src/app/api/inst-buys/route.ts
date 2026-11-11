@@ -27,7 +27,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
 /* One shared build per session day, rebuilt at most every 15 minutes. */
-const cachedBuild = (date: string) => unstable_cache(() => buildInstBuys(), ['inst-buys-v3', date], { revalidate: 900 })();
+const cachedBuild = (date: string) => unstable_cache(() => buildInstBuys(), ['inst-buys-v4', date], { revalidate: 900 })();
 
 export async function GET() {
   const jar = await cookies();

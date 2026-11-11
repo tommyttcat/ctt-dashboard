@@ -13,9 +13,12 @@
 //   bullish $ = calls bought at the ask + puts sold at the bid
 //   bearish $ = puts bought at the ask + calls sold at the bid
 //   net = bullish − bearish.  Net > 0 → BUYING column, net < 0 → SELLING.
-// Top 5 each by the size of the net. Colour: STRONG when one side is 75%+ of
-// the name's big flow (green buying / red selling), MIXED (yellow) otherwise.
-// The 75% line is a judgement call. Not tested.
+// SCORE (the card's CNF column, 0-100) — how strong the one-way bet is:
+//   size, 0-50:      |net| on a log scale, 0 at $250K, 50 at $10M or more
+//   one-sided, 0-50: 0 when the name's big flow is 50/50, 50 when all one way
+// Top 5 each side by score. Colour: STRONG when one side is 75%+ of the
+// name's big flow (green buying / red selling), MIXED (yellow) otherwise.
+// The score's shape and the 75% line are judgement calls. Not tested.
 // Selling at the bid is often profit-taking or covered writing, not a bet —
 // the tooltip splits bought from sold so that is visible.
 //
@@ -34,6 +37,8 @@ export type FlowAlert = {
 export type InstBuyRow = {
   ticker: string; dir: FlowDir; tier: FlowTier; sector: string | null; under: number;
   net: number; bullPrem: number; bearPrem: number;
+  /** 0-100 strength of the one-way bet (size + one-sidedness) — the card's CNF */
+  score: number;
   callsBought: number; putsSold: number; putsBought: number; callsSold: number;
   earnings: string | null;
   /** the six biggest alerts on this name (for the tooltip) */
@@ -50,6 +55,16 @@ const MIN_OTM = 0.10;
 const MAX_DTE = 44;
 const STRONG_SHARE = 0.75;
 const TOP = 5;
+const SIZE_FLOOR = 250_000, SIZE_FULL = 10_000_000;
+
+/** 0-100: half for the size of the net flow (log scale), half for how one-sided it is. */
+export function flowScore(bull: number, bear: number): number {
+  const net = Math.abs(bull - bear), total = bull + bear;
+  if (!(total > 0) || net <= 0) return 0;
+  const size = net <= SIZE_FLOOR ? 0 : Math.min(1, Math.log(net / SIZE_FLOOR) / Math.log(SIZE_FULL / SIZE_FLOOR));
+  const oneSided = (Math.max(bull, bear) / total - 0.5) / 0.5;
+  return Math.round(50 * size + 50 * oneSided);
+}
 
 const n = (v: unknown): number => { const x = Number(v); return Number.isFinite(x) ? x : 0; };
 const daysBetween = (a: string, b: string) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
@@ -130,14 +145,15 @@ export async function buildInstBuys(now = new Date()): Promise<InstBuysPayload> 
     return {
       ticker: t, dir, tier: (share >= STRONG_SHARE ? (dir === 'buy' ? 'green' : 'red') : 'yellow') as FlowTier,
       sector: r0?.sector ?? null, under: n(r0?.underlying_price),
-      net, bullPrem: bull, bearPrem: bear,
+      net, bullPrem: bull, bearPrem: bear, score: flowScore(bull, bear),
       callsBought: s(cB), putsSold: s(pS), putsBought: s(pB), callsSold: s(cS),
       earnings: r0?.next_earnings_date ?? null,
       alerts: [...cB, ...pS, ...pB, ...cS].sort((a, b) => b.premium - a.premium).slice(0, 6),
     };
   }).filter(r => r.net !== 0);
 
-  const buy = rows.filter(r => r.dir === 'buy').sort((a, b) => b.net - a.net).slice(0, TOP);
-  const sell = rows.filter(r => r.dir === 'sell').sort((a, b) => a.net - b.net).slice(0, TOP);
+  const byScore = (a: InstBuyRow, b: InstBuyRow) => b.score - a.score || Math.abs(b.net) - Math.abs(a.net);
+  const buy = rows.filter(r => r.dir === 'buy').sort(byScore).slice(0, TOP);
+  const sell = rows.filter(r => r.dir === 'sell').sort(byScore).slice(0, TOP);
   return { ...base, ok: true, buy, sell };
 }

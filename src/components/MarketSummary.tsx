@@ -1566,7 +1566,7 @@ const flowTip = (r: InstBuyRow): string => {
   const parts = (xs: [number, string][]) => xs.filter(([v]) => v > 0).map(([v, l]) => `${fmtPrem(v)} ${l}`).join(' + ') || 'none';
   const label = r.tier === 'yellow' ? 'MIXED' : r.dir === 'buy' ? 'STRONG BUYING' : 'STRONG SELLING';
   return [
-    `${label} — net ${r.net >= 0 ? '+' : '−'}${fmtPrem(Math.abs(r.net))}`,
+    `${label} — CNF ${r.score} · net ${r.net >= 0 ? '+' : '−'}${fmtPrem(Math.abs(r.net))}`,
     `Bullish ${fmtPrem(r.bullPrem)}: ${parts([[r.callsBought, 'calls bought'], [r.putsSold, 'puts sold']])}`,
     `Bearish ${fmtPrem(r.bearPrem)}: ${parts([[r.putsBought, 'puts bought'], [r.callsSold, 'calls sold']])}`,
     `Biggest: ${r.alerts.map(fmtAlert).join(' · ')}`,
@@ -1620,18 +1620,20 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
         ...(lq ? { price: lq.price, last: lq.price, change: lq.pct, changePct: lq.pct, _live: true, ...(scan ? {} : { vol: lq.vol, volume: lq.vol }) } : {}),
         rsRating: rsMap?.[r.ticker] ?? base.rsRating ?? null,
         stage: stageMap?.[r.ticker] ?? base.stage,
+        /* CNF on this card is the flow score (lib/instBuys flowScore), not the scan's. */
+        conviction: r.score, cnfScore: r.score,
         _flow: r,
       };
     });
   }, [pool, live, rsMap, stageMap]);
 
-  /* null = biggest net flow first. One sort for both sides. */
-  const [sortKey, setSortKey] = React.useState<SortKey | null>(null);
+  /* CNF (the flow score) first, like the Setups Summary. One sort for both sides. */
+  const [sortKey, setSortKey] = React.useState<SortKey | null>('cnf');
   const [sortDir, setSortDir] = React.useState<SortDir>('desc');
   const handleSort = (k: SortKey) => {
     if (sortKey === k) {
       if (sortDir === 'desc') setSortDir('asc');
-      else { setSortKey(null); setSortDir('desc'); }
+      else { setSortKey('cnf'); setSortDir('desc'); }
     } else { setSortKey(k); setSortDir('desc'); }
   };
   const sortRows = React.useCallback((items: any[]) => {
@@ -1644,7 +1646,7 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
         case 'rs': return num(s.rsRating);
         case 'stg': return num(s.stage);
         case 'cnf': return scoreOf(s);
-        default: return Math.abs(s._flow.net);
+        default: return s._flow.score;
       }
     };
     return [...items].sort((a, b) => (sortDir === 'desc' ? val(b) - val(a) : val(a) - val(b)));
@@ -1706,7 +1708,7 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
         <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-rose-500/30" />strong selling</span>
         <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-amber-400/30" />mixed</span>
         <span className="absolute bottom-full left-0 mb-2 w-72 px-3.5 py-2.5 rounded-lg bg-[#1a2035] border border-white/10 shadow-2xl text-[10px] leading-[1.6] text-slate-300 font-normal whitespace-normal opacity-0 pointer-events-none group-hover/ibf:opacity-100 transition-opacity z-[9999]">
-          The number left of each ticker is its net flow today. Net = calls bought + puts sold − puts bought − calls sold, counting every $250K+ single-leg alert with 80%+ on one side. A name gets on the card when it has at least one big bet under your rules: a call or put bought, under 45 days, 10%+ out of the money, $250K+, 80%+ at the ask. Top 5 each side. STRONG = one side is 75%+ of the name&apos;s big flow; MIXED = both sides heavy. Selling at the bid is often profit-taking. Nothing shows who traded — &quot;institutional&quot; means size. Rules, not a tested edge. Hover a row for the split.
+          CNF here is the flow score, 0–100: up to 50 for the size of the net flow ($250K = 0, $10M+ = 50, log scale) and up to 50 for how one-sided it is (50/50 = 0, all one way = 50). Each side shows its top 5 by CNF. The number left of each ticker is its net flow today. Net = calls bought + puts sold − puts bought − calls sold, counting every $250K+ single-leg alert with 80%+ on one side. A name gets on the card when it has at least one big bet under your rules: a call or put bought, under 45 days, 10%+ out of the money, $250K+, 80%+ at the ask. STRONG = one side is 75%+ of the name&apos;s big flow; MIXED = both sides heavy. Selling at the bid is often profit-taking. Nothing shows who traded — &quot;institutional&quot; means size. Rules, not a tested edge. Hover a row for the split.
         </span>
       </p>
     </div>
@@ -2525,7 +2527,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   /* Best Setups Today removed 9 Oct 2026 at the user's request: the
      breakout-watch picks lost money live (Model Book v2 down to $96.8k). */
   { label: 'Setups Summary', color: 'violet', blurb: 'All scans pooled — filter by source or setup pattern. One stop shop.' },
-  { label: 'Institutional Buys', color: 'indigo', blurb: 'What big money is buying and selling today in options (Unusual Whales). Left: most net bullish flow. Right: most net bearish flow. Top 5 each.' },
+  { label: 'Institutional Buys', color: 'indigo', blurb: 'What big money is buying and selling today in options (Unusual Whales). Left: net bullish flow. Right: net bearish flow. Top 5 each, ranked by CNF = how strong the one-way bet is.' },
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves now. Volume-confirmed is tradeable; a thin gap is a fade.' },
   { label: 'Social Sentiment', color: 'violet', blurb: 'What StockTwits, Reddit and Bluesky are talking about most, and which way they lean. The crowd, not a signal.' },
   { label: 'Liquid Leaders', color: 'cyan', blurb: 'The ~1,000 most traded stocks: which are outrunning the market most, and which trade the heaviest volume.' },
