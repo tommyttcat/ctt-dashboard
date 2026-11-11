@@ -1547,32 +1547,30 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
 };
 
 /* ---- Institutional Buys (11 Nov 2026) --------------------------------------
-   Today's big one-sided option bets from Unusual Whales (lib/instBuys), top 5
-   each side: LEFT bullish (calls bought), RIGHT bearish (puts bought). Rules:
-   DTE < 45, 10%+ OTM, $250K+ clusters, 80%+ paid at the ask, single-leg.
-   Rows use the Setups Summary grid; the TINT is the options-flow rating, not
-   the chart checklist: green / red = strong one way, yellow = real opposite
-   flow. Names whose opposite flow is heavier are listed under the card as OUT.
+   What big money is BUYING (left) and SELLING (right) today, by net options
+   flow from Unusual Whales (lib/instBuys): top 5 each side. A name gets on by
+   the owner's quality rules (a call or put bought, DTE < 45, 10%+ OTM, $250K+,
+   80%+ at the ask, single-leg); its column comes from net flow = calls bought
+   + puts sold − puts bought − calls sold, all big one-sided alerts today.
+   Rows use the Setups Summary grid; the TINT is the flow, not the chart
+   checklist: green / red = one side 75%+ of the flow, yellow = mixed.
    Owner-only (Unusual Whales is an individual licence).
-   COST: /api/inst-buys is edge-cached 15 min, 0 KV; prices ride
-   /api/live-quotes. See the route for the numbers. */
+   COST: /api/inst-buys, 6 Unusual Whales calls per build held 15 min in the
+   server data cache, 0 KV; prices ride /api/live-quotes. */
 const fmtPrem = (x: number) => (x >= 1e6 ? `$${(x / 1e6).toFixed(1)}M` : `$${Math.round(x / 1e3)}K`);
 /* The 28px gutter fits four characters at 8px: "3.7M", "353K", "12M". */
 const fmtPremShort = (x: number) => (x >= 1e7 ? `${Math.round(x / 1e6)}M` : x >= 1e6 ? `${(x / 1e6).toFixed(1)}M` : `${Math.round(x / 1e3)}K`);
 const fmtAlert = (a: FlowAlert) =>
-  `${a.side === 'call' ? 'C' : 'P'} ${a.strike} ${a.expiry.slice(5)} (${a.dte}d, ${(a.otmPct * 100).toFixed(0)}% OTM) ${fmtPrem(a.premium)}${a.sweep ? ' sweep' : ''}`;
+  `${a.side === 'call' ? 'C' : 'P'} ${a.strike} ${a.expiry.slice(5)} ${a.at === 'ask' ? 'bought' : 'sold'} ${fmtPrem(a.premium)}${a.sweep ? ' sweep' : ''}`;
 const flowTip = (r: InstBuyRow): string => {
-  const bull = r.dir === 'bull';
-  const label = r.tier === 'yellow' ? 'MIXED' : bull ? 'STRONG BULLISH' : 'STRONG BEARISH';
-  const vsWhat = [
-    r.vsBoughtPrem ? `${fmtPrem(r.vsBoughtPrem)} ${bull ? 'puts' : 'calls'} bought` : '',
-    r.vsSoldPrem ? `${fmtPrem(r.vsSoldPrem)} ${bull ? 'calls' : 'puts'} sold (often profit-taking)` : '',
-  ].filter(Boolean).join(', ');
-  const total = (r.dayBullPrem ?? 0) + (r.dayBearPrem ?? 0);
+  const parts = (xs: [number, string][]) => xs.filter(([v]) => v > 0).map(([v, l]) => `${fmtPrem(v)} ${l}`).join(' + ') || 'none';
+  const label = r.tier === 'yellow' ? 'MIXED' : r.dir === 'buy' ? 'STRONG BUYING' : 'STRONG SELLING';
   return [
-    `${label} — ${fmtPrem(r.betPrem)} of ${bull ? 'calls' : 'puts'} bought at the ask: ${r.bets.map(fmtAlert).join(' · ')}`,
-    r.vsPrem ? `Against it ${fmtPrem(r.vsPrem)}: ${vsWhat} — ${r.vs.slice(0, 4).map(fmtAlert).join(' · ')}` : `No ${bull ? 'bearish' : 'bullish'} alerts of $250K+ today.`,
-    total > 0 ? `Whole day: ${Math.round(((r.dayBullPrem ?? 0) / total) * 100)}% bullish premium.` : '',
+    `${label} — net ${r.net >= 0 ? '+' : '−'}${fmtPrem(Math.abs(r.net))}`,
+    `Bullish ${fmtPrem(r.bullPrem)}: ${parts([[r.callsBought, 'calls bought'], [r.putsSold, 'puts sold']])}`,
+    `Bearish ${fmtPrem(r.bearPrem)}: ${parts([[r.putsBought, 'puts bought'], [r.callsSold, 'calls sold']])}`,
+    `Biggest: ${r.alerts.map(fmtAlert).join(' · ')}`,
+    r.callsSold || r.putsSold ? 'Selling at the bid is often profit-taking or covered writing, not a new bet.' : '',
     r.earnings ? `Earnings ${r.earnings}.` : '',
   ].filter(Boolean).join('\n');
 };
@@ -1590,11 +1588,11 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
     return () => { on = false; stop(); };
   }, []);
 
-  const bullRows = data?.bull ?? [];
-  const bearRows = data?.bear ?? [];
+  const buyRows = data?.buy ?? [];
+  const sellRows = data?.sell ?? [];
   const liveSyms = React.useMemo(
-    () => [...new Set([...bullRows, ...bearRows].map(r => r.ticker))].sort().join(','),
-    [bullRows, bearRows],
+    () => [...new Set([...buyRows, ...sellRows].map(r => r.ticker))].sort().join(','),
+    [buyRows, sellRows],
   );
   const [live, setLive] = React.useState<LiveQuotesView | null>(null);
   React.useEffect(() => {
@@ -1627,7 +1625,7 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
     });
   }, [pool, live, rsMap, stageMap]);
 
-  /* null = the flow order (strong first, then most premium). One sort for both sides. */
+  /* null = biggest net flow first. One sort for both sides. */
   const [sortKey, setSortKey] = React.useState<SortKey | null>(null);
   const [sortDir, setSortDir] = React.useState<SortDir>('desc');
   const handleSort = (k: SortKey) => {
@@ -1646,13 +1644,13 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
         case 'rs': return num(s.rsRating);
         case 'stg': return num(s.stage);
         case 'cnf': return scoreOf(s);
-        default: return (s._flow.tier === 'yellow' ? 0 : 1e12) + s._flow.betPrem;
+        default: return Math.abs(s._flow.net);
       }
     };
     return [...items].sort((a, b) => (sortDir === 'desc' ? val(b) - val(a) : val(a) - val(b)));
   }, [sortKey, sortDir]);
-  const bulls = React.useMemo(() => sortRows(toItems(bullRows)), [sortRows, toItems, bullRows]);
-  const bears = React.useMemo(() => sortRows(toItems(bearRows)), [sortRows, toItems, bearRows]);
+  const buys = React.useMemo(() => sortRows(toItems(buyRows)), [sortRows, toItems, buyRows]);
+  const sells = React.useMemo(() => sortRows(toItems(sellRows)), [sortRows, toItems, sellRows]);
 
   const row = (s: any, i: number) => {
     const parsed = parseStdLine(`${s.ticker} ${stdCols(s)}`);
@@ -1663,7 +1661,7 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
       <InfoDot key={`ib-${f.dir}-${s.ticker}-${i}`} block className={`flex items-center gap-0 ${EDGE_TINT[f.tier]} rounded-sm`} text={flowTip(f)}>
         <span className="hidden md:inline-flex shrink-0" style={{ width: 0, overflow: 'visible', position: 'relative' }}><span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)' }}><WatchlistBtn symbol={s.ticker} /></span></span>
         <div className="w-[28px] shrink-0 flex items-center justify-end pr-1.5">
-          <span className={`text-[8px] font-bold tabular-nums ${f.dir === 'bull' ? 'text-emerald-400/80' : 'text-rose-400/80'}`}>{fmtPremShort(f.betPrem)}</span>
+          <span className={`text-[8px] font-bold tabular-nums ${f.dir === 'buy' ? 'text-emerald-400/80' : 'text-rose-400/80'}`}>{fmtPremShort(Math.abs(f.net))}</span>
         </div>
         <div className="flex-1 min-w-0">{renderStdRow(parsed, i, undefined, undefined, undefined, undefined, true, undefined, rsMap, stageMap, true)}</div>
       </InfoDot>
@@ -1672,38 +1670,30 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
 
   const column = (dir: FlowDir, items: any[]) => (
     <div className="space-y-0.5 min-w-0">
-      <div className={`text-[9px] font-bold tracking-wider uppercase mb-1 ${dir === 'bull' ? 'text-emerald-400' : 'text-rose-400'}`}>
-        {dir === 'bull' ? 'Bullish — calls bought' : 'Bearish — puts bought'}
+      <div className={`text-[9px] font-bold tracking-wider uppercase mb-1 ${dir === 'buy' ? 'text-emerald-400' : 'text-rose-400'}`}>
+        {dir === 'buy' ? 'Buying — net bullish flow' : 'Selling — net bearish flow'}
       </div>
       <div className="flex items-center gap-0">
         <div className="w-[28px] shrink-0" />
         <div className="flex-1 min-w-0"><SortableHeader sortKey={sortKey} sortDir={sortDir} onSort={handleSort} /></div>
       </div>
       {items.length > 0
-        ? items.map((s, i) => row(s, dir === 'bull' ? i : 100 + i))
-        : <p className="text-[10px] text-slate-500 font-medium py-1">No {dir === 'bull' ? 'calls' : 'puts'} met the rules — flow builds from 9:30 ET.</p>}
+        ? items.map((s, i) => row(s, dir === 'buy' ? i : 100 + i))
+        : <p className="text-[10px] text-slate-500 font-medium py-1">No names with net {dir === 'buy' ? 'buying' : 'selling'} yet — flow builds from 9:30 ET.</p>}
     </div>
   );
 
   if (!data) return <p className="text-[10px] text-slate-500 font-medium">Loading options flow…</p>;
-  if (data.error && !bullRows.length && !bearRows.length) return <p className="text-[10px] text-amber-400/80 font-medium">Options flow unavailable — {data.error}.</p>;
+  if (data.error && !buyRows.length && !sellRows.length) return <p className="text-[10px] text-amber-400/80 font-medium">Options flow unavailable — {data.error}.</p>;
 
-  const liveCount = [...bulls, ...bears].filter((x: any) => x._live).length;
+  const liveCount = [...buys, ...sells].filter((x: any) => x._live).length;
   const sessionLabel = data.session ? new Date(`${data.session}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }) : '';
-  const outs = (dir: FlowDir) => data.out.filter(o => o.dir === dir);
-  const outList = (dir: FlowDir) => outs(dir).map((o, i) => (
-    <span key={`${dir}-${o.ticker}`} className="relative group/ibo cursor-help">
-      {i > 0 && <span className="text-slate-600"> · </span>}
-      <span className="text-slate-400 font-semibold">{o.ticker}</span>
-      <span className="absolute bottom-full left-0 mb-2 w-64 px-3.5 py-2.5 rounded-lg bg-[#1a2035] border border-white/10 shadow-2xl text-[10px] leading-[1.6] text-slate-300 font-normal whitespace-normal opacity-0 pointer-events-none group-hover/ibo:opacity-100 transition-opacity z-[9999]">{o.ticker}: {o.why}.</span>
-    </span>
-  ));
 
   return (
     <div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
-        {column('bull', bulls)}
-        {column('bear', bears)}
+        {column('buy', buys)}
+        {column('sell', sells)}
       </div>
       <p className="text-[10px] text-slate-500 font-medium mt-2">
         Unusual Whales flow {sessionLabel}, as of {fmtEtClock(data.asOf)} ET.
@@ -1711,20 +1701,12 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
           ? <span className="text-emerald-400/80">Prices live · {fmtEtClock(live.asOf)} ET</span>
           : liveSyms ? <span className="text-amber-400/80">Prices as of the alert</span> : null}
       </p>
-      {data.out.length > 0 && (
-        <p className="text-[10px] text-slate-500 font-medium mt-1">
-          <span className="text-slate-400">Out, heavier opposite flow:</span>
-          {outs('bull').length > 0 && <> <span className="text-emerald-400/80">calls</span> {outList('bull')}</>}
-          {outs('bull').length > 0 && outs('bear').length > 0 && <span className="text-slate-600"> |</span>}
-          {outs('bear').length > 0 && <> <span className="text-rose-400/80">puts</span> {outList('bear')}</>}
-        </p>
-      )}
       <p className="relative group/ibf text-[10px] text-slate-500 font-medium mt-1 cursor-help inline-flex items-center gap-2">
-        <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-emerald-500/30" />strong bullish</span>
-        <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-rose-500/30" />strong bearish</span>
+        <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-emerald-500/30" />strong buying</span>
+        <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-rose-500/30" />strong selling</span>
         <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-amber-400/30" />mixed</span>
         <span className="absolute bottom-full left-0 mb-2 w-72 px-3.5 py-2.5 rounded-lg bg-[#1a2035] border border-white/10 shadow-2xl text-[10px] leading-[1.6] text-slate-300 font-normal whitespace-normal opacity-0 pointer-events-none group-hover/ibf:opacity-100 transition-opacity z-[9999]">
-          Top 5 each side. Left: calls bought; right: puts bought. Both under 45 days, 10%+ out of the money, $250K+ clusters with 80%+ paid at the ask, single-leg. The number left of each ticker is that premium. Colour is the opposite flow on the same name today ($250K+, 80%+ one side): STRONG = none, or the bet 3x+ bigger. MIXED = opposite flow is there but smaller. OUT = opposite flow bigger, or the whole day 50%+ the other way. Selling at the bid is often profit-taking. Nothing shows who traded — &quot;institutional&quot; means size at the ask. Rules, not a tested edge. Hover a row for its contracts.
+          The number left of each ticker is its net flow today. Net = calls bought + puts sold − puts bought − calls sold, counting every $250K+ single-leg alert with 80%+ on one side. A name gets on the card when it has at least one big bet under your rules: a call or put bought, under 45 days, 10%+ out of the money, $250K+, 80%+ at the ask. Top 5 each side. STRONG = one side is 75%+ of the name&apos;s big flow; MIXED = both sides heavy. Selling at the bid is often profit-taking. Nothing shows who traded — &quot;institutional&quot; means size. Rules, not a tested edge. Hover a row for the split.
         </span>
       </p>
     </div>
@@ -2543,7 +2525,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   /* Best Setups Today removed 9 Oct 2026 at the user's request: the
      breakout-watch picks lost money live (Model Book v2 down to $96.8k). */
   { label: 'Setups Summary', color: 'violet', blurb: 'All scans pooled — filter by source or setup pattern. One stop shop.' },
-  { label: 'Institutional Buys', color: 'indigo', blurb: 'Biggest one-sided option bets today (Unusual Whales), top 5 each side: calls bought left, puts bought right. Under 45 days, 10%+ out of the money, $250K+ paid at the ask, single-leg. Coloured by the opposite flow on the same name.' },
+  { label: 'Institutional Buys', color: 'indigo', blurb: 'What big money is buying and selling today in options (Unusual Whales). Left: most net bullish flow. Right: most net bearish flow. Top 5 each.' },
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves now. Volume-confirmed is tradeable; a thin gap is a fade.' },
   { label: 'Social Sentiment', color: 'violet', blurb: 'What StockTwits, Reddit and Bluesky are talking about most, and which way they lean. The crowd, not a signal.' },
   { label: 'Liquid Leaders', color: 'cyan', blurb: 'The ~1,000 most traded stocks: which are outrunning the market most, and which trade the heaviest volume.' },
