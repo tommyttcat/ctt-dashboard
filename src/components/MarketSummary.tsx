@@ -929,7 +929,7 @@ const renderBodyLine = (line: string, li: number, aligned: boolean, gradeMap?: R
    filter card of their own, and a key for marks that live somewhere else is
    just clutter here. TRAP and the blue dot stay: those are warnings on the
    rows this strip sits above, not setup names. */
-type SortKey = 'cnf' | 'chg' | 'rvol' | 'vol' | 'dvol' | 'stg' | 'rs' | 'alpha' | 'win' | 'high52' | 'hrs';
+type SortKey = 'cnf' | 'chg' | 'rvol' | 'vol' | 'dvol' | 'stg' | 'rs' | 'alpha' | 'win' | 'high52' | 'hrs' | 'price';
 type SortDir = 'asc' | 'desc';
 
 type ScanFilterKey = 'A' | 'B' | 'CNF' | 'RS' | '2A' | 'stacked' | 'first-touch' | 'pre-cross' | 'extended' | 'below-21' | 'trap' | 'bluedot' | 'news' | null;
@@ -1647,8 +1647,14 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
     } else { setSortKey(k); setSortDir('desc'); }
   };
   const sortRows = React.useCallback((items: any[]) => {
+    /* TICKER sorts A-Z first (asc on the first click), every number high-to-low first. */
+    if (sortKey === 'alpha') {
+      const cmp = (a: any, b: any) => String(a.ticker).localeCompare(String(b.ticker));
+      return [...items].sort((a, b) => (sortDir === 'desc' ? cmp(a, b) : cmp(b, a)));
+    }
     const val = (s: any) => {
       switch (sortKey) {
+        case 'price': return priceOf(s) ?? 0;
         case 'chg': return chgOf(s);
         case 'rvol': return rvolOf(s) ?? 0;
         case 'vol': return num(s.vol);
@@ -1659,7 +1665,13 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
         default: return Math.abs(s._flow.net);   // 'net'
       }
     };
-    return [...items].sort((a, b) => (sortDir === 'desc' ? val(b) - val(a) : val(a) - val(b)));
+    /* A blank (no RS, no RVOL) sorts last either way. */
+    const v = (s: any) => { const x = val(s); return x == null || !Number.isFinite(x) || (x === 0 && (sortKey === 'rs' || sortKey === 'rvol')) ? null : x; };
+    return [...items].sort((a, b) => {
+      const x = v(a), y = v(b);
+      if (x == null || y == null) return x == null && y == null ? 0 : x == null ? 1 : -1;
+      return sortDir === 'desc' ? y - x : x - y;
+    });
   }, [sortKey, sortDir]);
   const buys = React.useMemo(() => sortRows(toItems(buyRows)), [sortRows, toItems, buyRows]);
   const sells = React.useMemo(() => sortRows(toItems(sellRows)), [sortRows, toItems, sellRows]);
@@ -1691,7 +1703,7 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
           className={`w-[28px] shrink-0 flex justify-end pr-1.5 py-[2px] border-b border-white/5 mb-0.5 text-[7px] font-bold tracking-wide uppercase whitespace-nowrap cursor-pointer ${sortKey === 'net' ? 'text-slate-400' : 'text-slate-600 hover:text-slate-400'}`}>
           NET{sortKey === 'net' ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}
         </button>
-        <div className="flex-1 min-w-0"><SortableHeader sortKey={sortKey === 'net' ? null : sortKey} sortDir={sortDir} onSort={handleSort} /></div>
+        <div className="flex-1 min-w-0"><SortableHeader allCols sortKey={sortKey === 'net' ? null : sortKey} sortDir={sortDir} onSort={handleSort} /></div>
       </div>
       {items.length > 0
         ? items.map((s, i) => row(s, dir === 'buy' ? i : 100 + i))
@@ -2751,19 +2763,20 @@ function sortParsedRows(rows: ParsedStdRow[], key: SortKey, dir: SortDir): Parse
   return sorted;
 }
 
-function SortableHeader({ sortKey, sortDir, onSort, isVcp }: { sortKey: SortKey | null; sortDir: SortDir; onSort: (k: SortKey) => void; isVcp?: boolean }) {
+/* `allCols` (Institutional Buys, 11 Nov 2026) also sorts TICKER (A-Z) and PRC; other cards keep theirs. */
+function SortableHeader({ sortKey, sortDir, onSort, isVcp, allCols }: { sortKey: SortKey | null; sortDir: SortDir; onSort: (k: SortKey) => void; isVcp?: boolean; allCols?: boolean }) {
   const hCls = 'cursor-pointer hover:text-slate-400 transition-colors select-none';
   const arrow = (k: SortKey) => sortKey === k ? (sortDir === 'desc' ? ' ↓' : ' ↑') : '';
   return (
     <div className={scrollRowCls} style={scrollRowStyle}>
       <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
-        <span className="inline-block shrink-0 w-[38px] md:w-[44px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center mx-0.5">TICKER</span>
+        <span className={`inline-block shrink-0 w-[38px] md:w-[44px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center mx-0.5 ${allCols ? hCls : ''}`} onClick={allCols ? () => onSort('alpha') : undefined}>TICKER{allCols ? arrow('alpha') : ''}</span>
         <span className="inline-block w-[12px]" />
         <span className="inline-block w-[8px]" />
         <span className="inline-block w-[8px]" />
         <span className={`inline-block w-[20px] md:w-[22px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1 ${hCls}`} onClick={() => onSort('cnf')}>CNF{arrow('cnf')}</span>
         <span className={`inline-block w-[46px] md:w-[52px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1 ${hCls}`} onClick={() => onSort('chg')}>CHG%{arrow('chg')}</span>
-        <span className="inline-block w-[36px] md:w-[42px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1">PRC</span>
+        <span className={`inline-block w-[36px] md:w-[42px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1 ${allCols ? hCls : ''}`} onClick={allCols ? () => onSort('price') : undefined}>PRC{allCols ? arrow('price') : ''}</span>
         <span className={`inline-block w-[36px] md:w-[40px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1 ${hCls}`} onClick={() => onSort('rvol')}>RVOL{arrow('rvol')}</span>
         <span className={`inline-block w-[30px] md:w-[36px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1 ${hCls}`} onClick={() => onSort('vol')}>VOL{arrow('vol')}</span>
         <span className={`inline-block w-[36px] md:w-[40px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1 ${hCls}`} onClick={() => onSort('dvol')}>$VOL{arrow('dvol')}</span>
