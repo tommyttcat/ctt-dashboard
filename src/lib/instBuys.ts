@@ -24,7 +24,10 @@
 //
 // Nothing here says WHO traded. "Institutional" means size paid at the ask.
 
+import { kv } from '@vercel/kv';
 import { uwGetMany } from './uw';
+import { RS_KEY } from './indicators/rs';
+import { LEADERS_STATE_KEY, type LeadersState } from './leaders';
 import { getMarketDay, isTradingDay, previousTradingDay, etDateString } from './marketCalendar';
 import { etParts } from './etCron';
 
@@ -41,6 +44,8 @@ export type InstBuyRow = {
   score: number;
   callsBought: number; putsSold: number; putsBought: number; callsSold: number;
   earnings: string | null;
+  /** last night's RS rating and stage, and the name's usual volume by half hour (for RVOL) — null when not covered */
+  rs: number | null; stg: string | null; prof: number[] | null; pre: number;
   /** the six biggest alerts on this name (for the tooltip) */
   alerts: FlowAlert[];
 };
@@ -96,7 +101,21 @@ const sideShare = (r: any, at: 'ask' | 'bid') => {
   return p ? n(at === 'ask' ? r.total_ask_side_prem : r.total_bid_side_prem) / p : 0;
 };
 
-export async function buildInstBuys(now = new Date()): Promise<InstBuysPayload> {
+/* Last night's RS ratings and the Liquid Leaders volume profiles, so a name no scan carries
+   still gets RS, stage and RVOL. One KV read (MGET of two keys, measured 11 Nov: 125 KB +
+   311 KB); the route holds the slimmed result 3 hours in the server data cache. */
+export type NightlyRefs = { rs: Record<string, number>; stg: Record<string, string>; vol: Record<string, { prof: number[]; pre: number }> };
+export async function loadNightlyRefs(): Promise<NightlyRefs> {
+  const [rsP, st] = await kv.mget<[{ ratings?: Record<string, number> } | null, LeadersState | null]>(RS_KEY, LEADERS_STATE_KEY);
+  const stg: NightlyRefs['stg'] = {}, vol: NightlyRefs['vol'] = {};
+  for (const [t, h] of Object.entries(st?.names ?? {})) {
+    if (h.stg) stg[t] = h.stg;
+    if (h.prof?.length) vol[t] = { prof: h.prof.map(v => Math.round(v)), pre: Math.round(h.pre ?? 0) };
+  }
+  return { rs: rsP?.ratings ?? {}, stg, vol };
+}
+
+export async function buildInstBuys(now = new Date(), refs: NightlyRefs | null = null): Promise<InstBuysPayload> {
   const { date, openUtc } = flowSession(now);
   const base: InstBuysPayload = { ok: false, asOf: now.getTime(), session: date, since: openUtc, buy: [], sell: [] };
   if (!getMarketDay(date).isTradingDay) return { ...base, ok: true };
@@ -148,6 +167,7 @@ export async function buildInstBuys(now = new Date()): Promise<InstBuysPayload> 
       net, bullPrem: bull, bearPrem: bear, score: flowScore(bull, bear),
       callsBought: s(cB), putsSold: s(pS), putsBought: s(pB), callsSold: s(cS),
       earnings: r0?.next_earnings_date ?? null,
+      rs: refs?.rs[t] ?? null, stg: refs?.stg[t] ?? null, prof: refs?.vol[t]?.prof ?? null, pre: refs?.vol[t]?.pre ?? 0,
       alerts: [...cB, ...pS, ...pB, ...cS].sort((a, b) => b.premium - a.premium).slice(0, 6),
     };
   }).filter(r => r.net !== 0);

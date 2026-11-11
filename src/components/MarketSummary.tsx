@@ -118,7 +118,7 @@ import InfoDot from './InfoDot';
 import { etMinute, type OrbWatchStatus, type OrbWatchState } from '@/lib/orb';
 import { earlyMovers, EARLY_MIN_PCT, EARLY_MIN_PACE } from '@/lib/summary/earlyMovers';
 import { swingCheck, checkTip } from '@/lib/scans/checklist';
-import { type LeadersLive, type LeaderRow, type OversoldRow, osbScoreOf } from '@/lib/leaders';
+import { type LeadersLive, type LeaderRow, type OversoldRow, osbScoreOf, trackingPct } from '@/lib/leaders';
 import { chartLevelsGlobal } from '@/lib/chartLevels';
 import { bullShare, type SentimentLive } from '@/lib/sentiment';
 import { EARLY_PASS_N, type EarlySummary } from '@/lib/earlyTrack';
@@ -1575,6 +1575,12 @@ const flowTip = (r: InstBuyRow): string => {
   ].filter(Boolean).join('\n');
 };
 
+/** Minutes after midnight on a New York clock, for RVOL by time of day. */
+const etMinutesNow = (): number => {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date()).map(x => [x.type, x.value]));
+  return (Number(p.hour) % 24) * 60 + Number(p.minute);
+};
+
 const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Record<string, number>; stageMap?: Record<string, string> }) => {
   const [data, setData] = React.useState<InstBuysPayload | null>(null);
   React.useEffect(() => {
@@ -1615,11 +1621,15 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
       const scan = byT.get(r.ticker);
       const lq = live?.quotes?.[r.ticker];
       const base = scan ? { ...scan } : { ticker: r.ticker, price: r.under, changePct: 0, sector: r.sector };
+      /* RVOL on live volume against the name's usual volume by this time of day (Liquid
+         Leaders' measure, lib/leaders trackingPct); the scan's delayed RVOL otherwise. */
+      const track = lq?.vol && r.prof ? trackingPct(lq.vol, r.prof, etMinutesNow(), r.pre) : null;
       return {
         ...base,
-        ...(lq ? { price: lq.price, last: lq.price, change: lq.pct, changePct: lq.pct, _live: true, ...(scan ? {} : { vol: lq.vol, volume: lq.vol }) } : {}),
-        rsRating: rsMap?.[r.ticker] ?? base.rsRating ?? null,
-        stage: stageMap?.[r.ticker] ?? base.stage,
+        ...(lq ? { price: lq.price, last: lq.price, change: lq.pct, changePct: lq.pct, _live: true, ...(lq.vol ? { vol: lq.vol, volume: lq.vol } : {}) } : {}),
+        ...(track != null ? { rvol: Math.max(0, 1 + track / 100), rvolPace: Math.max(0, 1 + track / 100) } : {}),
+        rsRating: rsMap?.[r.ticker] ?? r.rs ?? base.rsRating ?? null,
+        stage: stageMap?.[r.ticker] ?? base.stage ?? r.stg ?? undefined,
         /* CNF on this card is the flow score (lib/instBuys flowScore), not the scan's. */
         conviction: r.score, cnfScore: r.score,
         _flow: r,

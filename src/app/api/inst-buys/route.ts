@@ -1,7 +1,9 @@
 // app/api/inst-buys/route.ts — the Institutional Buys card (lib/instBuys).
 //
 // COST (measured 11 Nov 2026 before building):
-//   - zero KV reads or writes. No cron: the edge cache is the schedule.
+//   - KV: one read (MGET of rs_ratings_v1 + leaders_state_v1, 125 KB + 311 KB measured
+//     11 Nov) held 3 hours in the data cache — ~3 reads a session day, flat in users.
+//     No writes, no cron.
 //   - one build = 2 qualifying lists (calls, puts) + 4 net-flow lookups =
 //     6 Unusual Whales calls, run 3 at a time. Measured 11 Nov: ~1 s.
 //   - the BUILD is held 15 minutes in Vercel's server data cache
@@ -21,13 +23,18 @@ import { unstable_cache } from 'next/cache';
 import { verifySession, SESSION_COOKIE } from '@/lib/auth';
 import { noCacheHeaders } from '@/lib/httpCache';
 import { uwConfigured } from '@/lib/uw';
-import { buildInstBuys, flowSession, type InstBuysPayload } from '@/lib/instBuys';
+import { buildInstBuys, loadNightlyRefs, flowSession, type InstBuysPayload } from '@/lib/instBuys';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
+/* RS, stage and volume profiles change nightly: one KV read (MGET), held 3 hours. */
+const cachedRefs = unstable_cache(() => loadNightlyRefs(), ['inst-buys-refs-v1'], { revalidate: 10_800 });
 /* One shared build per session day, rebuilt at most every 15 minutes. */
-const cachedBuild = (date: string) => unstable_cache(() => buildInstBuys(), ['inst-buys-v4', date], { revalidate: 900 })();
+const cachedBuild = (date: string) => unstable_cache(
+  async () => buildInstBuys(new Date(), await cachedRefs().catch(() => null)),
+  ['inst-buys-v5', date], { revalidate: 900 },
+)();
 
 export async function GET() {
   const jar = await cookies();
