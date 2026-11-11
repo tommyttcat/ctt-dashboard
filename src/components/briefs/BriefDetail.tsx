@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { SIGNUPS_CLOSED } from '../../lib/signups';
 import DashNav from '../DashNav';
 import type { BriefData, UpdateBlock } from '../../lib/briefArchive';
 import { ThemeToggle } from '../ThemeProvider';
@@ -381,6 +382,7 @@ export default function BriefDetail({
               )}
 
               {/* CTA */}
+              {!SIGNUPS_CLOSED && (
               <div className="border border-indigo-500/20 bg-indigo-500/[0.06] rounded-2xl p-6 md:p-8 text-center">
                 <h3 className="text-[15px] font-bold text-slate-200 mb-1">
                   This brief is 24 hours old
@@ -388,13 +390,16 @@ export default function BriefDetail({
                 <p className="text-[12px] text-slate-400 mb-4">
                   Today&apos;s brief and tape reading are live now for subscribers.
                 </p>
+                {!SIGNUPS_CLOSED && (
                 <a
                   href="/subscribe"
                   className="inline-block bg-indigo-500 hover:bg-indigo-400 text-white font-bold text-[12px] px-6 py-2.5 rounded-lg transition-colors tracking-wide"
                 >
                   Get today&apos;s brief
                 </a>
+                )}
               </div>
+              )}
             </>
           )}
         </div>

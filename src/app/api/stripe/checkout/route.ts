@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getStripe, PRICES } from '@/lib/stripe';
 import { getUserByEmail } from '@/lib/users';
+import { SIGNUPS_CLOSED } from '@/lib/signups';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,6 +9,7 @@ type Tier = keyof typeof PRICES;
 type Period = 'monthly' | 'yearly';
 
 export async function POST(req: Request) {
+  if (SIGNUPS_CLOSED) return NextResponse.json({ error: 'Sign-ups are closed' }, { status: 403 });
   try {
     const { tier, period, email, tvUsername } = await req.json() as {
       tier: string;

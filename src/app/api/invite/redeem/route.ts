@@ -3,6 +3,7 @@ import { Resend } from 'resend';
 import { createSessionToken, SESSION_COOKIE, SESSION_MAX_AGE } from '@/lib/auth';
 import { getUserByEmail, addUser } from '@/lib/users';
 import { getInviteByCode, useInvite, updateInvite } from '@/lib/invites';
+import { SIGNUPS_CLOSED } from '@/lib/signups';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,6 +11,7 @@ const VALID_TIERS = ['starter', 'core', 'pro'] as const;
 const TRIAL_DAYS = 14;
 
 export async function POST(req: Request) {
+  if (SIGNUPS_CLOSED) return NextResponse.json({ error: 'Sign-ups are closed' }, { status: 403 });
   try {
     const { code, tier: directTier, email, name } = await req.json();
 

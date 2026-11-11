@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server';
 import { verifySession, SESSION_COOKIE } from './lib/auth';
 import { getUserByEmail } from './lib/users';
 import { FREE_ACCESS } from './lib/freeAccess';
+import { SIGNUPS_CLOSED, SIGNUP_PAGES } from './lib/signups';
 
 const TRIAL_TIERS = ['trial_7', 'trial_14', 'trial_30'];
 const FULL_ACCESS_TIERS = ['pro', ...TRIAL_TIERS];
@@ -46,6 +47,11 @@ export async function middleware(request: NextRequest) {
      while the flag is on, so a visitor cannot land on a plan table that
      contradicts the free account they were just offered. Sends them to the
      sign-up instead of a dead end. Restores itself when FREE_ACCESS goes. */
+  /* Sign-ups closed (lib/signups): every sign-up page goes to the sign-in. */
+  if (SIGNUPS_CLOSED && SIGNUP_PAGES.some(p => pathname === p || pathname.startsWith(p + '/'))) {
+    return NextResponse.redirect(new URL('/login', request.url));
+  }
+
   if (FREE_ACCESS && pathname === '/pricing') {
     return NextResponse.redirect(new URL('/invite?code=CTT-HCXFBF', request.url));
   }
@@ -113,5 +119,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/', '/login', '/pricing', '/dashboard', '/analyst', '/news', '/confluence', '/track', '/scanners', '/admin', '/invite'],
+  matcher: ['/', '/login', '/pricing', '/dashboard', '/analyst', '/news', '/confluence', '/track', '/scanners', '/admin', '/invite', '/subscribe', '/welcome'],
 };

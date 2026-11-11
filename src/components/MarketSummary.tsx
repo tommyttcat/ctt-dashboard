@@ -1555,6 +1555,8 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
    COST: /api/inst-buys is edge-cached 10 min, 0 KV; prices ride the shared
    /api/live-quotes call. See the route for the numbers. */
 const fmtPrem = (x: number) => (x >= 1e6 ? `$${(x / 1e6).toFixed(1)}M` : `$${Math.round(x / 1e3)}K`);
+/* The 28px gutter fits four characters at 8px: "3.7M", "353K", "12M". */
+const fmtPremShort = (x: number) => (x >= 1e7 ? `${Math.round(x / 1e6)}M` : x >= 1e6 ? `${(x / 1e6).toFixed(1)}M` : `${Math.round(x / 1e3)}K`);
 const fmtAlert = (a: FlowAlert) =>
   `${a.side === 'call' ? 'C' : 'P'} ${a.strike} ${a.expiry.slice(5)} (${a.dte}d, ${(a.otmPct * 100).toFixed(0)}% OTM) ${fmtPrem(a.premium)}${a.sweep ? ' sweep' : ''}`;
 const flowTip = (r: InstBuyRow): string => {
@@ -1615,12 +1617,13 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
     });
   }, [rows, pool, live, rsMap, stageMap]);
 
-  const [sortKey, setSortKey] = React.useState<SortKey>('cnf');
+  /* null = the flow order (green first, then most call premium). */
+  const [sortKey, setSortKey] = React.useState<SortKey | null>(null);
   const [sortDir, setSortDir] = React.useState<SortDir>('desc');
   const handleSort = (k: SortKey) => {
     if (sortKey === k) {
       if (sortDir === 'desc') setSortDir('asc');
-      else { setSortKey('cnf'); setSortDir('desc'); }
+      else { setSortKey(null); setSortDir('desc'); }
     } else { setSortKey(k); setSortDir('desc'); }
   };
   const sorted = React.useMemo(() => {
@@ -1632,6 +1635,7 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
         case 'dvol': return dVolOf(s);
         case 'rs': return num(s.rsRating);
         case 'stg': return num(s.stage);
+        case 'cnf': return scoreOf(s);
         default: return (s._flow.tier === 'green' ? 1e12 : 0) + s._flow.bullPrem;   // flow rating, then bullish premium
       }
     };
@@ -1647,7 +1651,7 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
       <InfoDot key={`ib-${s.ticker}-${i}`} block className={`flex items-center gap-0 ${EDGE_TINT[f.tier]} rounded-sm`} text={flowTip(f)}>
         <span className="hidden md:inline-flex shrink-0" style={{ width: 0, overflow: 'visible', position: 'relative' }}><span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)' }}><WatchlistBtn symbol={s.ticker} /></span></span>
         <div className="w-[28px] shrink-0 flex items-center justify-end pr-1.5">
-          <span className="text-[8px] font-bold text-indigo-400/80 tabular-nums">{fmtPrem(f.bullPrem).replace('.0M', 'M')}</span>
+          <span className="text-[8px] font-bold text-indigo-400/80 tabular-nums">{fmtPremShort(f.bullPrem)}</span>
         </div>
         <div className="flex-1 min-w-0">{renderStdRow(parsed, i, undefined, undefined, undefined, undefined, true, undefined, rsMap, stageMap, true)}</div>
       </InfoDot>
@@ -1686,15 +1690,21 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
       </p>
       {data.out.length > 0 && (
         <p className="text-[10px] text-slate-500 font-medium mt-1">
-          <span className="text-rose-400/80">Out (bearish flow):</span> {data.out.map(o => `${o.ticker} — ${o.why}`).join(' · ')}
+          <span className="text-rose-400/80">Out, heavier bearish flow:</span>{' '}
+          {data.out.map((o, i) => (
+            <span key={o.ticker} className="relative group/ibo cursor-help">
+              {i > 0 && <span className="text-slate-600"> · </span>}
+              <span className="text-slate-400 font-semibold">{o.ticker}</span>
+              <span className="absolute bottom-full left-0 mb-2 w-64 px-3.5 py-2.5 rounded-lg bg-[#1a2035] border border-white/10 shadow-2xl text-[10px] leading-[1.6] text-slate-300 font-normal whitespace-normal opacity-0 pointer-events-none group-hover/ibo:opacity-100 transition-opacity z-[9999]">{o.ticker}: {o.why}.</span>
+            </span>
+          ))}
         </p>
       )}
       <p className="relative group/ibf text-[10px] text-slate-500 font-medium mt-1 cursor-help inline-flex items-center gap-2">
         <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-emerald-500/30" />green</span>
         <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-amber-400/30" />yellow</span>
-        <span className="text-slate-600">left number = calls bought</span>
         <span className="absolute bottom-full left-0 mb-2 w-72 px-3.5 py-2.5 rounded-lg bg-[#1a2035] border border-white/10 shadow-2xl text-[10px] leading-[1.6] text-slate-300 font-normal whitespace-normal opacity-0 pointer-events-none group-hover/ibf:opacity-100 transition-opacity z-[9999]">
-          Rows: calls only, under 45 days, 10%+ out of the money, $250K+ clusters with 80%+ paid at the ask, single-leg. Colour is the options flow on the same name today: GREEN = no bearish alerts, or bullish premium 3x+ the bearish. YELLOW = bearish flow is there but smaller. OUT = bearish alerts (puts bought or calls sold, $250K+, 80%+ one side) bigger than the bullish, or the whole day 50%+ bearish. Calls sold are often profit-taking. Nothing shows who traded — &quot;institutional&quot; means size at the ask. Rules, not a tested edge. Hover a row for its contracts.
+          The number left of each ticker is the call premium bought. Rows: calls only, under 45 days, 10%+ out of the money, $250K+ clusters with 80%+ paid at the ask, single-leg. Colour is the options flow on the same name today: GREEN = no bearish alerts, or bullish premium 3x+ the bearish. YELLOW = bearish flow is there but smaller. OUT = bearish alerts (puts bought or calls sold, $250K+, 80%+ one side) bigger than the bullish, or the whole day 50%+ bearish. Calls sold are often profit-taking. Nothing shows who traded — &quot;institutional&quot; means size at the ask. Rules, not a tested edge. Hover a row for its contracts.
         </span>
       </p>
     </div>

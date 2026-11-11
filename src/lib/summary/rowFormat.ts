@@ -186,7 +186,7 @@ export const parseStdLine = (line: string): ParsedStdRow | null => {
   const chg = chgM ? Number(chgM[1]) : 0;
   const rM = t.match(/RVOL (\d+(?:\.\d+)?|—)/);
   const rvol = rM && rM[1] !== '—' ? Number(rM[1]) : null;
-  const vM = t.match(/VOL (\d+(?:\.\d+)?[MK]|—)/);
+  const vM = t.match(/(?<!R)VOL (\d+(?:\.\d+)?[MK]|—)/);
   const vol = vM ? vM[1] : '—';
   const dM = t.match(/(\$\d+(?:\.\d+)?[BMK])/);
   const dvol = dM ? dM[1] : '—';

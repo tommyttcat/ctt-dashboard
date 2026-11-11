@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { SIGNUPS_CLOSED } from '../../lib/signups';
 import DashNav from '../DashNav';
 import { ThemeToggle } from '../ThemeProvider';
 
@@ -79,14 +80,16 @@ export default function BriefsIndex({ briefs }: { briefs: BriefSummary[] }) {
           <div className="mb-8">
             <p className="text-[13px] text-slate-400 leading-relaxed max-w-2xl">
               Daily AI-generated market analysis — tape reading, regime context and sector flow.
-              Briefs are delayed 24 hours. Want tomorrow&apos;s brief before the open?
+              Briefs are delayed 24 hours.{!SIGNUPS_CLOSED && <> Want tomorrow&apos;s brief before the open?</>}
             </p>
+            {!SIGNUPS_CLOSED && (
             <a
               href="/subscribe"
               className="inline-block mt-3 text-[12px] font-bold text-indigo-400 hover:text-indigo-300 transition-colors"
             >
               Start free trial →
             </a>
+            )}
           </div>
 
           {/* Empty state */}
@@ -166,7 +169,7 @@ export default function BriefsIndex({ briefs }: { briefs: BriefSummary[] }) {
           )}
 
           {/* Bottom CTA */}
-          {briefs.length > 0 && (
+          {briefs.length > 0 && !SIGNUPS_CLOSED && (
             <div className="mt-10 border border-indigo-500/20 bg-indigo-500/[0.06] rounded-2xl p-6 md:p-8 text-center">
               <h3 className="text-[15px] font-bold text-slate-200 mb-1">
                 Get tomorrow&apos;s brief before the open
@@ -174,12 +177,14 @@ export default function BriefsIndex({ briefs }: { briefs: BriefSummary[] }) {
               <p className="text-[12px] text-slate-400 mb-4">
                 Try the daily brief at 8:30 AM ET — plus tape updates at every session phase. 14 days free.
               </p>
+              {!SIGNUPS_CLOSED && (
               <a
                 href="/subscribe"
                 className="inline-block bg-indigo-500 hover:bg-indigo-400 text-white font-bold text-[12px] px-6 py-2.5 rounded-lg transition-colors tracking-wide"
               >
                 Start free trial
               </a>
+              )}
             </div>
           )}
         </div>

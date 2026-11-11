@@ -3,10 +3,12 @@ import type { NextRequest } from 'next/server';
 import { getStripe, tierFromPriceId } from '@/lib/stripe';
 import { getUserByEmail, addUser, updateUser } from '@/lib/users';
 import { createSessionToken, SESSION_COOKIE, SESSION_MAX_AGE } from '@/lib/auth';
+import { SIGNUPS_CLOSED } from '@/lib/signups';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
+  if (SIGNUPS_CLOSED) return NextResponse.redirect(new URL('/login', req.url));
   const sessionId = req.nextUrl.searchParams.get('session_id');
   if (!sessionId) {
     return NextResponse.redirect(new URL('/pricing', req.url));

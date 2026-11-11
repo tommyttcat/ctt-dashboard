@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { FREE_ACCESS } from '@/lib/freeAccess';
+import { SIGNUPS_CLOSED } from '@/lib/signups';
 
 const ERRORS: Record<string, string> = {
   'missing-token': 'Invalid sign-in link.',
@@ -275,6 +276,7 @@ export default function LoginPage() {
           </form>
         )}
 
+        {!SIGNUPS_CLOSED && (
         <div className="text-center mt-5">
           <a
             href="/invite?code=CTT-HCXFBF"
@@ -285,6 +287,7 @@ export default function LoginPage() {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
           </a>
         </div>
+        )}
 
         <div className="text-center mt-4 pt-4" style={{ borderTop: '1px solid var(--border-subtle)' }}>
           {/* No prices while everything is free. The page still exists —
@@ -300,7 +303,7 @@ export default function LoginPage() {
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
               Already have an account? <button onClick={() => setShowWaitlist(false)} className="font-medium text-indigo-400 hover:text-indigo-300 cursor-pointer">Sign in</button>
             </p>
-          ) : (
+          ) : SIGNUPS_CLOSED ? null : (
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
               Don&apos;t have an account? <button onClick={() => setShowWaitlist(true)} className="font-medium text-indigo-400 hover:text-indigo-300 cursor-pointer">Join the waitlist</button>
             </p>
