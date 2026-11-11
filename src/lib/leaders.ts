@@ -180,6 +180,51 @@ export interface LeadersLive {
   volume: LeaderRow[];
   oversold?: OversoldRow[];      // absent on payloads written before 15 Oct 2026
   counts: { rsHigh: number; priceHigh: number; heavy: number; oversold?: number };
+  /* Set by /api/leaders/latest when `oversold` is today's real-time early list (OsbEarly) and the
+     rest of the payload is still the last session's (11 Nov 2026). */
+  osb?: { asOf: number; clockEt: number; pre: boolean };
+}
+
+/* Oversold Bounce before 9:45 ET (11 Nov 2026, owner: "I need to see the live data before 9:45 am").
+   The delayed Polygon job's first run of the day is 9:45, so until then the card was yesterday's
+   list. From 8:00 ET the live route builds just the oversold list from Webull real-time quotes
+   (pre-market prints before 9:30) into its own key; /api/leaders/latest swaps it in until the
+   Polygon run of the day lands. Pre-market has no day low in the snapshot, so `lows` keeps the
+   lowest price seen at the 5-minute runs. */
+export const LEADERS_OSB_EARLY_KEY = 'leaders_osb_early_v1';
+export interface OsbEarly {
+  asOf: number;
+  clockEt: number;              // real-time ET minute (not delayed)
+  pre: boolean;                 // pre-market prices
+  pool: number;                 // names in the ADR band that were quoted
+  count: number;                // oversold before the cut to OVERSOLD.max
+  oversold: OversoldRow[];
+  lows: Record<string, number>; // pre-market running low per name, today only
+}
+/** Names the early pass needs quotes for: the ADR band, with a 5-session high. */
+export const osbPoolOf = (state: LeadersState): string[] =>
+  Object.entries(state.names).filter(([, h]) => { const a = h.chk?.[4]; return a != null && a >= OVERSOLD.minAdr && a <= OVERSOLD.maxAdr && (h.wkHi ?? 0) > 0; }).map(([t]) => t);
+
+export function buildOsbEarly(state: LeadersState, quotes: Quote[], clockEt: number, asOf: number, pre: boolean, rsOf?: (t: string) => number | null): OsbEarly {
+  const oversold: OversoldRow[] = [];
+  const lows: Record<string, number> = {};
+  for (const q of quotes) {
+    const h = state.names[q.t];
+    if (!h || !(q.price > 0) || !(q.prevClose > 0)) continue;
+    if (q.lo) lows[q.t] = q.lo;
+    const rs = rsOf ? rsOf(q.t) : null;
+    const track = pre || h.etf ? null : trackingPct(q.vol, h.prof, clockEt);   // Webull regular volume has no pre-market shares
+    const base: LeaderRow = {
+      t: q.t, n: h.n, price: q.price, chg: +((q.price / q.prevClose - 1) * 100).toFixed(2),
+      track: track == null ? null : Math.round(track), raw: null, vol: q.vol, rs,
+      ...(h.etf ? {} : checkFields(h, q.price, rs)), cnf: null, stg: h.etf ? null : h.stg ?? null,
+    };
+    const os = oversoldOf(h, q, base);
+    if (os) oversold.push(h.etf ? { ...os, etf: true } : os);
+  }
+  for (const r of oversold) Object.assign(r, osbScoreOf(r));
+  oversold.sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || b.offLow - a.offLow);
+  return { asOf, clockEt, pre, pool: quotes.length, count: oversold.length, oversold: oversold.slice(0, OVERSOLD.max), lows };
 }
 
 /** Expected cumulative volume by `etMin` from a half-hour profile (linear within a bucket). */

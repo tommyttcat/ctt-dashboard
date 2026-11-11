@@ -1865,8 +1865,10 @@ const OversoldBounce = ({ stageMap, newsMap }: {
   /* Before the first live run of the day (9:45 ET — the data is 15 minutes delayed) the payload is the
      last session's close; say so, or yesterday's moves read as today's (2 Nov 2026). */
   const etDay = (ms: number) => new Date(ms).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
-  const stale = etDay(live.asOf) !== etDay(lq?.asOf ?? openedAt);   // the live-quotes clock, else when the card opened
-  const staleLabel = new Date(live.asOf).toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' });
+  /* 11 Nov 2026: from 8:00 ET the oversold rows are today's real-time early list (live.osb), so date by that. */
+  const osbAsOf = live.osb?.asOf ?? live.asOf;
+  const stale = etDay(osbAsOf) !== etDay(lq?.asOf ?? openedAt);   // the live-quotes clock, else when the card opened
+  const staleLabel = new Date(osbAsOf).toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' });
   const rows = !sort.key ? top : [...top].sort((a, b) => {
     const av = val(a, sort.key!), bv = val(b, sort.key!);
     if (av == null || bv == null) return av == null ? (bv == null ? 0 : 1) : -1;
@@ -1879,7 +1881,8 @@ const OversoldBounce = ({ stageMap, newsMap }: {
   const C = 'inline-block shrink-0';
   const badge = 'inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center';
   const dash = <span className={`${badge} text-slate-600 border-slate-700/40 bg-slate-800/30`}>-</span>;
-  const clock = `${Math.floor(live.clockEt / 60) % 12 || 12}:${String(live.clockEt % 60).padStart(2, '0')}`;
+  const osbClock = live.osb?.clockEt ?? live.clockEt;
+  const clock = `${Math.floor(osbClock / 60) % 12 || 12}:${String(osbClock % 60).padStart(2, '0')}`;
   const header = (
     <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
       <span className={`${H} w-[38px] md:w-[44px] text-center mx-0.5`}>Ticker</span>
@@ -1931,7 +1934,7 @@ const OversoldBounce = ({ stageMap, newsMap }: {
         <span className="text-[9px] text-slate-500 flex-1">Ranked by OSB score (level, bounce off the low, stretch, volume). OL = % off today&apos;s low · OH = % off the 5-day high. Key levels on each ticker&apos;s chart. Untested.</span>
         <InfoDot text={OS_TIP} />
       </div>
-      {stale && <p className="text-[9px] text-amber-300/90 font-semibold mb-1.5">Showing the {staleLabel} close{lq?.live ? ' — Chg% and price are live' : ''}. Today&apos;s list starts at 9:45 AM ET (the data is 15 minutes delayed).</p>}
+      {stale && <p className="text-[9px] text-amber-300/90 font-semibold mb-1.5">Showing the {staleLabel} close{lq?.live ? ' — Chg% and price are live' : ''}. Today&apos;s list starts at 8:00 AM ET.</p>}
       {rows.length === 0 ? <p className="text-[9px] text-slate-500 py-1">Nothing has reached 1.5 ADRs under its 5-session high today.</p> : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-3">
           {list(rows.slice(0, 10), 0)}
@@ -1939,7 +1942,9 @@ const OversoldBounce = ({ stageMap, newsMap }: {
         </div>
       )}
       <p className="text-[10px] text-slate-500 font-medium mt-2">
-        Top {rows.length} of {total} oversold · {live.universe} liquid names · {lq?.live ? `Chg% and price live${lq.session === 'Pre-Market' ? ' (pre-market)' : ''}; the rest` : 'data'} 15 min delayed, as of {stale ? `${staleLabel}, ` : ''}{clock} ET
+        Top {rows.length} of {total} oversold · {live.universe} liquid names · {live.osb && !stale
+          ? `real-time${live.osb.pre ? ' pre-market (low = lowest print at 5-minute checks)' : ''} until the 9:45 update`
+          : `${lq?.live ? `Chg% and price live${lq.session === 'Pre-Market' ? ' (pre-market)' : ''}; the rest` : 'data'} 15 min delayed`}, as of {stale ? `${staleLabel}, ` : ''}{clock} ET
       </p>
     </div>
   );
