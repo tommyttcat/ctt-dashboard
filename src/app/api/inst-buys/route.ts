@@ -6,14 +6,14 @@
 //     No writes, no cron.
 //   - one build = 2 qualifying lists (calls, puts) + 4 net-flow lookups =
 //     6 Unusual Whales calls, run 3 at a time. Measured 11 Nov: ~1 s.
-//   - the BUILD is held 15 minutes in Vercel's server data cache
+//   - the BUILD is held 5 minutes in Vercel's server data cache
 //     (unstable_cache, keyed by session date), shared by every viewer, flat
-//     in users: ~26 builds a session day, ~160 calls, ~3.3K a month against
-//     Starter's 25K.
+//     in users: ~78 builds a session day, ~470 calls, ~10K a month against
+//     Starter's 25K (shared with the Unusual Whales MCP). 15 min was ~3.3K.
 //   - the RESPONSE is never edge-cached (11 Nov): an edge copy is served
 //     without running this function, so the session check is skipped and
 //     anyone with the URL could read licensed data. One small function run
-//     per open tab per 15 minutes instead.
+//     per open tab per 5 minutes instead.
 // What silently defeats it: a changing cache key (the key is the date only).
 // Unusual Whales data is individual-use: owner-only, never published.
 
@@ -30,10 +30,10 @@ export const maxDuration = 30;
 
 /* RS, stage and volume profiles change nightly: one KV read (MGET), held 3 hours. */
 const cachedRefs = unstable_cache(() => loadNightlyRefs(), ['inst-buys-refs-v1'], { revalidate: 10_800 });
-/* One shared build per session day, rebuilt at most every 15 minutes. */
+/* One shared build per session day, rebuilt at most every 5 minutes (owner, 11 Nov; was 15). */
 const cachedBuild = (date: string) => unstable_cache(
   async () => buildInstBuys(new Date(), await cachedRefs().catch(() => null)),
-  ['inst-buys-v5', date], { revalidate: 900 },
+  ['inst-buys-v5', date], { revalidate: 300 },
 )();
 
 export async function GET() {

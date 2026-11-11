@@ -1555,8 +1555,8 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
    Rows use the Setups Summary grid; the TINT is the flow, not the chart
    checklist: green / red = one side 75%+ of the flow, yellow = mixed.
    Owner-only (Unusual Whales is an individual licence).
-   COST: /api/inst-buys, 6 Unusual Whales calls per build held 15 min in the
-   server data cache, 0 KV; prices ride /api/live-quotes. */
+   COST: /api/inst-buys, 6 Unusual Whales calls per build held 5 min in the
+   server data cache (~10K calls a month), ~3 KV reads a day; prices ride /api/live-quotes. */
 const fmtPrem = (x: number) => (x >= 1e6 ? `$${(x / 1e6).toFixed(1)}M` : `$${Math.round(x / 1e3)}K`);
 /* The 28px gutter fits four characters at 8px: "3.7M", "353K", "12M". */
 const fmtPremShort = (x: number) => (x >= 1e7 ? `${Math.round(x / 1e6)}M` : x >= 1e6 ? `${(x / 1e6).toFixed(1)}M` : `${Math.round(x / 1e3)}K`);
@@ -1590,7 +1590,8 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
       .then(j => { if (on) setData(j && typeof j === 'object' ? j : null); })
       .catch(() => { if (on) setData(null); });
     load();
-    const stop = poll(load, pollMs.marketHours(900_000, 3_600_000));
+    /* Every 5 minutes in market hours (the server rebuilds at most every 5), hourly otherwise. */
+    const stop = poll(load, pollMs.marketHours(300_000, 3_600_000));
     return () => { on = false; stop(); };
   }, []);
 
