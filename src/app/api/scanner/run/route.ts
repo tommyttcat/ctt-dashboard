@@ -1948,7 +1948,7 @@ async function runScan(request: Request) {
         benchmark = {
           symbol: 'QQQ',
           price: qqqPrice,
-          day: buildSet(dailyBars, qqqPrice, [10, 21, 30, 50]),
+          day: [...buildSet(dailyBars, qqqPrice, [10, 21, 30, 50]), ...buildSet(dailyBars, qqqPrice, [200], true)],   // 200-day SMA added 11 Nov 2026
           week: buildSet(weeklyBars, qqqPrice, [5, 10, 30, 50], true),
         };
       }
@@ -1973,7 +1973,7 @@ async function runScan(request: Request) {
         benchmarks.push({
           symbol: 'SPY',
           price: spyPrice,
-          day: buildSet(spyDaily, spyPrice, [10, 21, 30, 50]),
+          day: [...buildSet(spyDaily, spyPrice, [10, 21, 30, 50]), ...buildSet(spyDaily, spyPrice, [200], true)],
           week: buildSet(spyWeekly, spyPrice, [5, 10, 30, 50], true),
         });
       }
