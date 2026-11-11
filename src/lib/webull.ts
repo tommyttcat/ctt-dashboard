@@ -128,7 +128,7 @@ async function webullRequest<T>(
     const res = await fetch(url, { method, headers, body: bodyText, signal: controller.signal as any, cache: 'no-store' });
     const text = await res.text();
     // The body goes to the server log only; the thrown message can reach public JSON.
-    if (!res.ok) { console.error('[webull]', res.status, uri, text.slice(0, 200)); throw new Error(`live feed ${res.status} ${uri}`); }
+    if (!res.ok) { console.error('[webull]', res.status, uri, text.slice(0, 200)); throw new Error(`live feed ${res.status} ${uri} ${text.slice(0, 200)}`); }
     return JSON.parse(text) as T;
   } finally {
     clearTimeout(id);
@@ -145,6 +145,17 @@ const numOrNull = (v: any): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+/* Symbols Webull has refused for a category (417 INVALID_SYMBOL, e.g. DJT on 11 Nov 2026).
+   One refused symbol fails the WHOLE batch — every live price on a card goes delayed — so
+   the refused ones are dropped, the call retried once, and remembered for this instance so
+   later calls skip them without spending a request (the endpoint allows 60 a minute). */
+const refused = new Map<string, Set<string>>();
+const refusedIn = (msg: string): string[] => {
+  if (!/INVALID_SYMBOL/.test(msg)) return [];
+  const m = msg.match(/\[([A-Z0-9.,\s-]+)\]/);
+  return m ? m[1].split(',').map(x => x.trim()).filter(Boolean) : [];
+};
+
 /* Real-time Level 1 snapshot. Max 100 symbols per call. `price` is the
    regular-session last; `extPrice` carries the pre/post print when one exists. */
 export async function webullSnapshot(
@@ -152,11 +163,26 @@ export async function webullSnapshot(
   category: 'US_STOCK' | 'US_ETF',
   opts: { extendedHours?: boolean; overnight?: boolean } = {},
 ): Promise<WebullSnapshot[]> {
-  if (symbols.length === 0) return [];
-  const query: Record<string, string> = { symbols: symbols.join(','), category };
-  if (opts.extendedHours) query.extend_hour_required = 'true';
-  if (opts.overnight) query.overnight_required = 'true';
-  const raw = await webullGet<any[]>('/market-data/stocks/snapshots/list', query);
+  const skip = refused.get(category) ?? new Set<string>();
+  let syms = symbols.filter(s => !skip.has(s));
+  if (syms.length === 0) return [];
+  const call = (list: string[]) => {
+    const query: Record<string, string> = { symbols: list.join(','), category };
+    if (opts.extendedHours) query.extend_hour_required = 'true';
+    if (opts.overnight) query.overnight_required = 'true';
+    return webullGet<any[]>('/market-data/stocks/snapshots/list', query);
+  };
+  let raw: any[];
+  try {
+    raw = await call(syms);
+  } catch (e) {
+    const bad = refusedIn(String((e as Error)?.message ?? e));
+    if (!bad.length) throw e;
+    bad.forEach(b => skip.add(b)); refused.set(category, skip);
+    syms = syms.filter(s => !skip.has(s));
+    if (syms.length === 0) return [];
+    raw = await call(syms);
+  }
   return (Array.isArray(raw) ? raw : []).map((r) => ({
     symbol: String(r.symbol || ''),
     price: num(r.price),
