@@ -45,10 +45,14 @@ export async function GET() {
   const empty: InstBuysPayload = { ok: false, asOf: Date.now(), session: s.date, since: s.openUtc, buy: [], sell: [] };
   if (!uwConfigured()) return NextResponse.json({ ...empty, error: 'flow feed key not set' }, { headers: noCacheHeaders() });
   try {
-    return NextResponse.json(await cachedBuild(s.date), { headers: noCacheHeaders() });
+    const out = await cachedBuild(s.date);
+    /* One line per request so "the card is empty" can be checked from the logs (12 Nov). */
+    console.log(`[inst-buys] session ${out.session} built ${Math.round((Date.now() - out.asOf) / 1000)}s ago buy ${out.buy.length} sell ${out.sell.length}${out.error ? ` error ${out.error}` : ''}`);
+    return NextResponse.json(out, { headers: noCacheHeaders() });
   } catch (e) {
     /* A failed build is not cached (unstable_cache keeps only results), so the next poll retries. */
     const error = String((e as Error)?.message || e).slice(0, 160);
+    console.log(`[inst-buys] build failed: ${error}`);
     return NextResponse.json({ ...empty, error }, { headers: noCacheHeaders() });
   }
 }
