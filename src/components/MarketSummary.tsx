@@ -1556,7 +1556,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
    checklist: green / red = one side 75%+ of the flow, yellow = mixed.
    Owner-only (Unusual Whales is an individual licence).
    12 Nov additions (owner): a whole-market flow strip on top, ▲ building /
-   ▽ fading in the last hour and "2d" = sessions in a row on this side (in the
+   ▽ slowing in the last hour and "2d" = sessions in a row on this side (in the
    gutter), and yesterday's bets checked against today's open interest under
    each column.
    COST: /api/inst-buys, 7 Unusual Whales calls per build, one per 5-min slot, in the
@@ -1600,8 +1600,8 @@ const FlowTip = ({ r }: { r: InstBuyRow }) => {
       )}
       {(r.trend !== 'steady' || r.days > 1 || dp?.agrees || r.earnings) && (
         <span className="block">
-          {r.trend === 'building' && <span className="block"><span className={side}>▲</span> Building — {fmtSigned(r.net1h)} last hour, same way as the day.</span>}
-          {r.trend === 'fading' && <span className="block"><span className="text-amber-400">▽</span> Fading — {fmtSigned(r.net1h)} last hour, against the day.</span>}
+          {r.trend === 'building' && <span className="block"><span className={side}>▲</span> {r.dir === 'buy' ? 'Buying' : 'Selling'} building — last hour {fmtSigned(r.net1h)}, more of the same.</span>}
+          {r.trend === 'fading' && <span className="block"><span className="text-amber-400">▽</span> {r.dir === 'buy' ? 'Buying' : 'Selling'} slowing — last hour {fmtSigned(r.net1h)} the other way.</span>}
           {r.days > 1 && <span className="block"><span className="text-slate-400 font-semibold">{r.days}d</span> On this list {r.days} sessions in a row.</span>}
           {dp?.agrees && <span className="block"><span className="text-sky-400 font-semibold">DP</span> Dark pool agrees — shares {r.dir === 'buy' ? 'bought' : 'sold'} too.</span>}
           {r.earnings && <span className="block">Earnings {r.earnings}.</span>}
@@ -1880,9 +1880,9 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
         <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-emerald-500/30" />strong buying</span>
         <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-rose-500/30" />strong selling</span>
         <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-amber-400/30" />mixed</span>
-        <span>▲ building</span><span>▽ fading</span><span>2d = days in a row</span><span>✓ held</span><span className="text-sky-400/80">DP = dark pool agrees</span>
+        <span>▲ building</span><span>▽ slowing</span><span>2d = days in a row</span><span>✓ held</span><span className="text-sky-400/80">DP = dark pool agrees</span>
         <span className="absolute bottom-full left-0 mb-2 w-72 px-3.5 py-2.5 rounded-lg bg-[#1a2035] border border-white/10 shadow-2xl text-[10px] leading-[1.6] text-slate-300 font-normal whitespace-normal opacity-0 pointer-events-none group-hover/ibf:opacity-100 transition-opacity z-[9999]">
-          CNF here is the flow score, 0–100: up to 50 for the size of the net flow ($250K = 0, $10M+ = 50, log scale) and up to 50 for how one-sided it is (50/50 = 0, all one way = 50). Each side shows its top 5 by CNF. The number left of each ticker is its net flow today. Net = calls bought + puts sold − puts bought − calls sold, counting every $250K+ single-leg alert with 80%+ on one side. A name gets on the card when it has at least one big bet under your rules: a call or put bought, under 45 days, 10%+ out of the money, $250K+, 80%+ at the ask. STRONG = one side is 75%+ of the name&apos;s big flow; MIXED = both sides heavy. Selling at the bid is often profit-taking. Nothing shows who traded — &quot;institutional&quot; means size. ▲ BUILDING = $250K+ more of the same in the last hour; ▽ FADING = $250K+ the other way. 2d = on this side&apos;s list 2 sessions in a row (from the 16:20 ET snapshot). HELD ✓ = yesterday&apos;s biggest bought contract added open interest of at least half its size overnight — the position stayed open; ✗ = it didn&apos;t. DP = $5M+ of $1M+ dark-pool share prints today with 60%+ on the row&apos;s side of the quote (bought at the ask for Buying, sold at the bid for Selling); most names print two-sided, so it is rare. Rules, not a tested edge. Hover a row for the split.
+          CNF here is the flow score, 0–100: up to 50 for the size of the net flow ($250K = 0, $10M+ = 50, log scale) and up to 50 for how one-sided it is (50/50 = 0, all one way = 50). Each side shows its top 5 by CNF. The number left of each ticker is its net flow today. Net = calls bought + puts sold − puts bought − calls sold, counting every $250K+ single-leg alert with 80%+ on one side. A name gets on the card when it has at least one big bet under your rules: a call or put bought, under 45 days, 10%+ out of the money, $250K+, 80%+ at the ask. STRONG = one side is 75%+ of the name&apos;s big flow; MIXED = both sides heavy. Selling at the bid is often profit-taking. Nothing shows who traded — &quot;institutional&quot; means size. ▲ BUILDING = $250K+ more of the same in the last hour; ▽ SLOWING = $250K+ went the other way in the last hour. 2d = on this side&apos;s list 2 sessions in a row (from the 16:20 ET snapshot). HELD ✓ = yesterday&apos;s biggest bought contract added open interest of at least half its size overnight — the position stayed open; ✗ = it didn&apos;t. DP = $5M+ of $1M+ dark-pool share prints today with 60%+ on the row&apos;s side of the quote (bought at the ask for Buying, sold at the bid for Selling); most names print two-sided, so it is rare. Rules, not a tested edge. Hover a row for the split.
         </span>
       </p>
     </div>
