@@ -184,7 +184,7 @@ import {
 } from '@/lib/summary/insights';
 import type { EarningsEvent, EconEvent, MacroInsights } from '@/lib/summary/insights';
 import { poll, pollMs } from '@/lib/poll';
-import type { InstBuysPayload, InstBuyRow, FlowAlert, FlowDir, HeldCheck, MarketTide, SectorFlow } from '@/lib/instBuys';
+import type { InstBuysPayload, InstBuyRow, FlowDir, HeldCheck, MarketTide, SectorFlow } from '@/lib/instBuys';
 
 
 
@@ -1567,28 +1567,56 @@ const fmtPrem = (x: number) => (x >= 1e9 ? `$${(x / 1e9).toFixed(1)}B` : x >= 1e
 const fmtSigned = (x: number) => `${x >= 0 ? '+' : '−'}${fmtPrem(Math.abs(x))}`;
 /* The net figure fits four characters at 8px: "3.7M", "353K", "12M". */
 const fmtPremShort = (x: number) => (x >= 1e7 ? `${Math.round(x / 1e6)}M` : x >= 1e6 ? `${(x / 1e6).toFixed(1)}M` : `${Math.round(x / 1e3)}K`);
-const fmtAlert = (a: FlowAlert) =>
-  `${a.side === 'call' ? 'C' : 'P'} ${a.strike} ${a.expiry.slice(5)} ${a.at === 'ask' ? 'bought' : 'sold'} ${fmtPrem(a.premium)}${a.sweep ? ' sweep' : ''}`;
-const flowTip = (r: InstBuyRow): string => {
-  const parts = (xs: [number, string][]) => xs.filter(([v]) => v > 0).map(([v, l]) => `${fmtPrem(v)} ${l}`).join(' + ') || 'none';
+/* Row hover panel: header, bull/bear split, top trades one per line, then one line per gutter mark
+   (▲/▽, Nd, DP) using the same symbol and colour as the gutter. Same 10px size throughout. */
+const FlowTip = ({ r }: { r: InstBuyRow }) => {
+  const side = r.dir === 'buy' ? 'text-emerald-400' : 'text-rose-400';
+  const head = r.tier === 'yellow' ? 'text-amber-300' : side;
   const label = r.tier === 'yellow' ? 'MIXED' : r.dir === 'buy' ? 'STRONG BUYING' : 'STRONG SELLING';
-  return [
-    `${label} — CNF ${r.score} · net ${r.net >= 0 ? '+' : '−'}${fmtPrem(Math.abs(r.net))}`,
-    `Bullish ${fmtPrem(r.bullPrem)}: ${parts([[r.callsBought, 'calls bought'], [r.putsSold, 'puts sold']])}`,
-    `Bearish ${fmtPrem(r.bearPrem)}: ${parts([[r.putsBought, 'puts bought'], [r.callsSold, 'calls sold']])}`,
-    `Biggest: ${r.alerts.map(fmtAlert).join(' · ')}`,
-    r.callsSold || r.putsSold ? 'Selling at the bid is often profit-taking or covered writing, not a new bet.' : '',
-    r.trend === 'building' ? `BUILDING — ${fmtSigned(r.net1h)} in the last hour, more of the same.`
-      : r.trend === 'fading' ? `FADING — ${fmtSigned(r.net1h)} in the last hour, against the day's net.`
-      : `Steady — under $250K either way in the last hour.`,
-    r.days > 1 ? `On the ${r.dir === 'buy' ? 'Buying' : 'Selling'} list ${r.days} sessions in a row.` : '',
-    r.dp
-      ? r.dp.prints
-        ? `Dark pool today: ${fmtPrem(r.dp.total)} in ${r.dp.prints} prints of $1M+ — ${fmtPrem(r.dp.ask)} at the ask, ${fmtPrem(r.dp.bid)} at the bid${r.dp.lean != null ? ` (${Math.round(r.dp.lean * 100)}% ask)` : ''}${r.dp.partial ? ', latest 500 prints only' : ''}.${r.dp.agrees ? ` DP AGREES — shares ${r.dir === 'buy' ? 'bought' : 'sold'} too.` : ''}`
-        : 'Dark pool today: no $1M+ prints.'
-      : '',
-    r.earnings ? `Earnings ${r.earnings}.` : '',
-  ].filter(Boolean).join('\n');
+  const parts = (xs: [number, string][]) => xs.filter(([v]) => v > 0).map(([v, l]) => `${l} ${fmtPrem(v)}`).join(' · ') || 'none';
+  const dp = r.dp;
+  return (
+    <span className="block space-y-1.5">
+      <span className={`block font-semibold ${head}`}>{label} · CNF {r.score} · net {fmtSigned(r.net)}</span>
+      <span className="grid grid-cols-[auto_auto_1fr] gap-x-2">
+        <span className="text-emerald-400">Bullish</span><span className="tabular-nums text-slate-200">{fmtPrem(r.bullPrem)}</span>
+        <span className="text-slate-400">{parts([[r.callsBought, 'calls bought'], [r.putsSold, 'puts sold']])}</span>
+        <span className="text-rose-400">Bearish</span><span className="tabular-nums text-slate-200">{fmtPrem(r.bearPrem)}</span>
+        <span className="text-slate-400">{parts([[r.putsBought, 'puts bought'], [r.callsSold, 'calls sold']])}</span>
+      </span>
+      {r.alerts.length > 0 && (
+        <span className="block">
+          <span className="block text-slate-500">Biggest trades</span>
+          <span className="grid grid-cols-[auto_auto_1fr] gap-x-2 tabular-nums">
+            {r.alerts.slice(0, 4).map((a, i) => (
+              <React.Fragment key={i}>
+                <span>{a.side === 'call' ? 'C' : 'P'} {a.strike} {a.expiry.slice(5)}</span>
+                <span className={a.at === 'ask' ? 'text-slate-200' : 'text-slate-500'}>{a.at === 'ask' ? 'bought' : 'sold'}{a.sweep ? ' sweep' : ''}</span>
+                <span className="text-right">{fmtPrem(a.premium)}</span>
+              </React.Fragment>
+            ))}
+          </span>
+        </span>
+      )}
+      {(r.trend !== 'steady' || r.days > 1 || dp?.agrees || r.earnings) && (
+        <span className="block">
+          {r.trend === 'building' && <span className="block"><span className={side}>▲</span> Building — {fmtSigned(r.net1h)} last hour, same way as the day.</span>}
+          {r.trend === 'fading' && <span className="block"><span className="text-amber-400">▽</span> Fading — {fmtSigned(r.net1h)} last hour, against the day.</span>}
+          {r.days > 1 && <span className="block"><span className="text-slate-400 font-semibold">{r.days}d</span> On this list {r.days} sessions in a row.</span>}
+          {dp?.agrees && <span className="block"><span className="text-sky-400 font-semibold">DP</span> Dark pool agrees — shares {r.dir === 'buy' ? 'bought' : 'sold'} too.</span>}
+          {r.earnings && <span className="block">Earnings {r.earnings}.</span>}
+        </span>
+      )}
+      {dp && (
+        <span className="block text-slate-400">
+          {dp.prints
+            ? <>Dark pool {fmtPrem(dp.total)} in {dp.prints} big prints{dp.lean != null ? ` · ${Math.round(dp.lean * 100)}% at the ask` : ''}{dp.partial ? ' (latest 500 only)' : ''}</>
+            : 'Dark pool: no $1M+ prints today'}
+        </span>
+      )}
+      {(r.callsSold > 0 || r.putsSold > 0) && <span className="block text-slate-500">Sold at the bid is often profit-taking, not a new bet.</span>}
+    </span>
+  );
 };
 const heldTip = (h: HeldCheck): string => [
   `${h.ticker} ${h.side === 'call' ? 'C' : 'P'} ${h.strike} ${h.expiry.slice(5)} — ${h.size.toLocaleString()} contracts bought, ${fmtPrem(h.premium)}`,
@@ -1767,7 +1795,7 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
     parsed.price = priceOf(s);
     const f: InstBuyRow = s._flow;
     return (
-      <InfoDot key={`ib-${f.dir}-${s.ticker}-${i}`} block className={`flex items-center gap-0 ${EDGE_TINT[f.tier]} rounded-sm`} text={flowTip(f)}>
+      <InfoDot key={`ib-${f.dir}-${s.ticker}-${i}`} block className={`flex items-center gap-0 ${EDGE_TINT[f.tier]} rounded-sm`} content={<FlowTip r={f} />}>
         <span className="hidden md:inline-flex shrink-0" style={{ width: 0, overflow: 'visible', position: 'relative' }}><span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)' }}><WatchlistBtn symbol={s.ticker} /></span></span>
         <div className="w-[52px] shrink-0 flex items-center justify-end gap-0.5 pr-1.5 text-[8px] font-bold tabular-nums">
           {f.dp?.agrees && <span className="text-sky-400">DP</span>}
