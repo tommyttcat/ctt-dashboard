@@ -6,12 +6,13 @@
 
 import { useEffect, useState } from 'react';
 import { allModelScores, onModelScores, setModelScores } from './modelScoreStore';
-import { marketIsUp, onMarket, setMarketUp, setEarnings, setGroups, earningsLoaded } from './scans/checklist';
+import { marketIsUp, onMarket, setMarketUp, setEarnings, setGroups, earningsLoaded, setEarningsMoves, earningsMovesLoaded } from './scans/checklist';
 
 export { allModelScores, setModelScores } from './modelScoreStore';
 let pending: Promise<void> | null = null;
 let pendingMkt: Promise<void> | null = null;
 let pendingEarn: Promise<void> | null = null;
+let pendingMoves: Promise<void> | null = null;
 
 export function useModelScores(): number {
   const [v, setV] = useState(allModelScores() ? 1 : 0);
@@ -30,6 +31,13 @@ export function useModelScores(): number {
     if (!earningsLoaded() && !pendingEarn) {
       pendingEarn = fetch('/api/earnings/upcoming').then(r => (r.ok ? r.json() : null))
         .then(j => { if (j?.ok && j.dates) setEarnings(j.dates); })
+        .catch(() => {});
+    }
+    /* The move options price in for those reports (12 Nov 2026) — /api/earnings/moves,
+       login-only, server-cached 1 h per date, no KV. Once per page. */
+    if (!earningsMovesLoaded() && !pendingMoves) {
+      pendingMoves = fetch('/api/earnings/moves').then(r => (r.ok ? r.json() : null))
+        .then(j => { if (j?.ok && j.moves) setEarningsMoves(j.moves); })
         .catch(() => {});
     }
     if (!allModelScores() && !pending) {

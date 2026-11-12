@@ -1559,7 +1559,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
    ▽ fading in the last hour and "2d" = sessions in a row on this side (in the
    gutter), and yesterday's bets checked against today's open interest under
    each column.
-   COST: /api/inst-buys, 7 Unusual Whales calls per build, one per 2-min slot (5 on a busy day), in the
+   COST: /api/inst-buys, 7 Unusual Whales calls per build, one per 5-min slot, in the
    server data cache plus a <=10-call held check hourly (~13K calls a month),
    ~3 KV reads a day; one KV write a day from /api/inst-buys/save; prices ride
    /api/live-quotes. */
@@ -1702,8 +1702,8 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
       .then(j => { if (on) setData(j && typeof j === 'object' ? j : null); })
       .catch(() => { if (on) setData(null); });
     load();
-    /* Every 2 minutes in market hours (the server rebuilds per 2-minute slot, 5 on a busy day), hourly otherwise. */
-    const stop = poll(load, pollMs.marketHours(120_000, 3_600_000));
+    /* Every 5 minutes in market hours (the server rebuilds once per 5-minute slot), hourly otherwise. */
+    const stop = poll(load, pollMs.marketHours(300_000, 3_600_000));
     return () => { on = false; stop(); };
   }, []);
 

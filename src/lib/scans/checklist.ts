@@ -27,6 +27,7 @@
 //   YELLOW in play but fading, volume 1-1.5x, or a thin range
 
 import type { EdgeTier } from './edge';
+import type { EarnHist, EarnMove } from '../earningsMoves';
 
 export type Mode = 'swing' | 'day';
 export type Check = { label: string; ok: boolean | null };
@@ -48,6 +49,41 @@ let groups: Record<string, number> | null = null;
 export const setEarnings = (m: Record<string, string> | null) => { earnings = m; marketListeners.forEach(f => f()); };
 export const setGroups = (m: Record<string, number> | null) => { groups = m; marketListeners.forEach(f => f()); };
 export const earningsLoaded = () => earnings != null;
+
+/* Options-priced earnings moves (12 Nov 2026, /api/earnings/moves): set once per page on the
+   client. History (last 8 reports) is asked for only for rows actually checked with earnings
+   within 3 days — batched, once per ticker per page. Server side both stay null. */
+let moves: Record<string, EarnMove> | null = null;
+const hist: Record<string, EarnHist | null> = {};
+const histWanted = new Set<string>();
+let histTimer: ReturnType<typeof setTimeout> | null = null;
+export const setEarningsMoves = (m: Record<string, EarnMove> | null) => { moves = m; marketListeners.forEach(f => f()); };
+export const earningsMovesLoaded = () => moves != null;
+function wantHist(t: string) {
+  if (typeof window === 'undefined' || t in hist || histWanted.has(t)) return;
+  histWanted.add(t);
+  if (histTimer) return;
+  histTimer = setTimeout(() => {
+    const names = [...histWanted].slice(0, 40);
+    names.forEach(x => { hist[x] = null; histWanted.delete(x); });
+    histTimer = null;
+    fetch(`/api/earnings/moves?hist=${names.join(',')}`).then(r => (r.ok ? r.json() : null))
+      .then(j => { if (j?.hist) { Object.assign(hist, j.hist); marketListeners.forEach(f => f()); } })
+      .catch(() => {});
+  }, 400);
+}
+const pctTxt = (x: number) => `${(Math.abs(x) * 100).toFixed(1)}%`;
+const DAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+/** "options price ±7.5% (Thu after close); last 8 moved more 4/8, biggest −12.3%" — or '' when unknown. */
+export function earningsMoveText(ticker: string): string {
+  const m = moves?.[ticker];
+  if (!m) return '';
+  wantHist(ticker);
+  const day = DAY[new Date(`${m.d}T12:00:00Z`).getUTCDay()];
+  const h = hist[ticker];
+  const past = h ? `; last ${h.n}: moved more than priced ${h.beat}/${h.n}, biggest ${h.max >= 0 ? '+' : '−'}${pctTxt(h.max)}` : '';
+  return `options price ±${pctTxt(m.pct)} (${day} ${m.time === 'pre' ? 'before open' : 'after close'})${past}`;
+}
 const tickerOf = (r: Row): string => String(r.ticker ?? r.symbol ?? r.t ?? '').toUpperCase();
 /** 0 = top third of industry groups, 1 middle, 2 bottom; null = not classified. */
 export const groupOf = (r: Row): number | null => { const g = groups?.[tickerOf(r)]; return typeof g === 'number' ? g : null; };
@@ -111,6 +147,7 @@ export function swingCheck(r: Row | null | undefined, ruleRed = false, today?: s
   const lhAt = num(r.lowerHigh);
   const lowerHigh = lhAt == null ? null : lhAt > 0 && price != null ? price < lhAt : false;
   const dte = daysToEarnings(r, today);
+  const em = dte != null && dte >= 0 && dte <= 3 ? earningsMoveText(tickerOf(r)) : '';
   const mkt = marketUp;
   const grp = groupOf(r);
   /* Volume drying up: the last 3 sessions at 0.8x the 20-day average or less (fields from the
@@ -133,7 +170,7 @@ export function swingCheck(r: Row | null | undefined, ruleRed = false, today?: s
     { label: 'Industry group in the top third (3-month)', ok: grp == null ? null : grp === 0 },
     { label: vd != null ? `Volume drying up (last 3 days ${vd.toFixed(1)}x usual)` : 'Volume drying up', ok: tight },
     { label: t5 != null ? `5-day range ${t5.toFixed(1)} ADR (info only — tightness is not required)` : '5-day range (info only)', ok: null },
-    { label: dte != null && dte >= 0 ? `No earnings within 3 days (${dte}d)` : 'No earnings within 3 days', ok: dte == null ? (earnings ? true : null) : !(dte >= 0 && dte <= 3) },
+    { label: dte != null && dte >= 0 ? `No earnings within 3 days (${dte}d)${em ? ` — ${em}` : ''}` : 'No earnings within 3 days', ok: dte == null ? (earnings ? true : null) : !(dte >= 0 && dte <= 3) },
   ];
   const reds: string[] = [];
   if (ruleRed) reds.push("this scan's own red rule");
@@ -143,7 +180,7 @@ export function swingCheck(r: Row | null | undefined, ruleRed = false, today?: s
   if (above21 === false && (tenOver21 === false || rising === false)) reds.push('below the 21 EMA with the 10 under it or the 21 falling — short-term downtrend');
   if (rs != null && rs < 50) reds.push(`RS ${Math.round(rs)} — lagging the market`);
   if (stretch != null && stretch > 3) reds.push(`${stretch.toFixed(1)} ADRs above the 21 EMA — blow-off`);
-  if (dte != null && dte >= 0 && dte <= 3) reds.push(`earnings in ${dte} day${dte === 1 ? '' : 's'}`);
+  if (dte != null && dte >= 0 && dte <= 3) reds.push(`earnings in ${dte} day${dte === 1 ? '' : 's'}${em ? ` (${em.split(';')[0]})` : ''}`);
   if (mkt === false) reds.push('QQQ below its 200-day');
 
   /* Green needs the core checks actually PASSED (15 Oct 2026) — trend, 10 over 21, holding

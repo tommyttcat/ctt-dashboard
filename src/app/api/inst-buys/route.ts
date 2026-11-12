@@ -22,11 +22,10 @@
 //   - 12 Nov, dark pool: one call per name on the card (40-210 KB measured), held 15
 //     minutes PER TICKER so a name that stays on the list is not re-fetched when
 //     the list changes: <=10 calls per 15 min, ~5.5K a month (~18.5K all in).
-//   - 12 Nov (later), owner asked for more often: the build key is now a TIME SLOT — 2 min in
-//     market hours, 5 min once the API's daily counter passes 900, 60 min otherwise. A new slot
-//     waits for a fresh build (no stale copy after a gap). 7 calls a build: ~1,365 a day if the
-//     card is open the whole session at 2 min; the 900 fallback caps it near ~1,100. Measured
-//     12 Nov 13:20 ET: 266 calls used today (all uses incl. the MCP).
+//   - 12 Nov (later): the build key is now a TIME SLOT — 5 min in market hours, 60 min
+//     otherwise. A new slot waits for a fresh build (no stale copy after a gap). 7 calls a
+//     build, at most 78 builds a session day (~546 calls) — the same ceiling as before.
+//     Measured 12 Nov 13:20 ET: 266 calls used today (all uses incl. the MCP).
 // What silently defeats it: a key that changes more often than the slot (it is date + slot only).
 // Unusual Whales data is individual-use: owner-only, never published.
 
@@ -48,14 +47,12 @@ const cachedRefs = unstable_cache(() => loadNightlyRefs(), ['inst-buys-refs-v2']
 /* One shared build per time slot (12 Nov, owner: "refresh more often"; was one key per day held
    5 min). The slot is part of the key, so a new slot is a miss and the request WAITS for a fresh
    build instead of being handed the last copy while it rebuilds in the background (that served
-   22-24 min old builds after a gap). Slots: 2 min in market hours, 5 min once the API's daily
-   counter passes DAILY_SOFT_CAP (keeps a monthly plan safe), 60 min outside market hours. */
-const DAILY_SOFT_CAP = 900;
+   22-24 min old builds after a gap). Slots: 5 min in market hours (owner, 12 Nov: "every 5
+   minutes is ok"; 2 min ran for an hour), 60 min outside market hours. */
 function buildSlot(s: { openUtc: string }, now = Date.now()): { ms: number; n: number } {
   const o = Date.parse(s.openUtc);
   const open = Number.isFinite(o) && now >= o && now <= o + 390 * 60_000;
-  const used = uwDailyCount();
-  const ms = !open ? 3_600_000 : used != null && used > DAILY_SOFT_CAP ? 300_000 : 120_000;
+  const ms = open ? 300_000 : 3_600_000;
   return { ms, n: Math.floor(now / ms) };
 }
 const cachedBuild = (date: string, slot: { ms: number; n: number }) => unstable_cache(
