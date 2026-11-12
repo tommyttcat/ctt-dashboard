@@ -21,9 +21,17 @@ export async function uwGet<T = any>(path: string): Promise<T> {
     cache: 'no-store',
     signal: AbortSignal.timeout(15_000),
   });
+  const used = Number(res.headers.get('x-uw-daily-req-count'));
+  if (Number.isFinite(used) && used > 0) lastDailyCount = { n: used, at: Date.now() };
   if (!res.ok) throw new Error(`flow feed error ${res.status}`);
   return res.json() as Promise<T>;
 }
+
+/* The API reports today's request count on every response (x-uw-daily-req-count). Kept per
+   server instance so callers can slow down on a busy day; null until a call has been made. */
+let lastDailyCount: { n: number; at: number } | null = null;
+export const uwDailyCount = (): number | null =>
+  lastDailyCount && Date.now() - lastDailyCount.at < 3_600_000 ? lastDailyCount.n : null;
 
 /** Runs the paths at most 3 at a time (the plan's concurrency cap), in order. */
 export async function uwGetMany<T = any>(paths: string[]): Promise<(T | null)[]> {

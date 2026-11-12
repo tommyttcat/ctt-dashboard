@@ -22,7 +22,12 @@
 //   - 12 Nov, dark pool: one call per name on the card (40-210 KB measured), held 15
 //     minutes PER TICKER so a name that stays on the list is not re-fetched when
 //     the list changes: <=10 calls per 15 min, ~5.5K a month (~18.5K all in).
-// What silently defeats it: a changing cache key (the key is the date only).
+//   - 12 Nov (later), owner asked for more often: the build key is now a TIME SLOT — 2 min in
+//     market hours, 5 min once the API's daily counter passes 900, 60 min otherwise. A new slot
+//     waits for a fresh build (no stale copy after a gap). 7 calls a build: ~1,365 a day if the
+//     card is open the whole session at 2 min; the 900 fallback caps it near ~1,100. Measured
+//     12 Nov 13:20 ET: 266 calls used today (all uses incl. the MCP).
+// What silently defeats it: a key that changes more often than the slot (it is date + slot only).
 // Unusual Whales data is individual-use: owner-only, never published.
 
 import { NextResponse } from 'next/server';
@@ -30,7 +35,7 @@ import { cookies } from 'next/headers';
 import { unstable_cache } from 'next/cache';
 import { verifySession, SESSION_COOKIE } from '@/lib/auth';
 import { noCacheHeaders } from '@/lib/httpCache';
-import { uwConfigured } from '@/lib/uw';
+import { uwConfigured, uwDailyCount } from '@/lib/uw';
 import { buildInstBuys, loadNightlyRefs, flowSession, darkPoolFor, dpAgrees, type InstBuysPayload, type InstBuyRow } from '@/lib/instBuys';
 import { checkHeld, type InstHistDay } from '@/lib/instBuysHist';
 import { etDateString } from '@/lib/marketCalendar';
@@ -40,10 +45,22 @@ export const maxDuration = 30;
 
 /* RS, stage and volume profiles change nightly: one KV read (MGET), held 3 hours. */
 const cachedRefs = unstable_cache(() => loadNightlyRefs(), ['inst-buys-refs-v2'], { revalidate: 10_800 });
-/* One shared build per session day, rebuilt at most every 5 minutes (owner, 11 Nov; was 15). */
-const cachedBuild = (date: string) => unstable_cache(
+/* One shared build per time slot (12 Nov, owner: "refresh more often"; was one key per day held
+   5 min). The slot is part of the key, so a new slot is a miss and the request WAITS for a fresh
+   build instead of being handed the last copy while it rebuilds in the background (that served
+   22-24 min old builds after a gap). Slots: 2 min in market hours, 5 min once the API's daily
+   counter passes DAILY_SOFT_CAP (keeps a monthly plan safe), 60 min outside market hours. */
+const DAILY_SOFT_CAP = 900;
+function buildSlot(s: { openUtc: string }, now = Date.now()): { ms: number; n: number } {
+  const o = Date.parse(s.openUtc);
+  const open = Number.isFinite(o) && now >= o && now <= o + 390 * 60_000;
+  const used = uwDailyCount();
+  const ms = !open ? 3_600_000 : used != null && used > DAILY_SOFT_CAP ? 300_000 : 120_000;
+  return { ms, n: Math.floor(now / ms) };
+}
+const cachedBuild = (date: string, slot: { ms: number; n: number }) => unstable_cache(
   async () => buildInstBuys(new Date(), await cachedRefs().catch(() => null)),
-  ['inst-buys-v6', date], { revalidate: 300 },
+  ['inst-buys-v7', date, String(slot.ms), String(slot.n)], { revalidate: Math.round((slot.ms * 2) / 1000) },
 )();
 /* Yesterday's bets against today's open interest: one check per saved day, redone hourly
    (open interest is published overnight, so "pending" clears on the next pass). */
@@ -81,7 +98,8 @@ export async function GET() {
   const empty: InstBuysPayload = { ok: false, asOf: Date.now(), session: s.date, since: s.openUtc, buy: [], sell: [] };
   if (!uwConfigured()) return NextResponse.json({ ...empty, error: 'flow feed key not set' }, { headers: noCacheHeaders() });
   try {
-    const built = await cachedBuild(s.date);
+    const slot = buildSlot(s);
+    const built = await cachedBuild(s.date, slot);
     /* The last snapshot from before today's ET date = "yesterday's bets". */
     const refs = await cachedRefs().catch(() => null);
     const today = etDateString();
@@ -90,7 +108,7 @@ export async function GET() {
     const [buy, sell] = [await withDarkPool(built.session, built.buy), await withDarkPool(built.session, built.sell)];
     const out: InstBuysPayload = { ...built, buy, sell, prev };
     /* One line per request so "the card is empty" can be checked from the logs (12 Nov). */
-    console.log(`[inst-buys] session ${out.session} built ${Math.round((Date.now() - out.asOf) / 1000)}s ago buy ${out.buy.length} sell ${out.sell.length} tide ${out.tide ? 'yes' : 'no'} dp ${[...buy, ...sell].filter(r => r.dp).length} prev ${prev ? prev.date : 'none'}${out.error ? ` error ${out.error}` : ''}`);
+    console.log(`[inst-buys] session ${out.session} built ${Math.round((Date.now() - out.asOf) / 1000)}s ago slot ${slot.ms / 60_000}m uw-today ${uwDailyCount() ?? '?'} buy ${out.buy.length} sell ${out.sell.length} tide ${out.tide ? 'yes' : 'no'} dp ${[...buy, ...sell].filter(r => r.dp).length} prev ${prev ? prev.date : 'none'}${out.error ? ` error ${out.error}` : ''}`);
     return NextResponse.json(out, { headers: noCacheHeaders() });
   } catch (e) {
     /* A failed build is not cached (unstable_cache keeps only results), so the next poll retries. */
