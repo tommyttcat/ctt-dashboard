@@ -19,6 +19,9 @@
 //     saved day: ~13K Unusual Whales calls a month all in. The daily snapshot
 //     rides the same 3-hourly MGET (third key) — still ~3 KV reads a day; its
 //     one write a day is /api/inst-buys/save. All flat in users.
+//   - 12 Nov, dark pool: one call per name on the card (40-210 KB measured), held 15
+//     minutes PER TICKER so a name that stays on the list is not re-fetched when
+//     the list changes: <=10 calls per 15 min, ~5.5K a month (~18.5K all in).
 // What silently defeats it: a changing cache key (the key is the date only).
 // Unusual Whales data is individual-use: owner-only, never published.
 
@@ -28,7 +31,7 @@ import { unstable_cache } from 'next/cache';
 import { verifySession, SESSION_COOKIE } from '@/lib/auth';
 import { noCacheHeaders } from '@/lib/httpCache';
 import { uwConfigured } from '@/lib/uw';
-import { buildInstBuys, loadNightlyRefs, flowSession, type InstBuysPayload } from '@/lib/instBuys';
+import { buildInstBuys, loadNightlyRefs, flowSession, darkPoolFor, dpAgrees, type InstBuysPayload, type InstBuyRow } from '@/lib/instBuys';
 import { checkHeld, type InstHistDay } from '@/lib/instBuysHist';
 import { etDateString } from '@/lib/marketCalendar';
 
@@ -49,6 +52,26 @@ const cachedHeld = (day: InstHistDay) => unstable_cache(
   ['inst-buys-held-v1', day.date, String(day.savedAt)], { revalidate: 3_600 },
 )();
 
+/* Today's big dark-pool prints for one name, held 15 minutes per ticker. */
+const cachedDp = (date: string, ticker: string) => unstable_cache(
+  async () => darkPoolFor(ticker, date),
+  ['inst-buys-dp-v1', date, ticker], { revalidate: 900 },
+)();
+/* Three at a time: the plan allows 3 requests in flight. A failed name just shows no dark pool. */
+async function withDarkPool(date: string, rows: InstBuyRow[]): Promise<InstBuyRow[]> {
+  const out = rows.map(r => ({ ...r }));
+  let next = 0;
+  const worker = async () => {
+    while (next < out.length) {
+      const r = out[next++];
+      const dp = await cachedDp(date, r.ticker).catch(() => null);
+      r.dp = dp ? { ...dp, agrees: dpAgrees(dp, r.dir) } : null;
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+  return out;
+}
+
 export async function GET() {
   const jar = await cookies();
   const session = await verifySession(jar.get(SESSION_COOKIE)?.value).catch(() => null);
@@ -64,9 +87,10 @@ export async function GET() {
     const today = etDateString();
     const day = (refs?.hist ?? []).filter(d => d.date < today).sort((a, b) => b.date.localeCompare(a.date))[0];
     const prev = day ? await cachedHeld(day).catch(() => null) : null;
-    const out: InstBuysPayload = { ...built, prev };
+    const [buy, sell] = [await withDarkPool(built.session, built.buy), await withDarkPool(built.session, built.sell)];
+    const out: InstBuysPayload = { ...built, buy, sell, prev };
     /* One line per request so "the card is empty" can be checked from the logs (12 Nov). */
-    console.log(`[inst-buys] session ${out.session} built ${Math.round((Date.now() - out.asOf) / 1000)}s ago buy ${out.buy.length} sell ${out.sell.length} tide ${out.tide ? 'yes' : 'no'} prev ${prev ? prev.date : 'none'}${out.error ? ` error ${out.error}` : ''}`);
+    console.log(`[inst-buys] session ${out.session} built ${Math.round((Date.now() - out.asOf) / 1000)}s ago buy ${out.buy.length} sell ${out.sell.length} tide ${out.tide ? 'yes' : 'no'} dp ${[...buy, ...sell].filter(r => r.dp).length} prev ${prev ? prev.date : 'none'}${out.error ? ` error ${out.error}` : ''}`);
     return NextResponse.json(out, { headers: noCacheHeaders() });
   } catch (e) {
     /* A failed build is not cached (unstable_cache keeps only results), so the next poll retries. */

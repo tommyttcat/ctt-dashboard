@@ -34,9 +34,18 @@
 //             from the 16:20 ET daily snapshot (lib/instBuysHist).
 //   HELD    — yesterday's biggest bought contract per name, checked against
 //             the next day's open interest (lib/instBuysHist checkHeld).
+//   SECTORS — net flow summed by sector over every name that met the rule
+//             (not just the top 5). Free: same data.
+//   DARK POOL — $1M+ off-exchange share prints on each name today, split by
+//             where they printed against the quote (at/above the ask, at/below
+//             the bid, between). AGREES when $5M+ printed and 60%+ of the
+//             at-ask + at-bid money leans the row's way. Measured 12 Nov: most
+//             names print two-sided (NVDA $335M ask / $350M bid / $338M mid),
+//             so AGREES is rare by design. A print's side is a guess from the
+//             quote; nothing says who traded. Judgement calls. Not tested.
 
 import { kv } from '@vercel/kv';
-import { uwGetMany } from './uw';
+import { uwGet, uwGetMany } from './uw';
 import { RS_KEY } from './indicators/rs';
 import { LEADERS_STATE_KEY, type LeadersState } from './leaders';
 import { getMarketDay, isTradingDay, previousTradingDay, etDateString } from './marketCalendar';
@@ -53,6 +62,17 @@ export type FlowAlert = {
 };
 export type FlowTrend = 'building' | 'fading' | 'steady';
 export type MarketTide = { calls: number; puts: number; at: string; series: number[] };
+export type SectorFlow = { sector: string; net: number; names: number };
+export type DarkPool = {
+  /** $ of $1M+ prints today: total, at/above the ask, at/below the bid */
+  total: number; ask: number; bid: number; prints: number;
+  /** ask / (ask + bid), 0-1; null when nothing printed on either side */
+  lean: number | null;
+  /** hit the 500-print cap, so this covers only the latest part of the day */
+  partial: boolean;
+  /** $5M+ printed and 60%+ leaning the row's way (set by the route) */
+  agrees: boolean;
+};
 export type HeldCheck = {
   ticker: string; dir: FlowDir; sym: string; side: 'call' | 'put'; strike: number; expiry: string;
   size: number; premium: number; oiBefore: number | null; oiAfter: number | null;
@@ -73,12 +93,16 @@ export type InstBuyRow = {
   net1h: number; trend: FlowTrend;
   /** sessions in a row on this side's list, today included (1 = new today) */
   days: number;
+  /** today's big dark-pool prints on this name (added by the route, held 15 min) */
+  dp?: DarkPool | null;
 };
 export type InstBuysPayload = {
   ok: boolean; asOf: number; session: string; since: string;
   buy: InstBuyRow[]; sell: InstBuyRow[]; error?: string;
   /** whole-market net premium today; null when the lookup failed */
   tide?: MarketTide | null;
+  /** net flow by sector over every name that met the rule, biggest first */
+  sectors?: SectorFlow[];
   /** the last saved session's bets and whether they were held (added by the route) */
   prev?: { date: string; buy: HeldCheck[]; sell: HeldCheck[] } | null;
 };
@@ -216,6 +240,18 @@ export async function buildInstBuys(now = new Date(), refs: NightlyRefs | null =
     };
   }).filter(r => r.net !== 0);
 
+  /* Sector totals over every qualifying name, before the top-5 cut. */
+  const bySector = new Map<string, SectorFlow>();
+  for (const r of rows) {
+    const k = r.sector || 'Other';
+    const x = bySector.get(k) ?? { sector: k, net: 0, names: 0 };
+    x.net += r.net; x.names += 1;
+    bySector.set(k, x);
+  }
+  const sectors = [...bySector.values()].filter(x => Math.abs(x.net) >= MIN_PREM)
+    .sort((a, b) => Math.abs(b.net) - Math.abs(a.net)).slice(0, 6)
+    .map(x => ({ ...x, net: Math.round(x.net) }));
+
   const byScore = (a: InstBuyRow, b: InstBuyRow) => b.score - a.score || Math.abs(b.net) - Math.abs(a.net);
   const buy = rows.filter(r => r.dir === 'buy').sort(byScore).slice(0, TOP);
   const sell = rows.filter(r => r.dir === 'sell').sort(byScore).slice(0, TOP);
@@ -226,7 +262,34 @@ export async function buildInstBuys(now = new Date(), refs: NightlyRefs | null =
     while (k < past.length && past[k][r.dir].some(x => x.t === r.ticker)) k++;
     r.days = 1 + k;
   }
-  return { ...base, ok: true, buy, sell, tide };
+  return { ...base, ok: true, buy, sell, tide, sectors };
+}
+
+export const DP_MIN_PRINT = 1_000_000;
+const DP_AGREE_TOTAL = 5_000_000;
+const DP_AGREE_LEAN = 0.6;
+
+/** Today's $1M+ dark-pool prints on one name, summarised (one Unusual Whales call, 40-210 KB). */
+export async function darkPoolFor(ticker: string, date: string): Promise<DarkPool | null> {
+  const raw = await uwGet<{ data: any[] }>(`/api/darkpool/${encodeURIComponent(ticker)}?date=${date}&min_premium=${DP_MIN_PRINT}&limit=500`);
+  const rows = (raw?.data ?? []).filter(x => x && !x.canceled);
+  let ask = 0, bid = 0, total = 0;
+  for (const x of rows) {
+    const prem = n(x.premium), px = n(x.price), b = n(x.nbbo_bid), a = n(x.nbbo_ask);
+    total += prem;
+    if (a > 0 && px >= a) ask += prem;
+    else if (b > 0 && px <= b) bid += prem;
+  }
+  return {
+    total: Math.round(total), ask: Math.round(ask), bid: Math.round(bid), prints: rows.length,
+    lean: ask + bid > 0 ? ask / (ask + bid) : null, partial: (raw?.data ?? []).length >= 500, agrees: false,
+  };
+}
+
+/** Does the dark pool lean the same way as the options flow on this row? */
+export function dpAgrees(dp: DarkPool, dir: FlowDir): boolean {
+  if (dp.total < DP_AGREE_TOTAL || dp.lean == null) return false;
+  return dir === 'buy' ? dp.lean >= DP_AGREE_LEAN : dp.lean <= 1 - DP_AGREE_LEAN;
 }
 
 /* Market tide rows are cumulative 5-minute ticks: net call premium (calls bought − sold) and

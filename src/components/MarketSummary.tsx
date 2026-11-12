@@ -184,7 +184,7 @@ import {
 } from '@/lib/summary/insights';
 import type { EarningsEvent, EconEvent, MacroInsights } from '@/lib/summary/insights';
 import { poll, pollMs } from '@/lib/poll';
-import type { InstBuysPayload, InstBuyRow, FlowAlert, FlowDir, HeldCheck, MarketTide } from '@/lib/instBuys';
+import type { InstBuysPayload, InstBuyRow, FlowAlert, FlowDir, HeldCheck, MarketTide, SectorFlow } from '@/lib/instBuys';
 
 
 
@@ -1582,6 +1582,11 @@ const flowTip = (r: InstBuyRow): string => {
       : r.trend === 'fading' ? `FADING — ${fmtSigned(r.net1h)} in the last hour, against the day's net.`
       : `Steady — under $250K either way in the last hour.`,
     r.days > 1 ? `On the ${r.dir === 'buy' ? 'Buying' : 'Selling'} list ${r.days} sessions in a row.` : '',
+    r.dp
+      ? r.dp.prints
+        ? `Dark pool today: ${fmtPrem(r.dp.total)} in ${r.dp.prints} prints of $1M+ — ${fmtPrem(r.dp.ask)} at the ask, ${fmtPrem(r.dp.bid)} at the bid${r.dp.lean != null ? ` (${Math.round(r.dp.lean * 100)}% ask)` : ''}${r.dp.partial ? ', latest 500 prints only' : ''}.${r.dp.agrees ? ` DP AGREES — shares ${r.dir === 'buy' ? 'bought' : 'sold'} too.` : ''}`
+        : 'Dark pool today: no $1M+ prints.'
+      : '',
     r.earnings ? `Earnings ${r.earnings}.` : '',
   ].filter(Boolean).join('\n');
 };
@@ -1594,6 +1599,29 @@ const heldTip = (h: HeldCheck): string => [
     : h.status === 'not held' ? "NOT HELD — open interest did not rise by half the size: closed, or it closed someone else's position."
     : 'PENDING — checked again hourly.',
 ].join('\n');
+
+const SECTOR_SHORT: Record<string, string> = {
+  'Communication Services': 'Comm Svcs', 'Consumer Cyclical': 'Cons Cyclical', 'Consumer Defensive': 'Cons Staples',
+  'Financial Services': 'Financials', 'Basic Materials': 'Materials',
+};
+/* Net flow by sector over every name that met the rule, not just the top 5 shown. */
+const SectorLine = ({ sectors }: { sectors: SectorFlow[] }) => (
+  <div className="mb-2">
+    <InfoDot text={[
+      'SECTORS — net options flow by sector today.',
+      'Sums every name that met the card\'s rule (not just the top 5 shown): calls bought + puts sold − puts bought − calls sold.',
+      ...sectors.map(x => `${x.sector}: ${fmtSigned(x.net)} across ${x.names} name${x.names === 1 ? '' : 's'}`),
+      'Shows where the big money is leaning. Not tested.',
+    ].join('\n')}>
+      <span className="text-[10px] text-slate-500 font-medium inline-flex items-center gap-x-2 gap-y-0.5 flex-wrap">
+        <span className="font-bold tracking-wider uppercase text-slate-400">Sectors</span>
+        {sectors.map(x => (
+          <span key={x.sector}>{SECTOR_SHORT[x.sector] ?? x.sector} <span className={`tabular-nums font-semibold ${x.net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{fmtSigned(x.net)}</span></span>
+        ))}
+      </span>
+    </InfoDot>
+  </div>
+);
 
 /* Whole-market flow: net call premium vs net put premium today, with the day's call − put line. */
 const TideStrip = ({ tide }: { tide: MarketTide }) => {
@@ -1742,6 +1770,7 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
       <InfoDot key={`ib-${f.dir}-${s.ticker}-${i}`} block className={`flex items-center gap-0 ${EDGE_TINT[f.tier]} rounded-sm`} text={flowTip(f)}>
         <span className="hidden md:inline-flex shrink-0" style={{ width: 0, overflow: 'visible', position: 'relative' }}><span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)' }}><WatchlistBtn symbol={s.ticker} /></span></span>
         <div className="w-[52px] shrink-0 flex items-center justify-end gap-0.5 pr-1.5 text-[8px] font-bold tabular-nums">
+          {f.dp?.agrees && <span className="text-sky-400">DP</span>}
           {f.days > 1 && <span className="text-slate-400">{f.days}d</span>}
           {f.trend === 'building' && <span className={f.dir === 'buy' ? 'text-emerald-400' : 'text-rose-400'}>▲</span>}
           {f.trend === 'fading' && <span className="text-amber-400">▽</span>}
@@ -1808,6 +1837,7 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
         </p>
       )}
       {data.tide && <TideStrip tide={data.tide} />}
+      {!!data.sectors?.length && <SectorLine sectors={data.sectors} />}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
         {column('buy', buys)}
         {column('sell', sells)}
@@ -1822,9 +1852,9 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
         <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-emerald-500/30" />strong buying</span>
         <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-rose-500/30" />strong selling</span>
         <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-amber-400/30" />mixed</span>
-        <span>▲ building</span><span>▽ fading</span><span>2d = days in a row</span><span>✓ held</span>
+        <span>▲ building</span><span>▽ fading</span><span>2d = days in a row</span><span>✓ held</span><span className="text-sky-400/80">DP = dark pool agrees</span>
         <span className="absolute bottom-full left-0 mb-2 w-72 px-3.5 py-2.5 rounded-lg bg-[#1a2035] border border-white/10 shadow-2xl text-[10px] leading-[1.6] text-slate-300 font-normal whitespace-normal opacity-0 pointer-events-none group-hover/ibf:opacity-100 transition-opacity z-[9999]">
-          CNF here is the flow score, 0–100: up to 50 for the size of the net flow ($250K = 0, $10M+ = 50, log scale) and up to 50 for how one-sided it is (50/50 = 0, all one way = 50). Each side shows its top 5 by CNF. The number left of each ticker is its net flow today. Net = calls bought + puts sold − puts bought − calls sold, counting every $250K+ single-leg alert with 80%+ on one side. A name gets on the card when it has at least one big bet under your rules: a call or put bought, under 45 days, 10%+ out of the money, $250K+, 80%+ at the ask. STRONG = one side is 75%+ of the name&apos;s big flow; MIXED = both sides heavy. Selling at the bid is often profit-taking. Nothing shows who traded — &quot;institutional&quot; means size. ▲ BUILDING = $250K+ more of the same in the last hour; ▽ FADING = $250K+ the other way. 2d = on this side&apos;s list 2 sessions in a row (from the 16:20 ET snapshot). HELD ✓ = yesterday&apos;s biggest bought contract added open interest of at least half its size overnight — the position stayed open; ✗ = it didn&apos;t. Rules, not a tested edge. Hover a row for the split.
+          CNF here is the flow score, 0–100: up to 50 for the size of the net flow ($250K = 0, $10M+ = 50, log scale) and up to 50 for how one-sided it is (50/50 = 0, all one way = 50). Each side shows its top 5 by CNF. The number left of each ticker is its net flow today. Net = calls bought + puts sold − puts bought − calls sold, counting every $250K+ single-leg alert with 80%+ on one side. A name gets on the card when it has at least one big bet under your rules: a call or put bought, under 45 days, 10%+ out of the money, $250K+, 80%+ at the ask. STRONG = one side is 75%+ of the name&apos;s big flow; MIXED = both sides heavy. Selling at the bid is often profit-taking. Nothing shows who traded — &quot;institutional&quot; means size. ▲ BUILDING = $250K+ more of the same in the last hour; ▽ FADING = $250K+ the other way. 2d = on this side&apos;s list 2 sessions in a row (from the 16:20 ET snapshot). HELD ✓ = yesterday&apos;s biggest bought contract added open interest of at least half its size overnight — the position stayed open; ✗ = it didn&apos;t. DP = $5M+ of $1M+ dark-pool share prints today with 60%+ on the row&apos;s side of the quote (bought at the ask for Buying, sold at the bid for Selling); most names print two-sided, so it is rare. Rules, not a tested edge. Hover a row for the split.
         </span>
       </p>
     </div>
