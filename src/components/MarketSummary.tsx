@@ -104,7 +104,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useModelScores, allModelScores } from '@/lib/modelScores';
 import { blendModelMap } from '@/lib/scans/edge';
 import { cachedJson, fetchScannerLatest } from '@/lib/scannerLatest';
-import { isTradingDay } from '@/lib/marketCalendar';
+import { isTradingDay, etDateString } from '@/lib/marketCalendar';
 import TickerChartHover, { ActiveChartProvider, WatchlistBtn } from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
 import { hrsEdgeGrade } from '@/lib/scans/hrs';
@@ -1717,9 +1717,17 @@ const InstitutionalBuys = ({ pool, rsMap, stageMap }: { pool: any[]; rsMap?: Rec
 
   const liveCount = [...buys, ...sells].filter((x: any) => x._live).length;
   const sessionLabel = data.session ? new Date(`${data.session}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }) : '';
+  /* Before 9:30 ET, or on a day the market is shut, the card holds the last session's flow — say so. */
+  const todayEt = etDateString();
+  const oldSession = !!data.session && data.session !== todayEt;
 
   return (
     <div>
+      {oldSession && (
+        <p className="text-[10px] text-amber-400/80 font-medium mb-2">
+          Showing flow from {sessionLabel} — {isTradingDay(todayEt) ? 'today\'s starts at 9:30 ET, when options open.' : 'the market is closed today.'}
+        </p>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
         {column('buy', buys)}
         {column('sell', sells)}
