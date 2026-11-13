@@ -1,6 +1,7 @@
 const BSKY_SERVICE = 'https://bsky.social';
-/** Owner stopped all Bluesky posting 13 Nov 2026. See postToBluesky. */
-const BLUESKY_POSTING_ON = false;
+/** Scheduled Bluesky posts on/off. Off for an hour on 13 Nov 2026, back ON the same day: the owner
+    had mistaken people's comments on our posts for the (stopped) reply bot. See postToBluesky. */
+const BLUESKY_POSTING_ON = true;
 
 interface BskySession {
   accessJwt: string;
@@ -70,11 +71,11 @@ export async function postToBluesky(
     thumb?: { data: Buffer | Uint8Array; mimeType?: string };
   },
 ): Promise<{ uri: string; cid: string } | null> {
-  /* OFF (13 Nov 2026, owner: "the bluesky bot is still posting. make it stop"). Every Bluesky
-     post — phase/session posts, Scorecard, Top Setups, Weekly Wrap — goes through here, so this
-     one switch stops them all. X, Substack, emails and the Bluesky READ for Social Sentiment
-     are untouched. Returns null, the same as missing credentials, which every caller handles.
-     To turn back on: set BLUESKY_POSTING_ON = true and deploy. */
+  /* Kill switch (13 Nov 2026). Every Bluesky post — phase/session posts, Scorecard, Top Setups,
+     Weekly Wrap — goes through here, so BLUESKY_POSTING_ON = false stops them all. X, Substack,
+     emails and the Bluesky READ for Social Sentiment never pass through it. Off returns null,
+     the same as missing credentials, which every caller handles. The reply/follow bot is a
+     separate local script (CTT/bsky-bot), stopped since 11 Nov — not this. */
   if (!BLUESKY_POSTING_ON) {
     console.log('[bluesky] posting is off — skipped');
     return null;
