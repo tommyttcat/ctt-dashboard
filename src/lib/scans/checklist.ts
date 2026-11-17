@@ -49,6 +49,8 @@ let groups: Record<string, number> | null = null;
 export const setEarnings = (m: Record<string, string> | null) => { earnings = m; marketListeners.forEach(f => f()); };
 export const setGroups = (m: Record<string, number> | null) => { groups = m; marketListeners.forEach(f => f()); };
 export const earningsLoaded = () => earnings != null;
+/** Next report date for a ticker: undefined until the calendar loads, null when none is due (17 Nov 2026, OSB card). */
+export const earningsDateOf = (t: string): string | null | undefined => (earnings == null ? undefined : earnings[t.toUpperCase()]?.slice(0, 10) ?? null);
 
 /* Options-priced earnings moves (12 Nov 2026, /api/earnings/moves): set once per page on the
    client. History (last 8 reports) is asked for only for rows actually checked with earnings

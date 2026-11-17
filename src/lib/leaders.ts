@@ -45,6 +45,9 @@ export interface LeaderHist {
   wkHi?: number;
   /* Key levels under the last close (16 Oct 2026, keyLevelsOf), nearest first. */
   lv?: number[];
+  /* Bollinger Band inputs (17 Nov 2026, bbSumsOf): the sum and the sum of squares of the last 19
+     closes, so the live job finishes the 20-period band with today's price (bbLowerOf). */
+  bb?: [number, number];
   /* Weinstein stage at the last close ('2A'): not stored — the live job attaches it from the
      System nightly's map (lib/stageBreadth STAGE_MAP_KEY) before buildLive. */
   stg?: string;
@@ -94,6 +97,9 @@ export interface OversoldRow extends LeaderRow {
   status?: LevelStatus;
   score?: number;               // OSB score 0-100 (osbScoreOf), the list's order
   sc?: [number, number, number, number | null];  // its parts: level, off low, stretch, volume (null: no volume profile)
+  bbLo?: number | null;         // lower Bollinger Band (20, 2) with today's price as the 20th close; null before the nightly stores `bb`
+  gap?: number | null;          // today's open vs yesterday's close, % (pre-market: the price now)
+  gapPre?: boolean;             // `gap` is a pre-market price, not the open
 }
 /* Key levels (16 Oct 2026, from Monis's SOXL entry chart: a horizontal level, the dip under it
    circled). Swing points of the last 60 sessions — a low, or a high price has since cleared,
@@ -154,6 +160,50 @@ export function osbScoreOf(r: Pick<OversoldRow, 'status' | 'offLow' | 'adr' | 'd
   const raw = lvl + ol + str + (vol ?? 0);
   return { score: Math.round(vol == null ? (raw * 100) / 88 : raw), sc: [lvl, ol, str, vol] };
 }
+/* MONIS CHECKS (17 Nov 2026). His no-trade post on SOXX, NVDA earnings day: "inside BB",
+   "gapped up, which is likely to be sold off", and not playing "pure volatility" on a binary
+   event. Shown on each row as passes out of 3 — display only: they do not change the OSB score,
+   the order or the row colour. UNTESTED. (His other two reasons are already the card: the
+   1.5-ADR oversold gate, and the key-level status.) */
+export const OSB_GAP_UP_PCT = 0.5;   // an open this far above yesterday's close counts as a gap up
+/* Market-moving reporters: on their earnings day the whole group trades the report. */
+export const OSB_BELLWETHERS = ['NVDA', 'AVGO', 'AMD', 'MU', 'TSM', 'ASML', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'TSLA', 'NFLX', 'ORCL'] as const;
+/** Sum and sum of squares of the last 19 closes (oldest first in), or undefined with fewer. */
+export function bbSumsOf(closes: number[]): [number, number] | undefined {
+  const c = closes.filter(x => x > 0).slice(-19);
+  if (c.length < 19) return undefined;
+  return [+c.reduce((s, x) => s + x, 0).toFixed(4), +c.reduce((s, x) => s + x * x, 0).toFixed(2)];
+}
+/** The lower Bollinger Band (20, 2, population SD as on TradingView) with `price` as the 20th close. */
+export function bbLowerOf(bb: [number, number] | undefined, price: number): number | null {
+  if (!bb || !(price > 0)) return null;
+  const m = (bb[0] + price) / 20;
+  const sd = Math.sqrt(Math.max(0, (bb[1] + price * price) / 20 - m * m));
+  return +(m - 2 * sd).toFixed(2);
+}
+export interface MonisCheck { key: 'bb' | 'gap' | 'earn'; pass: boolean | null; text: string }
+/** The three checks for one row. `earnDate` is the next report (YYYY-MM-DD; undefined = calendar not loaded, null = none soon). */
+export function monisChecksOf(r: Pick<OversoldRow, 'lo' | 'price' | 'bbLo' | 'gap' | 'gapPre' | 'etf'>, earnDate: string | null | undefined, today: string, nextDay: string): MonisCheck[] {
+  const bb: MonisCheck = r.bbLo == null
+    ? { key: 'bb', pass: null, text: 'Bollinger Band: not checked yet (starts after the nightly run)' }
+    : r.lo <= r.bbLo
+      ? { key: 'bb', pass: true, text: `Outside the lower Bollinger Band today: low ${r.lo.toFixed(2)} ≤ band ${r.bbLo.toFixed(2)}${r.price > r.bbLo ? ` (back inside at ${r.price.toFixed(2)})` : ''}` }
+      : { key: 'bb', pass: false, text: `Inside the Bollinger Bands: low ${r.lo.toFixed(2)} never reached the lower band ${r.bbLo.toFixed(2)}` };
+  const gap: MonisCheck = r.gap == null
+    ? { key: 'gap', pass: null, text: 'Gap: no open price' }
+    : r.gap >= OSB_GAP_UP_PCT
+      ? { key: 'gap', pass: false, text: `Gapped up ${r.gap.toFixed(1)}% ${r.gapPre ? 'pre-market' : 'at the open'} — likely to be sold` }
+      : { key: 'gap', pass: true, text: `No gap up (${r.gap >= 0 ? '+' : ''}${r.gap.toFixed(1)}% ${r.gapPre ? 'pre-market' : 'at the open'})` };
+  const earn: MonisCheck = r.etf
+    ? { key: 'earn', pass: true, text: 'No earnings (ETF)' }
+    : earnDate === undefined
+      ? { key: 'earn', pass: null, text: 'Earnings: calendar not loaded' }
+      : earnDate === today || earnDate === nextDay
+        ? { key: 'earn', pass: false, text: `Earnings ${earnDate === today ? 'today' : `next session (${earnDate})`} — a binary event` }
+        : { key: 'earn', pass: true, text: 'No earnings today or next session' };
+  return [bb, gap, earn];
+}
+
 /** The oversold-bounce row for one name, or null when it does not qualify. */
 export function oversoldOf(h: LeaderHist, q: Quote, base: LeaderRow): OversoldRow | null {
   const adr = h.chk?.[4];
@@ -163,8 +213,11 @@ export function oversoldOf(h: LeaderHist, q: Quote, base: LeaderRow): OversoldRo
   const level = h.wkHi * (1 - (OVERSOLD.adrs * adr) / 100);
   if (q.lo > level) return null;
   const ks = levelStatusOf(h.lv, q.price, q.lo, adr);
+  const pre = !(q.o && q.o > 0);
+  const gap = q.prevClose > 0 ? +((((pre ? q.price : q.o!) / q.prevClose) - 1) * 100).toFixed(2) : null;
   return {
     ...base, adr, level: +level.toFixed(2), wkHi: h.wkHi, lo: q.lo, key: ks.key, status: ks.status, ...(h.lv?.length ? { lvs: h.lv } : {}),
+    bbLo: bbLowerOf(h.bb, q.price), gap, ...(pre ? { gapPre: true } : {}),
     offLow: +((q.price / q.lo - 1) * 100).toFixed(2),
     deep: +(((h.wkHi - q.lo) / h.wkHi) * 100 / adr).toFixed(2),
   };

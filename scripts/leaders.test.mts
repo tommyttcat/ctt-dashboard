@@ -1,6 +1,6 @@
 /* scripts/leaders.test.mts — Liquid Leaders arithmetic (lib/leaders). */
 
-import { expectedCum, trackingPct, profileOf, buildLive, chkOf, checkFields, oversoldOf, isLeveragedBull, keyLevelsOf, levelStatusOf, liveCnf, osbScoreOf, BUCKETS, type LeadersState } from '../src/lib/leaders.ts';
+import { expectedCum, trackingPct, profileOf, buildLive, chkOf, checkFields, oversoldOf, isLeveragedBull, keyLevelsOf, levelStatusOf, liveCnf, osbScoreOf, bbSumsOf, bbLowerOf, monisChecksOf, BUCKETS, type LeadersState } from '../src/lib/leaders.ts';
 import { eq, near, ok, done } from './testkit.mts';
 
 // A flat day: 100 shares every half hour -> cumulative 100, 200, ... 1300.
@@ -122,5 +122,32 @@ for (const n of ['Direxion Daily Semiconductor Bear 3X Shares', 'ProShares Ultra
   eq('OSB: half an ADR off the low earns 15', osbScoreOf({ status: 'lost', offLow: 4, adr: 8, deep: 1.5, track: 0 }).sc[1], 15);
   eq('OSB: no volume profile scales from 88', osbScoreOf({ status: 'reclaimed', offLow: 8, adr: 8, deep: 3, track: null }).score, 100);
   eq('OSB: reclaimed outranks a deeper lost name', osbScoreOf({ status: 'reclaimed', offLow: 2, adr: 8, deep: 1.6, track: 0 }).score > osbScoreOf({ status: 'lost', offLow: 2, adr: 8, deep: 3, track: 100 }).score, true);
+}
+
+// Monis checks (17 Nov 2026)
+{
+  eq('BB: under 19 closes, no sums', bbSumsOf(Array(18).fill(100)), undefined);
+  const flat = bbSumsOf(Array(19).fill(100))!;
+  eq('BB: flat closes, band at the price', bbLowerOf(flat, 100), 100);
+  /* 19 closes of 100 and today 90: mean 99.5, population SD sqrt(4.75)=2.179, lower 95.14 */
+  eq('BB: lower band with today as the 20th close', bbLowerOf(flat, 90), 95.14);
+  eq('BB: no sums, null', bbLowerOf(undefined, 90), null);
+  const base = { lo: 90, price: 92, bbLo: 95.14, gap: -2, etf: false };
+  const pass = (r: object, ...e: (string | null | undefined)[]) => monisChecksOf({ ...base, ...r } as never, e.length ? e[0] : null, '2026-11-17', '2026-11-18').map(c => c.pass).join();
+  eq('all three pass', pass({}), 'true,true,true');
+  eq('inside the band fails BB', pass({ lo: 96 }), 'false,true,true');
+  eq('gap up 0.5% fails', pass({ gap: 0.5 }), 'true,false,true');
+  eq('earnings today fails', pass({}, '2026-11-17'), 'true,true,false');
+  eq('earnings next session fails', pass({}, '2026-11-18'), 'true,true,false');
+  eq('earnings later passes', pass({}, '2026-11-24'), 'true,true,true');
+  eq('calendar not loaded, unknown', pass({}, undefined), 'true,true,');
+  eq('no band yet, unknown', pass({ bbLo: null }), ',true,true');
+  const h = { maxClose: 0, maxRs: 0, adv: 1, prof: [], chk: [0, 0, 0, 0, 8, null, null] as never, wkHi: 100, bb: flat };
+  const b = { t: 'X', price: 0, chg: 0, track: null, raw: null };
+  const r1 = oversoldOf(h, { t: 'X', price: 90, prevClose: 92, vol: 1, lo: 88, o: 93 }, b)!;
+  eq('gap from the open', r1.gap, 1.09);
+  eq('BB lower on the row', r1.bbLo, 95.14);
+  const r2 = oversoldOf(h, { t: 'X', price: 90, prevClose: 92, vol: 1, lo: 88 }, b)!;
+  eq('no open: pre-market gap from the price', `${r2.gap},${r2.gapPre}`, '-2.17,true');
 }
 done('liquid leaders');
