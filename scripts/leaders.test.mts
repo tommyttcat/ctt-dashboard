@@ -1,6 +1,6 @@
 /* scripts/leaders.test.mts — Liquid Leaders arithmetic (lib/leaders). */
 
-import { expectedCum, trackingPct, profileOf, buildLive, chkOf, checkFields, oversoldOf, isLeveragedBull, keyLevelsOf, levelStatusOf, liveCnf, osbScoreOf, bbSumsOf, bbLowerOf, monisChecksOf, BUCKETS, type LeadersState } from '../src/lib/leaders.ts';
+import { expectedCum, trackingPct, profileOf, buildLive, chkOf, checkFields, oversoldOf, isLeveragedBull, keyLevelsOf, levelStatusOf, liveCnf, osbScoreOf, osbThin, bbSumsOf, bbLowerOf, monisChecksOf, BUCKETS, type LeadersState } from '../src/lib/leaders.ts';
 import { eq, near, ok, done } from './testkit.mts';
 
 // A flat day: 100 shares every half hour -> cumulative 100, 200, ... 1300.
@@ -58,8 +58,8 @@ eq('no chk = no fields', Object.keys(checkFields({ maxClose: 1, maxRs: 1, adv: 1
   eq('depth in ADRs (20% under / 8%)', r.deep, 2.5);
   const st: LeadersState = { date: 'd', builtAt: '', names: { A: { ...h(8), prof }, B: { ...h(8), prof }, C: { ...h(8), prof } } };
   const lv = buildLive(st, [
-    { t: 'A', price: 85, prevClose: 95, vol: 1, lo: 84 },   // +1.2% off the low
-    { t: 'B', price: 88, prevClose: 95, vol: 1, lo: 80 },   // +10% off the low
+    { t: 'A', price: 85, prevClose: 95, vol: 200_000, lo: 84 },   // +1.2% off the low
+    { t: 'B', price: 88, prevClose: 95, vol: 200_000, lo: 80 },   // +10% off the low
     { t: 'C', price: 99, prevClose: 99, vol: 1, lo: 98 },   // not oversold
   ], 500, 600, 1, { spy: null, qqq: null });
   eq('sorted by bounce off the low (TopD)', lv.oversold!.map(x => x.t).join(), 'B,A');
@@ -77,8 +77,8 @@ for (const n of ['Direxion Daily Semiconductor Bear 3X Shares', 'ProShares Ultra
     STK: { maxClose: 50, maxRs: 0.01, adv: 1, prof, chk, wkHi: 100 },
   } };
   const lv = buildLive(st, [
-    { t: 'SOXL', price: 86, prevClose: 95, vol: 1, lo: 80 },
-    { t: 'STK', price: 86, prevClose: 95, vol: 1, lo: 80 },
+    { t: 'SOXL', price: 86, prevClose: 95, vol: 200_000, lo: 80 },
+    { t: 'STK', price: 86, prevClose: 95, vol: 200_000, lo: 80 },
   ], 500, 600, 1, { spy: null, qqq: null });
   eq('ETF on the oversold list, flagged', lv.oversold!.filter(r => r.etf).map(r => r.t).join(), 'SOXL');
   eq('ETF kept out of the universe count', lv.universe, 1);
@@ -149,5 +149,21 @@ for (const n of ['Direxion Daily Semiconductor Bear 3X Shares', 'ProShares Ultra
   eq('BB lower on the row', r1.bbLo, 95.14);
   const r2 = oversoldOf(h, { t: 'X', price: 90, prevClose: 92, vol: 1, lo: 88 }, b)!;
   eq('no open: pre-market gap from the price', `${r2.gap},${r2.gapPre}`, '-2.17,true');
+}
+
+// $10M dollar-volume floor (17 Nov 2026)
+{
+  eq('thin after 10:00 is dropped', osbThin({ dvol: 9e6 }, 600), true);
+  eq('$10M after 10:00 stays', osbThin({ dvol: 10e6 }, 600), false);
+  eq('thin before 10:00 stays', osbThin({ dvol: 1e6 }, 599), false);
+  eq('no dollars after 10:00 is dropped', osbThin({}, 700), true);
+  const h = { maxClose: 0, maxRs: 0, adv: 1, prof: [], chk: [0, 0, 0, 0, 8, null, null] as never, wkHi: 100 };
+  const st: LeadersState = { date: 'd', builtAt: '', names: { A: h, B: h } };
+  const q = (t: string, vol: number) => ({ t, price: 90, prevClose: 92, vol, lo: 88, o: 91 });
+  const at = (m: number) => buildLive(st, [q('A', 200_000), q('B', 50_000)], 500, m, 1, { spy: null, qqq: null });
+  eq('10:30: thin B left off', at(630).oversold!.map(r => r.t).join(), 'A');
+  eq('10:30: counted', `${at(630).counts.oversold},${at(630).counts.thinOsb}`, '1,1');
+  eq('9:50: both kept', at(590).oversold!.length, 2);
+  eq('dollars on the row', at(630).oversold![0].dvol, 18_000_000);
 }
 done('liquid leaders');

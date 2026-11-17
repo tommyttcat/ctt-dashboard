@@ -77,7 +77,14 @@ export const VOLUME_MIN_RS = 50;
    under a key level and back above it, so each row carries its key levels and a live status
    (keyLevelsOf / levelStatusOf). Untested: the owner dropped the market-washout gate and the
    daily-bar backtest on 16 Oct ("stocks enter oversold when the market is good"). */
-export const OVERSOLD = { minAdr: 6, maxAdr: 15, adrs: 1.5, max: 40 } as const;
+export const OVERSOLD = { minAdr: 6, maxAdr: 15, adrs: 1.5, max: 40, minDvol: 10e6, dvolFrom: 10 * 60 } as const;
+/* TODAY'S DOLLAR-VOLUME FLOOR (17 Nov 2026, owner: "WRBY has no volume at all" → "10 Mil $ Vol"):
+   from 10:00 ET (the data's minute) a row needs $10M traded today or it is left off the list —
+   hidden, not flagged, and counted in counts.thinOsb. Before 10:00 nothing is dropped, so the
+   pre-market list and the first half hour are not emptied by volume that has not happened yet.
+   Untested. */
+export const osbThin = (r: Pick<OversoldRow, 'dvol'>, clockEt: number): boolean =>
+  clockEt >= OVERSOLD.dvolFrom && (r.dvol ?? 0) < OVERSOLD.minDvol;
 /* Leveraged BULL ETFs by fund name (15 Oct 2026): "Bull 3X", "2X Long", "UltraPro", "Leveraged".
    Inverse funds (Bear, Short, Inverse) are left out — they go "oversold" when the market rips,
    which is a bet against the bounce this card is for. So are long-VIX funds (11 Nov 2026,
@@ -100,6 +107,7 @@ export interface OversoldRow extends LeaderRow {
   bbLo?: number | null;         // lower Bollinger Band (20, 2) with today's price as the 20th close; null before the nightly stores `bb`
   gap?: number | null;          // today's open vs yesterday's close, % (pre-market: the price now)
   gapPre?: boolean;             // `gap` is a pre-market price, not the open
+  dvol?: number;                // dollars traded today so far (pre-market: pre-market dollars)
 }
 /* Key levels (16 Oct 2026, from Monis's SOXL entry chart: a horizontal level, the dip under it
    circled). Swing points of the last 60 sessions — a low, or a high price has since cleared,
@@ -218,6 +226,7 @@ export function oversoldOf(h: LeaderHist, q: Quote, base: LeaderRow): OversoldRo
   return {
     ...base, adr, level: +level.toFixed(2), wkHi: h.wkHi, lo: q.lo, key: ks.key, status: ks.status, ...(h.lv?.length ? { lvs: h.lv } : {}),
     bbLo: bbLowerOf(h.bb, q.price), gap, ...(pre ? { gapPre: true } : {}),
+    dvol: Math.round((q.vw && q.vw > 0 ? q.vw : q.price) * (q.vol || 0)),
     offLow: +((q.price / q.lo - 1) * 100).toFixed(2),
     deep: +(((h.wkHi - q.lo) / h.wkHi) * 100 / adr).toFixed(2),
   };
@@ -234,7 +243,7 @@ export interface LeadersLive {
   gainers: LeaderRow[];
   volume: LeaderRow[];
   oversold?: OversoldRow[];      // absent on payloads written before 15 Oct 2026
-  counts: { rsHigh: number; priceHigh: number; heavy: number; oversold?: number };
+  counts: { rsHigh: number; priceHigh: number; heavy: number; oversold?: number; thinOsb?: number };   // thinOsb: oversold names under $10M today, left off (17 Nov 2026)
   /* Set by /api/leaders/latest when `oversold` is today's real-time early list (OsbEarly) and the
      rest of the payload is still the last session's (11 Nov 2026). */
   osb?: { asOf: number; clockEt: number; pre: boolean };
@@ -392,7 +401,9 @@ export function buildLive(state: LeadersState, quotes: Quote[], spyPrice: number
     if (os) oversold.push(os);
   }
   for (const r of oversold) Object.assign(r, osbScoreOf(r));
-  oversold.sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || b.offLow - a.offLow);
+  const thinOsb = oversold.filter(r => osbThin(r, clockEt)).length;
+  const liquid = thinOsb ? oversold.filter(r => !osbThin(r, clockEt)) : oversold;
+  liquid.sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || b.offLow - a.offLow);
   const strip = ({ isRs: _r, isHi: _h, ...r }: LeaderRow & { isRs: boolean; isHi: boolean }): LeaderRow => r;
   const byChg = (a: LeaderRow, b: LeaderRow) => b.chg - a.chg;
   const rsHigh = rows.filter(r => r.isRs).sort(byChg);
@@ -403,7 +414,7 @@ export function buildLive(state: LeadersState, quotes: Quote[], spyPrice: number
     priceHigh: priceHigh.map(strip),
     gainers: rows.filter(r => (r.rs ?? 0) >= GAINER_MIN_RS).sort(byChg).slice(0, 50).map(strip),
     volume: rows.filter(r => r.track != null && r.chg > 0 && (r.rs ?? 0) >= VOLUME_MIN_RS).sort((a, b) => (b.track ?? 0) - (a.track ?? 0)).slice(0, 100).map(strip),
-    oversold: oversold.slice(0, OVERSOLD.max),
-    counts: { rsHigh: rsHigh.length, priceHigh: priceHigh.length, heavy: rows.filter(r => (r.track ?? -100) >= 100).length, oversold: oversold.length },
+    oversold: liquid.slice(0, OVERSOLD.max),
+    counts: { rsHigh: rsHigh.length, priceHigh: priceHigh.length, heavy: rows.filter(r => (r.track ?? -100) >= 100).length, oversold: liquid.length, thinOsb },
   };
 }
