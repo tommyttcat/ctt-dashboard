@@ -77,14 +77,20 @@ export const VOLUME_MIN_RS = 50;
    under a key level and back above it, so each row carries its key levels and a live status
    (keyLevelsOf / levelStatusOf). Untested: the owner dropped the market-washout gate and the
    daily-bar backtest on 16 Oct ("stocks enter oversold when the market is good"). */
-export const OVERSOLD = { minAdr: 6, maxAdr: 15, adrs: 1.5, max: 40, minDvol: 10e6, dvolFrom: 10 * 60 } as const;
+export const OVERSOLD = { minAdr: 6, maxAdr: 15, adrs: 1.5, max: 40, minDvol: 10e6, minVol: 1e6, dvolFrom: 10 * 60 } as const;
 /* TODAY'S DOLLAR-VOLUME FLOOR (17 Nov 2026, owner: "WRBY has no volume at all" → "10 Mil $ Vol"):
    from 10:00 ET (the data's minute) a row needs $10M traded today or it is left off the list —
    hidden, not flagged, and counted in counts.thinOsb. Before 10:00 nothing is dropped, so the
    pre-market list and the first half hour are not emptied by volume that has not happened yet.
+   Later the same day the owner added a SHARE floor, "they need both": 1M shares traded today
+   too (minVol), same 10:00 start. Footer counts each (thinDvol, thinShr; a name can fail both).
    Untested. */
-export const osbThin = (r: Pick<OversoldRow, 'dvol'>, clockEt: number): boolean =>
+export const osbThinDollars = (r: Pick<OversoldRow, 'dvol'>, clockEt: number): boolean =>
   clockEt >= OVERSOLD.dvolFrom && (r.dvol ?? 0) < OVERSOLD.minDvol;
+export const osbThinShares = (r: Pick<OversoldRow, 'vol'>, clockEt: number): boolean =>
+  clockEt >= OVERSOLD.dvolFrom && (r.vol ?? 0) < OVERSOLD.minVol;
+export const osbThin = (r: Pick<OversoldRow, 'dvol' | 'vol'>, clockEt: number): boolean =>
+  osbThinDollars(r, clockEt) || osbThinShares(r, clockEt);
 /* Leveraged BULL ETFs by fund name (15 Oct 2026): "Bull 3X", "2X Long", "UltraPro", "Leveraged".
    Inverse funds (Bear, Short, Inverse) are left out — they go "oversold" when the market rips,
    which is a bet against the bounce this card is for. So are long-VIX funds (11 Nov 2026,
@@ -243,7 +249,7 @@ export interface LeadersLive {
   gainers: LeaderRow[];
   volume: LeaderRow[];
   oversold?: OversoldRow[];      // absent on payloads written before 15 Oct 2026
-  counts: { rsHigh: number; priceHigh: number; heavy: number; oversold?: number; thinOsb?: number };   // thinOsb: oversold names under $10M today, left off (17 Nov 2026)
+  counts: { rsHigh: number; priceHigh: number; heavy: number; oversold?: number; thinOsb?: number; thinDvol?: number; thinShr?: number };   // oversold names left off today (17 Nov 2026): either floor / under $10M / under 1M shares
   /* Set by /api/leaders/latest when `oversold` is today's real-time early list (OsbEarly) and the
      rest of the payload is still the last session's (11 Nov 2026). */
   osb?: { asOf: number; clockEt: number; pre: boolean };
@@ -402,6 +408,7 @@ export function buildLive(state: LeadersState, quotes: Quote[], spyPrice: number
   }
   for (const r of oversold) Object.assign(r, osbScoreOf(r));
   const thinOsb = oversold.filter(r => osbThin(r, clockEt)).length;
+  const thinDvol = oversold.filter(r => osbThinDollars(r, clockEt)).length, thinShr = oversold.filter(r => osbThinShares(r, clockEt)).length;
   const liquid = thinOsb ? oversold.filter(r => !osbThin(r, clockEt)) : oversold;
   liquid.sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || b.offLow - a.offLow);
   const strip = ({ isRs: _r, isHi: _h, ...r }: LeaderRow & { isRs: boolean; isHi: boolean }): LeaderRow => r;
@@ -415,6 +422,6 @@ export function buildLive(state: LeadersState, quotes: Quote[], spyPrice: number
     gainers: rows.filter(r => (r.rs ?? 0) >= GAINER_MIN_RS).sort(byChg).slice(0, 50).map(strip),
     volume: rows.filter(r => r.track != null && r.chg > 0 && (r.rs ?? 0) >= VOLUME_MIN_RS).sort((a, b) => (b.track ?? 0) - (a.track ?? 0)).slice(0, 100).map(strip),
     oversold: liquid.slice(0, OVERSOLD.max),
-    counts: { rsHigh: rsHigh.length, priceHigh: priceHigh.length, heavy: rows.filter(r => (r.track ?? -100) >= 100).length, oversold: liquid.length, thinOsb },
+    counts: { rsHigh: rsHigh.length, priceHigh: priceHigh.length, heavy: rows.filter(r => (r.track ?? -100) >= 100).length, oversold: liquid.length, thinOsb, thinDvol, thinShr },
   };
 }
