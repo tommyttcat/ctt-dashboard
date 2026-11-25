@@ -2810,13 +2810,8 @@ const formatBriefingText = (text: string) => {
    placeholder after the one it follows when the text lacks it. */
 const withInteractive = (paras: string[]): string[] => {
   /* Removed cards: drop their placeholders from briefings built before (Chart Structure
-     10 Oct 2026, Momentum Leaders 12 Oct 2026). */
-  const out = paras.filter(p => !p.startsWith('Chart Structure:') && !p.startsWith('Momentum Leaders:') && !REMOVED_THESIS.some(r => p.startsWith(r)));
-  /* Institutional Buys (11 Nov 2026) follows Setups Summary. */
-  if (!out.some(p => p.startsWith('Institutional Buys:'))) {
-    const i = out.findIndex(p => p.startsWith('Setups Summary:'));
-    if (i >= 0) out.splice(i + 1, 0, 'Institutional Buys: interactive');
-  }
+     10 Oct 2026, Momentum Leaders 12 Oct 2026, Institutional Buys 25 Nov 2026). */
+  const out = paras.filter(p => !p.startsWith('Chart Structure:') && !p.startsWith('Momentum Leaders:') && !p.startsWith('Institutional Buys:') && !REMOVED_THESIS.some(r => p.startsWith(r)));
   /* Oversold Bounce (15 Oct 2026) follows Liquid Leaders in briefings built before it existed. */
   if (!out.some(p => p.startsWith('Oversold Bounce:'))) {
     const i = out.findIndex(p => p.startsWith('Liquid Leaders:'));
