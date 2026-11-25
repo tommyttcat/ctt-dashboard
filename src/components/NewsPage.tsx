@@ -40,6 +40,7 @@ import WatchlistPanel from './WatchlistPanel';
 import DashNav from './DashNav';
 import HelpModal from './HelpModal';
 import InfoDot from './InfoDot';
+import CatalystList from './CatalystList';
 import { type EdgeTier } from '@/lib/scans/edge';
 import { catalystTooltip, headlineOf, decodeEntities, type CatalystRow } from '@/lib/catalyst';
 import { rvolColor } from '@/lib/indicators/columnColors';
@@ -517,6 +518,9 @@ export default function NewsPage() {
                     {status === 'loading' ? 'Loading the latest headlines…' : 'No news came back. Try Refresh in a minute.'}
                   </p>
                 )}
+
+                {/* ---- Catalysts: written by the cloud routine (25 Nov 2026) ---- */}
+                <CatalystList reloadKey={loadedAt} />
 
                 {/* ---- Type filter — applies to both sections ---- */}
                 {status !== 'loading' && tagPillOrder.length > 0 && (
