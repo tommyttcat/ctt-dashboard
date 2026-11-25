@@ -3,7 +3,7 @@ import { noCacheHeaders } from '@/lib/httpCache';
 import { authorized } from '@/lib/apiAuth';
 import { webullConfigured, webullGainersLosers, webullSnapshot } from '@/lib/webull';
 import { fetchFreeNewsIndex } from '@/lib/indicators/newsAlt';
-import { etDateString, previousTradingDay } from '@/lib/marketCalendar';
+import { etDateString, previousTradingDay, isTradingDay } from '@/lib/marketCalendar';
 
 /* /api/catalysts/candidates — what the catalyst routine reads (25 Nov 2026).
  *
@@ -125,6 +125,7 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     asOf: now.toISOString(),
+    tradingDay: isTradingDay(today),
     session: preMarket ? 'pre-market' : 'regular',
     gappers: gapperRows.length,
     earnings: earnRows.length,
