@@ -25,6 +25,8 @@ const MIN_GAP = 0.04;     // +4%
 const MIN_PRICE = 1;
 const NEWS_PER_TICKER = 4;
 const NEWS_MAX_AGE_MS = 3 * 86_400_000;
+/* Opinion and recap mills that crowd out the filing or the press release (same list as /api/news), plus StockTwits posts. */
+const JUNK_PUBLISHER = /stocktwits|motley fool|fool\.com|marketbeat|24\/7 wall|247 ?wall|defense world|simply wall|insider monkey|zacks|ticker report|etf daily news|american banking news|finbold|validea|talkmarkets|invezz|quiverquant/i;
 
 type Quote = { chg: number | null; price: number | null; vol: number | null; mktCap: number | null };
 
@@ -92,7 +94,7 @@ export async function GET(req: Request) {
     } catch (e) { notes.push(`earnings quotes failed: ${String((e as Error)?.message ?? e).slice(0, 120)}`); }
   }
 
-  /* Headlines: SEC 8-Ks + FMP stock news (StockTwits posts left out) */
+  /* Headlines: SEC 8-Ks + FMP stock news, opinion mills left out */
   const tickers = [...new Set([...gapperRows.map(r => r.ticker), ...earnRows.map(r => r.ticker)])];
   const news = new Map<string, { title: string; source: string; url: string | null; at: string | null }[]>();
   try {
@@ -100,9 +102,11 @@ export async function GET(req: Request) {
     const cutoff = Date.now() - NEWS_MAX_AGE_MS;
     for (const [t, arr] of idx) {
       const items = arr
-        .filter(a => !/stocktwits/i.test(a.publisher?.name ?? ''))
+        .filter(a => !JUNK_PUBLISHER.test(a.publisher?.name ?? ''))
         .filter(a => !a.published_utc || Date.parse(a.published_utc) >= cutoff)
-        .sort((a, b) => String(b.published_utc ?? '').localeCompare(String(a.published_utc ?? '')))
+        /* SEC filings first (the primary source), then newest. */
+        .sort((a, b) => Number(b.publisher?.name === 'SEC') - Number(a.publisher?.name === 'SEC')
+          || String(b.published_utc ?? '').localeCompare(String(a.published_utc ?? '')))
         .slice(0, NEWS_PER_TICKER)
         .map(a => ({ title: String(a.title ?? '').slice(0, 300), source: a.publisher?.name ?? '', url: a.article_url ?? null, at: a.published_utc ?? null }));
       if (items.length) news.set(t, items);
