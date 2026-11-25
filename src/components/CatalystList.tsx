@@ -1,11 +1,15 @@
 'use client';
-/* News page catalyst list (25 Nov 2026). Written by a cloud routine a few times
-   a weekday (see lib/catalysts.ts); this card only reads /api/catalysts once on
-   load and on Refresh — no polling, no cache-buster. */
+/* News page catalyst list (25 Nov 2026). Written by a cloud routine every 30
+   minutes 7:30-12:30 ET (see lib/catalysts.ts); this card reads /api/catalysts
+   once on load and on Refresh. % change and volume are live: /api/live-quotes
+   (Webull real-time, 15s edge, 0 KV) with one sorted symbol list, so every
+   viewer shares one cache entry. No cache-buster. */
 import React from 'react';
 import InfoDot from './InfoDot';
 import TickerChartHover, { WatchlistBtn } from './TickerChartHover';
 import type { CatalystItem, CatalystsPayload, Grade } from '@/lib/catalysts';
+import type { LiveQuotesPayload } from '@/app/api/live-quotes/route';
+import { poll, pollMs } from '@/lib/poll';
 
 const LABEL = 'text-[11px] font-bold tracking-[0.14em] uppercase';
 const PILL = 'inline-flex items-center gap-1 rounded-full border px-2.5 py-[3px] text-[11px] font-bold tracking-[0.06em] uppercase leading-[1.3] whitespace-nowrap';
@@ -38,7 +42,11 @@ const etDay = (iso: string) => new Date(iso).toLocaleDateString('en-CA', { timeZ
 
 type Filter = 'all' | 'earnings' | 'gappers' | 'new';
 
-function Row({ r, i, runAt }: { r: CatalystItem; i: number; runAt: string }) {
+type LQ = { pct: number; vol: number | null } | undefined;
+
+function Row({ r, i, runAt, lq }: { r: CatalystItem; i: number; runAt: string; lq: LQ }) {
+  const chg = lq ? lq.pct : r.chg;
+  const vol = lq?.vol ?? r.vol;
   return (
     <div className="flex gap-3 px-3.5 md:px-4 py-3 border-t border-[#1e293b] first:border-t-0">
       <span className="w-5 shrink-0 text-[12px] text-slate-500 tabular-nums pt-[2px]">{i}</span>
@@ -67,8 +75,8 @@ function Row({ r, i, runAt }: { r: CatalystItem; i: number; runAt: string }) {
         </div>
       </div>
       <div className="shrink-0 text-right tabular-nums">
-        <div className={`text-[15px] font-bold ${chgCls(r.chg)}`}>{fmtChg(r.chg)}</div>
-        <div className="text-[12px] text-slate-500">{fmtBig(r.vol)} vol</div>
+        <div className={`text-[15px] font-bold ${chgCls(chg)}`}>{fmtChg(chg)}</div>
+        <div className="text-[12px] text-slate-500">{fmtBig(vol)} vol</div>
         <div className="text-[12px] text-slate-500">{fmtBig(r.mktCap, true)}</div>
       </div>
     </div>
@@ -79,6 +87,7 @@ export default function CatalystList({ reloadKey }: { reloadKey: number }) {
   const [data, setData] = React.useState<CatalystsPayload | null>(null);
   const [state, setState] = React.useState<'loading' | 'ready' | 'empty'>('loading');
   const [filter, setFilter] = React.useState<Filter>('all');
+  const [live, setLive] = React.useState<LiveQuotesPayload | null>(null);
 
   React.useEffect(() => {
     let on = true;
@@ -91,6 +100,23 @@ export default function CatalystList({ reloadKey }: { reloadKey: number }) {
       .catch(() => on && setState('empty'));
     return () => { on = false; };
   }, [reloadKey]);
+
+  const liveSyms = React.useMemo(
+    () => (data ? [...new Set([...data.ranked, ...data.passed].map(r => r.ticker))].sort().slice(0, 100).join(',') : ''),
+    [data],
+  );
+  React.useEffect(() => {
+    if (!liveSyms) return;
+    let on = true;
+    const load = () => fetch(`/api/live-quotes?s=${liveSyms}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => { if (on) setLive(j && typeof j === 'object' ? j : null); })
+      .catch(() => { if (on) setLive(null); });
+    load();
+    const stop = poll(load, pollMs.marketHours(30_000, 300_000));
+    return () => { on = false; stop(); };
+  }, [liveSyms]);
+  const lqOf = (t: string): LQ => live?.quotes?.[t];
 
   const keep = React.useCallback((r: CatalystItem) =>
     filter === 'all' ? true
@@ -106,7 +132,7 @@ export default function CatalystList({ reloadKey }: { reloadKey: number }) {
   const ranked = data.ranked.filter(keep);
   const passed = data.passed.filter(keep);
   const old = etDay(data.runAt) !== etDay(new Date().toISOString());
-  const info = 'A scheduled Claude routine reads today’s gappers and earnings reporters with their SEC 8-K filings and news, then writes one line on what happened and grades it. Runs about 8:00, 9:00, 10:00 and 12:00 ET on weekdays. % change, volume and market cap are as of the run, not live. Grades are a read of the news, not a buy signal and not a tested edge.';
+  const info = 'A scheduled Claude routine reads today’s gappers and earnings reporters with their SEC 8-K filings and news, then writes one line on what happened and grades it. Re-read every 30 minutes from 7:30 to 12:30 ET on weekdays. % change and volume are live (real-time, refreshed every 30 seconds); market cap is as of the run. Grades are a read of the news, not a buy signal and not a tested edge.';
 
   return (
     <section className="space-y-3">
@@ -133,13 +159,13 @@ export default function CatalystList({ reloadKey }: { reloadKey: number }) {
 
       <div className={`${LABEL} text-slate-500`}>Ranked · {ranked.length}</div>
       {ranked.length
-        ? <div className="bg-[#111827] border border-[#1e293b] rounded-2xl overflow-hidden">{ranked.map((r, i) => <Row key={r.ticker} r={r} i={i + 1} runAt={data.runAt} />)}</div>
+        ? <div className="bg-[#111827] border border-[#1e293b] rounded-2xl overflow-hidden">{ranked.map((r, i) => <Row key={r.ticker} r={r} i={i + 1} runAt={data.runAt} lq={lqOf(r.ticker)} />)}</div>
         : <p className="text-[12px] text-slate-500">None under this filter.</p>}
 
       {passed.length > 0 && (
         <>
           <div className={`${LABEL} text-slate-500`}>Passed the screen, lower grade · {passed.length}</div>
-          <div className="bg-[#111827] border border-[#1e293b] rounded-2xl overflow-hidden">{passed.map((r, i) => <Row key={r.ticker} r={r} i={ranked.length + i + 1} runAt={data.runAt} />)}</div>
+          <div className="bg-[#111827] border border-[#1e293b] rounded-2xl overflow-hidden">{passed.map((r, i) => <Row key={r.ticker} r={r} i={ranked.length + i + 1} runAt={data.runAt} lq={lqOf(r.ticker)} />)}</div>
         </>
       )}
     </section>
