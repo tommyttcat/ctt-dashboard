@@ -10,7 +10,7 @@ interface HelpModalProps {
   tier?: string;
 }
 
-type Tab = 'quickstart' | 'overview' | 'dashboard' | 'news' | 'analyst' | 'confluence' | 'interactions' | 'updates';
+type Tab = 'quickstart' | 'overview' | 'dashboard' | 'news' | 'analyst' | 'interactions' | 'updates';
 
 const ALL_TABS: { key: Tab; label: string; minTier: 'starter' | 'core' | 'pro' }[] = [
   { key: 'quickstart', label: 'Quick start', minTier: 'starter' },
@@ -18,7 +18,6 @@ const ALL_TABS: { key: Tab; label: string; minTier: 'starter' | 'core' | 'pro' }
   { key: 'dashboard', label: 'Dashboard', minTier: 'core' },
   { key: 'news', label: 'News', minTier: 'core' },
   { key: 'analyst', label: 'Analyst Brief', minTier: 'core' },
-  { key: 'confluence', label: 'Confluence', minTier: 'pro' },
   { key: 'interactions', label: 'Controls', minTier: 'core' },
   { key: 'updates', label: 'Updates', minTier: 'starter' },
 ];
@@ -128,7 +127,7 @@ function OverviewTab({ tier }: { tier: string }) {
           <div className="text-[12px] font-bold text-amber-300 mb-1.5">Pro</div>
           <div className="text-[12px] text-slate-400 leading-[1.8]">
             All Core features &middot; Full Scanners page (Daily Setups, Swing, VCP, EP9M, HRS, Multibagger, 10/21) &middot;
-            Confluence Report &middot; Macro Scorecard &middot; Macro Economic Analysis &middot; Earnings Calendar &middot; Economic Calendar
+            Macro Scorecard &middot; Macro Economic Analysis &middot; Earnings Calendar &middot; Economic Calendar
           </div>
         </div>
       </div>
@@ -168,13 +167,9 @@ function OverviewTab({ tier }: { tier: string }) {
             (pre-market, midday, closing), and the day's catalysts.
           </Li>
           <Li title="Scanners (/scanners)">
-            All 11 scanners in a single vertical stack — Setup Confluence, Top Movers, Stocks in Play,
-            Dollar Volume, Daily Setups, Swing Candidates, HRS, 10/21 Consolidation, VCP, EP9M, and Multibagger.
+            Every scanner, one at a time — pick it from the row of tabs at the top: Top Movers, Stocks in Play,
+            Dollar Volume, Daily Setups, Swing Candidates, HRS, 10/21 Consolidation, VCP, EP9M, 100-Bagger and High Beta.
             Each scanner runs independently and updates every 15 minutes.
-          </Li>
-          <Li title="Confluence (/confluence)">
-            Multi-timeframe confluence report. Shows which stocks score highly across daily, weekly, and monthly
-            timeframes. Sector filtering and an AI summary.
           </Li>
           <Li title="News (/news)">
             The day&apos;s headlines scoped to the names your scans are carrying, with the score, RS, volume and
@@ -527,30 +522,6 @@ function AnalystTab({ tier }: { tier: string }) {
   );
 }
 
-function ConfluenceTab() {
-  return (
-    <div>
-      <H>Multi-Timeframe Confluence</H>
-      <P>
-        The Confluence page runs the same scoring engine across daily, weekly, and monthly timeframes.
-        A stock that scores well on all three has deeper confluence than one that only works on the daily.
-      </P>
-
-      <H>AI Summary</H>
-      <P>
-        An AI-generated overview of the highest-confluence names, grouped by sector. Shows a leaders table
-        and sector performance breakdown. Click a sector name to filter the report to that sector.
-      </P>
-
-      <H>Report Cards</H>
-      <P>
-        Each stock gets a card showing its confluence score per timeframe, grade (A/B/C), sector,
-        and a per-row breakdown of what&apos;s driving the score. Cards are sorted by composite score.
-      </P>
-    </div>
-  );
-}
-
 function InteractionsTab() {
   return (
     <div>
@@ -868,7 +839,6 @@ export default function HelpModal({ isOpen, onClose, tier = 'pro' }: HelpModalPr
           {safeTab === 'dashboard' && <DashboardTab tier={tier} />}
           {safeTab === 'news' && <NewsTab />}
           {safeTab === 'analyst' && <AnalystTab tier={tier} />}
-          {safeTab === 'confluence' && <ConfluenceTab />}
           {safeTab === 'interactions' && <InteractionsTab />}
           {safeTab === 'updates' && <UpdatesTab tier={tier} />}
         </div>

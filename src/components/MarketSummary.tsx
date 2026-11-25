@@ -395,6 +395,17 @@ const postureChipCls = (tone: 'good' | 'warn' | 'bad'): string => {
    one without the other silently re-pairs it with whatever lands next. */
 const PAIRED_SECTIONS = new Set(['Sector Performance', 'Sector Concentration', 'ETF Flow', 'Money Flow']);
 
+/* Money Flow card (25 Nov 2026): the four flow sections sit inside ONE card
+   under one heading and one toggle. Inside it they keep the same two-across
+   grid on desktop (sector bars | concentration, ETF | stocks), stacked on a
+   phone — the columns did not change, only the four headings became one. */
+const FLOW_GROUP = new Set(['Sector Performance', 'Sector Concentration', 'ETF Flow', 'Money Flow']);
+const FLOW_KEY = 'flowGroup';
+
+/* Thesis cards removed from the dashboard 25 Nov 2026 (the Scanners page has
+   those tables). Dropped here too in case an older briefing still carries them. */
+const REMOVED_THESIS = ['SIPs Thesis:', '$Vol Summary:', 'Daily Setups Thesis:', 'Reversal Swing Thesis:', '10/21 Thesis:', 'VCP Thesis:', 'EP9M Thesis:', '100-Bagger Thesis:'];
+
 const ALIGNED_SECTIONS = new Set([
   'Top Movers', 'SIPs Thesis', '$Vol Summary',
   'Daily Setups Thesis', 'Reversal Swing Thesis',
@@ -2800,7 +2811,7 @@ const formatBriefingText = (text: string) => {
 const withInteractive = (paras: string[]): string[] => {
   /* Removed cards: drop their placeholders from briefings built before (Chart Structure
      10 Oct 2026, Momentum Leaders 12 Oct 2026). */
-  const out = paras.filter(p => !p.startsWith('Chart Structure:') && !p.startsWith('Momentum Leaders:'));
+  const out = paras.filter(p => !p.startsWith('Chart Structure:') && !p.startsWith('Momentum Leaders:') && !REMOVED_THESIS.some(r => p.startsWith(r)));
   /* Institutional Buys (11 Nov 2026) follows Setups Summary. */
   if (!out.some(p => p.startsWith('Institutional Buys:'))) {
     const i = out.findIndex(p => p.startsWith('Setups Summary:'));
@@ -3031,7 +3042,7 @@ export default function MarketSummary() {
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() =>
     new Set([
       ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Institutional Buys' && l !== 'Best Setups Today' && l !== 'Top Movers' && l !== 'Liquid Leaders' && l !== 'Oversold Bounce' && l !== 'Momentum Leaders'),
-      'hrsTop', 'topSetups',
+      'hrsTop', 'topSetups', FLOW_KEY,
     ])
   );
   const [scanFilter, setScanFilter] = useState<ScanFilterKey>(null);
@@ -3110,7 +3121,7 @@ export default function MarketSummary() {
     if (!k) {
       setCollapsedSections(new Set([
         ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Institutional Buys' && l !== 'Best Setups Today' && l !== 'Top Movers' && l !== 'Liquid Leaders' && l !== 'Oversold Bounce' && l !== 'Momentum Leaders'),
-        'hrsTop', 'topSetups',
+        'hrsTop', 'topSetups', FLOW_KEY,
       ]));
       return;
     }
@@ -3130,6 +3141,11 @@ export default function MarketSummary() {
     }
     if (!(mi.watching ?? []).some((item: any) => passesPoolFilter(k, item))) collapsed.add('topSetups');
     collapsed.add('hrsTop');
+    const flowHasRows = paras.some(p => {
+      const sec = splitBriefingSection(p.trim());
+      return !!sec.label && FLOW_GROUP.has(sec.label) && !!SECTION_HEADERS[sec.label] && !collapsed.has(sec.label);
+    });
+    if (!flowHasRows) collapsed.add(FLOW_KEY);
     setCollapsedSections(collapsed);
   }, []);
   const SECTION_PAIRS: Record<string, string> = {
@@ -3396,8 +3412,12 @@ export default function MarketSummary() {
                     const parsed = splitBriefingSection(p.trim());
                     return { ...parsed, key: parsed.label || `sec-${i}` };
                   });
+                  /* The first flow section present opens the Money Flow card; the rest render inside it. */
+                  const flowHead = sections.find(s => s.label && FLOW_GROUP.has(s.label))?.label ?? null;
+                  const flowOpen = !collapsedSections.has(FLOW_KEY);
                   const collapsibleKeys = [
-                    ...sections.filter(s => s.label).map(s => s.key),
+                    ...sections.filter(s => s.label && !FLOW_GROUP.has(s.label)).map(s => s.key),
+                    ...(flowHead ? [FLOW_KEY] : []),
                     ...(hrsTop.length > 0 ? ['hrsTop'] : []),
                     ...(macroInsights.watching?.length ? ['topSetups'] : []),
                   ];
@@ -3425,8 +3445,10 @@ export default function MarketSummary() {
                           exactly as before — only those two share a row, and only once
                           there is width for it. */}
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                        {sections.map((sec, idx) => {
+                        {sections.map(function renderSec(sec, idx, _all, nested = false): React.ReactNode {
                           const { label, color, blurb, body: rawBody, key } = sec;
+                          /* Flow sections render only inside the Money Flow card (nested). */
+                          if (!nested && label && FLOW_GROUP.has(label) && label !== flowHead) return null;
                           const body = label === 'Top Movers' && moverView === 'etf' && macroInsights?.etfMoversPara
                             ? macroInsights.etfMoversPara : rawBody;
                           const st = sectionStyles(color);
@@ -3480,7 +3502,7 @@ export default function MarketSummary() {
                             const allLines = body.replace(/\|\|\|/g, '\n').split('\n').filter(Boolean);
                             return !allLines.some(l => { const p = parseStdLine(l); return p && passesScanFilter(scanFilter, p, ctx); });
                           })();
-                          const isOpen = !label || !collapsedSections.has(key);
+                          const isOpen = nested || !label || !collapsedSections.has(key);
 
                           /* The key sits in the GAP ABOVE the card rather than
                              inside it — same information, none of the card's
@@ -3492,7 +3514,7 @@ export default function MarketSummary() {
                              but has no glyphs), and only once for a paired row
                              — ETF Flow leads that pair, so Money Flow does not
                              emit a second strip beside it. */
-                          const renderHrsBefore = label === '100-Bagger Thesis' && hrsTop.length > 0;
+                          const renderHrsBefore = !nested && label === (flowHead ?? 'Key Events') && hrsTop.length > 0;
                           const hrsSort = sectionSorts['HRS'] ?? null;
                           const hrsSorted = hrsSort ? [...hrsTop].sort((a, b) => {
                             let av = 0, bv = 0;
@@ -3588,16 +3610,35 @@ export default function MarketSummary() {
                                 )}
                               </div>
                             )}
-                            <div className={`rounded-xl px-2.5 md:px-4 py-3 ${st.bg} ${label && PAIRED_SECTIONS.has(label) ? '' : 'lg:col-span-2'} ${label === 'Sector Concentration' ? 'flex flex-col' : ''}`}>
+                            {!nested && label === flowHead ? (
+                              <div className="lg:col-span-2 rounded-xl px-2.5 md:px-4 py-3 bg-indigo-500/[0.04]">
+                                <div className={flowOpen ? 'mb-3' : ''}>
+                                  <div className="flex items-center gap-2 flex-wrap cursor-pointer select-none" onClick={() => toggleSection(FLOW_KEY)} title={flowOpen ? 'Collapse this section' : 'Expand this section'}>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className={`text-[9px] transition-transform duration-200 ${flowOpen ? 'rotate-90' : ''} text-slate-500`}>&#9654;</span>
+                                      <span className="inline-block text-[7px] font-bold tracking-widest uppercase px-1.5 py-[1px] rounded border text-indigo-400 bg-indigo-500/10 border-indigo-500/20">Money Flow</span>
+                                    </div>
+                                    {!flowOpen && <span className="text-[8px] text-slate-600 font-medium">Sectors · Setups by sector · ETF dollars · Stock dollars</span>}
+                                  </div>
+                                  {flowOpen && <p className="text-[8px] text-slate-500 font-medium mt-1.5 leading-snug">Where the money is going today — by sector, by ETF and by stock.</p>}
+                                </div>
+                                {flowOpen && (
+                                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-5">
+                                    {sections.filter(s2 => s2.label && FLOW_GROUP.has(s2.label)).map(s2 => renderSec(s2, sections.indexOf(s2), sections, true))}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                            <div className={nested ? (label === 'Sector Concentration' ? 'flex flex-col' : '') : `rounded-xl px-2.5 md:px-4 py-3 ${st.bg} ${label && PAIRED_SECTIONS.has(label) ? '' : 'lg:col-span-2'} ${label === 'Sector Concentration' ? 'flex flex-col' : ''}`}>
                               {label && (
                                 <div className={isOpen ? 'mb-2' : ''}>
                                   <div
                                     className="flex items-center gap-2 flex-wrap cursor-pointer select-none"
-                                    onClick={() => toggleSection(key)}
-                                    title={isOpen ? 'Collapse this section' : 'Expand this section'}
+                                    onClick={() => { if (!nested) toggleSection(key); }}
+                                    title={nested ? undefined : isOpen ? 'Collapse this section' : 'Expand this section'}
                                   >
                                     <div className="flex items-center gap-1.5">
-                                      <span className={`text-[9px] transition-transform duration-200 ${isOpen ? 'rotate-90' : ''} text-slate-500`}>&#9654;</span>
+                                      {!nested && <span className={`text-[9px] transition-transform duration-200 ${isOpen ? 'rotate-90' : ''} text-slate-500`}>&#9654;</span>}
                                       <span className={`inline-block text-[7px] font-bold tracking-widest uppercase px-1.5 py-[1px] rounded border ${st.badge}`}>
                                         {label}
                                       </span>
@@ -4053,6 +4094,7 @@ export default function MarketSummary() {
                                 )
                               )}
                             </div>
+                            )}
                             {/* Top Setups block removed 12 Oct 2026 (owner's call). */}
                             </React.Fragment>
                           );

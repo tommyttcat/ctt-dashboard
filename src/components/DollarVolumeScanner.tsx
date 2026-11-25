@@ -240,7 +240,8 @@ export default function DollarVolumeScanner() {
   const [status, setStatus] = useState<'loading' | 'live' | 'empty' | 'error'>('loading');
   const [minDvol, setMinDvol] = useState<DvolStep>(100);
   const [cap, setCap] = useState<CapBand | null>(null);
-  const [isExpanded, setIsExpanded] = useState(false);
+  /* Open on arrival: the scanners page shows one table at a time (25 Nov 2026). */
+  const [isExpanded, setIsExpanded] = useState(true);
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'dvol', dir: 'desc' });
   const [copied, setCopied] = useState(false);
   const [txtDone, setTxtDone] = useState(false);

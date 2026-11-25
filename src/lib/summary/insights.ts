@@ -1061,10 +1061,13 @@ export const buildLocalInsights = (
   const ep9mFinal = ep9mPara || (ep9m.length === 0 && (sips.length || daily.length) ? 'EP9M Thesis: No names trading abnormal 9M+ size yet — this fills in as session volume builds.' : '');
   const mbFinal = mbPara || '100-Bagger Thesis: No candidates — awaiting scan.';
 
+  /* The per-scan Thesis cards (SIPs, $Vol, Daily, Reversal Swing, 10/21, VCP,
+     EP9M, 100-Bagger) left the dashboard on 25 Nov 2026 — the Scanners page
+     carries every one of those tables. Their paragraphs are still built (cheap,
+     client-side) so a card comes back by adding it to this list again. */
+  void [sipsFinal, dvolPara, dailyPara, swingThesisPara, ema1021Para, vcpPara, ep9mFinal, mbFinal];
   const orderedParas = [
-    setupsPara, moversPara, 'Liquid Leaders: interactive', 'Oversold Bounce: interactive', 'Social Sentiment: interactive',   /* Momentum Leaders removed 12 Oct 2026 */ sipsFinal, dvolPara,
-    dailyPara, swingThesisPara,
-    ema1021Para, vcpPara, ep9mFinal, mbFinal,
+    setupsPara, moversPara, 'Liquid Leaders: interactive', 'Oversold Bounce: interactive', 'Social Sentiment: interactive',   /* Momentum Leaders removed 12 Oct 2026 */
     sectorBarsPara, heatPara, etfPara, moneyPara, keyEventsPara,
   ];
 

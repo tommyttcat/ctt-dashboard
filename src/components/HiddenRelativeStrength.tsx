@@ -140,7 +140,8 @@ export default function HiddenRelativeStrength() {
   const [candidates, setCandidates] = useState<HrsCandidate[]>([]);
   const [regime, setRegime] = useState<MarketRegime | null>(null);
   const [lastScanTime, setLastScanTime] = useState<number | null>(null);
-  const [isExpanded, setIsExpanded] = useState(false);
+  /* Open on arrival: the scanners page shows one table at a time (25 Nov 2026). */
+  const [isExpanded, setIsExpanded] = useState(true);
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('score');
   const [sortDir, setSortDir] = useState<SortDir>('desc');

@@ -472,7 +472,8 @@ export default function Vcp() {
   });
   const [scanMeta, setScanMeta] = useState<any>(null);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: SortDirection } | null>(null);
-  const [isExpanded, setIsExpanded] = useState<boolean>(false);
+  /* Open on arrival: the scanners page shows one table at a time (25 Nov 2026). */
+  const [isExpanded, setIsExpanded] = useState<boolean>(true);
 
   const [statusFilter, setStatusFilter] = useState<StatusFilterType>('All');
   const [rsFilter, setRsFilter] = useState<RsFilterType>('All');

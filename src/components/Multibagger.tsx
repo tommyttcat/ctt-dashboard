@@ -190,7 +190,8 @@ export default function Multibagger() {
   const [scanMeta, setScanMeta] = useState<any>(null);
   const [funnelInfo, setFunnelInfo] = useState<{ universeSize?: number; mcapFiltered?: number; scored?: number }>({});
 
-  const [isExpanded, setIsExpanded] = useState(false);
+  /* Open on arrival: the scanners page shows one table at a time (25 Nov 2026). */
+  const [isExpanded, setIsExpanded] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey>('score');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [gradeFilter, setGradeFilter] = useState<GradeFilter>('All');

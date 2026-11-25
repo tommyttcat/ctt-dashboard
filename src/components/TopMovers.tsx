@@ -153,7 +153,8 @@ export default function TopMovers() {
   const [benchmark, setBenchmark] = useState<Benchmark | null>(null);
   const [maTimeframe, setMaTimeframe] = useState<'day' | 'week'>('day');
   const [sortConfig, setSortConfig] = useState<{ key: keyof StockData; direction: SortDirection } | null>(null);
-  const [isExpanded, setIsExpanded] = useState<boolean>(false);
+  /* Open on arrival: the scanners page shows one table at a time (25 Nov 2026). */
+  const [isExpanded, setIsExpanded] = useState<boolean>(true);
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All');
   const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');

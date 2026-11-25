@@ -410,7 +410,8 @@ export default function DailySetups() {
   const [lastScanTime, setLastScanTime] = useState<number | null>(null);
   const [scanMeta, setScanMeta] = useState<any>(null);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: SortDirection } | null>(null);
-  const [isExpanded, setIsExpanded] = useState<boolean>(false);
+  /* Open on arrival: the scanners page shows one table at a time (25 Nov 2026). */
+  const [isExpanded, setIsExpanded] = useState<boolean>(true);
   const [postureFilter, setPostureFilter] = useState<PostureFilterType>('All');
   const [chopFilter, setChopFilter] = useState<ChopFilterType>('All');
   const [marketCapFilter, setMarketCapFilter] = useState<CapFilterType>('All');

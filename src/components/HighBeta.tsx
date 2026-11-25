@@ -76,7 +76,8 @@ export default function HighBeta() {
   const [status, setStatus] = useState('Syncing DB...');
   const [lastScanTime, setLastScanTime] = useState<number | null>(null);
   const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: SortDirection } | null>(null);
-  const [isExpanded, setIsExpanded] = useState(false);
+  /* Open on arrival: the scanners page shows one table at a time (25 Nov 2026). */
+  const [isExpanded, setIsExpanded] = useState(true);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {

@@ -571,7 +571,8 @@ export default function SwingCandidates() {
   const [spyReturn, setSpyReturn] = useState<number | null>(null);
   const [scanMeta, setScanMeta] = useState<any>(null);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: SortDirection } | null>(null);
-  const [isExpanded, setIsExpanded] = useState<boolean>(false);
+  /* Open on arrival: the scanners page shows one table at a time (25 Nov 2026). */
+  const [isExpanded, setIsExpanded] = useState<boolean>(true);
   const [showReadyOnly, setShowReadyOnly] = useState<boolean>(false);
   const [showUROnly, setShowUROnly] = useState<boolean>(false);
   const [postureFilter, setPostureFilter] = useState<PostureFilterType>('All');
