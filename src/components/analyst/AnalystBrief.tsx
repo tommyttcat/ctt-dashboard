@@ -42,8 +42,8 @@ import {
   toneCellTone,
 } from '@/lib/indicators/marketScorecard';
 import { poll } from '@/lib/poll';
-import { useTopCatalysts, GRADE_CLS as CAT_GRADE_CLS, GRADE_TIP as CAT_GRADE_TIP, fmtCatalystTime } from '@/components/CatalystList';
-import InfoDot from '../InfoDot';
+import { TopCatalysts } from '@/components/CatalystList';
+import { pctDirection } from '@/lib/summary/pctDirection';
 
 const MiniChart = lazy(() => import('./MiniChart'));
 
@@ -282,9 +282,13 @@ function renderTickerLinks(segment: string, keyBase: number): React.ReactNode[] 
 
 const INVERSE_TICKERS = new Set(['VIX', 'UVXY', 'SQQQ', 'SPXS', 'SDOW', 'SOXS']);
 
-function contextPctColor(val: number, preceding: string, following: string): string {
+function contextPctColor(raw: string, preceding: string, following: string): string {
+  const val = parseFloat(raw.replace(/[^0-9.+-]/g, ''));
   const ctx = (preceding + ' ' + following).toLowerCase();
-  const isInverse = [...INVERSE_TICKERS].some(t => preceding.includes(t));
+  /* Only the words just before the number (25 Nov 2026): "the VIX climbed 6.7% … while gold
+     added 0.8%" flipped gold red when any inverse ticker anywhere in 80 chars counted. */
+  const near = preceding.slice(-25);
+  const isInverse = [...INVERSE_TICKERS].some(t => new RegExp(`\\b${t}\\b`).test(near));
 
   if (/participation|advancing|pct\s*adv/i.test(ctx)) {
     return val >= 60 ? 'text-emerald-400 font-semibold' : val >= 45 ? 'text-amber-400 font-semibold' : 'text-rose-400 font-semibold';
@@ -301,8 +305,12 @@ function contextPctColor(val: number, preceding: string, following: string): str
     return val > 0 ? 'text-emerald-400 font-semibold' : val < 0 ? 'text-rose-400 font-semibold' : 'text-slate-400';
   }
 
-  const effectiveVal = isInverse ? -val : val;
-  return effectiveVal > 0 ? 'text-emerald-400 font-semibold' : effectiveVal < 0 ? 'text-rose-400 font-semibold' : 'text-slate-400';
+  /* Unsigned moves take their direction from the prose ("down 7.1%" is red), not the bare
+     number, which is always positive (lib/summary/pctDirection). */
+  const dir = val === 0 ? null : pctDirection(raw, preceding, following);
+  if (dir == null) return 'text-slate-200 font-semibold';
+  const eff = isInverse ? -dir : dir;
+  return eff > 0 ? 'text-emerald-400 font-semibold' : 'text-rose-400 font-semibold';
 }
 
 function colorPcts(text: string, keyBase: number): React.ReactNode[] {
@@ -336,10 +344,9 @@ function colorPcts(text: string, keyBase: number): React.ReactNode[] {
     } else if (m[9]) {
       cls = 'text-slate-200 font-semibold';
     } else if (m[10]) {
-      const val = parseFloat(m[10].replace(/[^0-9.+-]/g, ''));
       const preceding = text.slice(Math.max(0, m.index - 80), m.index);
       const following = text.slice(m.index + m[0].length, Math.min(text.length, m.index + m[0].length + 30));
-      cls = contextPctColor(val, preceding, following);
+      cls = contextPctColor(m[10], preceding, following);
     }
 
     parts.push(<span key={keyBase + m.index} className={cls}>{matched}</span>);
@@ -1272,45 +1279,6 @@ function FormattedBlock({ text, tickers, summaryLabel, skipLabels, distributeLab
         </div>
       )}
     </div>
-  );
-}
-
-/* ---- Top Catalysts (25 Nov 2026) ------------------------------------------
-   The top five of the News page's catalyst run, written in Key News &
-   Catalysts' own format: 12px lines, the brief's ticker chips, the same
-   dividers. % and volume are live; nothing renders before the day's first
-   run (7:30 ET). */
-function TopCatalystsSection() {
-  const { data, top, live } = useTopCatalysts();
-  if (!data || !top.length) return null;
-  return (
-    <SectionCard title="Top Catalysts" accent="#a78bfa">
-      <div className="space-y-0">
-        {top.map((r, i) => {
-          const q = live?.quotes?.[r.ticker];
-          const chg = q?.pct ?? r.chg;
-          const vol = q?.vol ?? r.vol;
-          return (
-            <div key={r.ticker} className={i > 0 ? 'pt-3 mt-3 border-t border-white/[0.06]' : ''}>
-              <p className="text-[12px] text-slate-200 leading-[1.7]">
-                {'• '}
-                <TickerChartHover symbol={r.ticker}><span className={BRIEF_TICKER_CHIP}>{r.ticker}</span></TickerChartHover>
-                <InfoDot text={CAT_GRADE_TIP[r.grade]}>
-                  <span className={`inline-block align-baseline text-[8px] font-bold px-1 py-[1px] rounded border tracking-wider mx-0.5 text-center ${CAT_GRADE_CLS[r.grade]}`}>{r.grade}</span>
-                </InfoDot>
-                {' '}{r.summary.replace(/\.?$/, '.')}
-                {chg != null && (
-                  <>{' '}<span className={chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{chg >= 0 ? '+' : ''}{chg.toFixed(1)}%</span>{vol ? ` on ${formatVol(vol)} shares` : ''}.</>
-                )}
-              </p>
-            </div>
-          );
-        })}
-      </div>
-      <p className="text-[12px] text-slate-500 leading-[1.7] pt-3 mt-3 border-t border-white/[0.06]">
-        As of {fmtCatalystTime(data.runAt)} · % and volume live · grades are a read of the news, not a buy signal · <a href="/news" className="text-violet-400 hover:text-violet-300">all {data.ranked.length + data.passed.length} on News</a>
-      </p>
-    </SectionCard>
   );
 }
 
@@ -2370,7 +2338,7 @@ export default function AnalystBrief() {
 
             {/* Top 5 catalysts (25 Nov 2026) — the News page list, ranked by
                 the catalyst routine. Renders nothing before today's first run. */}
-            <TopCatalystsSection />
+            <TopCatalysts wrap={body => <SectionCard title="Top Catalysts" accent="#a78bfa">{body}</SectionCard>} />
 
             {/* 4. Market Regime — the analyst's Core Thesis, the readings that
                 argue against it, and what the conditions structurally support.

@@ -23,7 +23,7 @@ import { etGate } from '@/lib/etCron';
 import { etToday } from '@/lib/orb';
 import { etMinute } from '@/lib/orb';
 import {
-  LEADERS_STATE_KEY, LEADERS_MIN_PRICE, LEADERS_MIN_DVOL, BUCKETS, profileOf, chkOf, isLeveragedBull, keyLevelsOf, bbSumsOf,
+  LEADERS_STATE_KEY, LEADERS_MIN_PRICE, LEADERS_MIN_DVOL, BUCKETS, profileOf, chkOf, isLeveragedBull, keyLevelsOf, bbSumsOf, osbBand, swingOf, gapZonesOf,
   type LeadersState, type LeaderHist,
 } from '@/lib/leaders';
 
@@ -159,6 +159,11 @@ export async function GET(req: Request) {
     /* Bollinger Band inputs (17 Nov 2026, Monis check): the last 19 closes as two sums. */
     const bb = bbSumsOf(bars.map(b => b.c));
     if (bb) out[t].bb = bb; else delete out[t].bb;
+    /* Monis checklist inputs (25 Nov 2026): ADR-band names only, so the state grows by a few KB. */
+    const sw = osbBand(out[t]) ? swingOf(bars, out[t].chk![4]!) : undefined;
+    if (sw) out[t].sw = sw; else delete out[t].sw;
+    const gz = osbBand(out[t]) ? gapZonesOf(bars) : [];
+    if (gz.length) out[t].gz = gz; else delete out[t].gz;
   }
 
   // 4. Usual volume by half hour, from 20 sessions of 30-minute bars.

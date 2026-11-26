@@ -1,6 +1,6 @@
 /* scripts/leaders.test.mts — Liquid Leaders arithmetic (lib/leaders). */
 
-import { expectedCum, trackingPct, profileOf, buildLive, chkOf, checkFields, oversoldOf, isLeveragedBull, keyLevelsOf, levelStatusOf, liveCnf, osbScoreOf, osbThin, bbSumsOf, bbLowerOf, monisChecksOf, BUCKETS, type LeadersState } from '../src/lib/leaders.ts';
+import { expectedCum, trackingPct, profileOf, buildLive, chkOf, checkFields, oversoldOf, isLeveragedBull, keyLevelsOf, levelStatusOf, liveCnf, osbScoreOf, osbThin, bbSumsOf, bbLowerOf, monisChecksOf, swingOf, gapZonesOf, osbTrendOf, BUCKETS, type LeadersState } from '../src/lib/leaders.ts';
 import { eq, near, ok, done } from './testkit.mts';
 
 // A flat day: 100 shares every half hour -> cumulative 100, 200, ... 1300.
@@ -133,7 +133,8 @@ for (const n of ['Direxion Daily Semiconductor Bear 3X Shares', 'ProShares Ultra
   eq('BB: lower band with today as the 20th close', bbLowerOf(flat, 90), 95.14);
   eq('BB: no sums, null', bbLowerOf(undefined, 90), null);
   const base = { lo: 90, price: 92, bbLo: 95.14, gap: -2, etf: false };
-  const pass = (r: object, ...e: (string | null | undefined)[]) => monisChecksOf({ ...base, ...r } as never, e.length ? e[0] : null, '2026-11-17', '2026-11-18').map(c => c.pass).join();
+  /* The original three, by key (25 Nov 2026 added stretch / gap region / lower low between them). */
+  const pass = (r: object, ...e: (string | null | undefined)[]) => monisChecksOf({ ...base, ...r } as never, e.length ? e[0] : null, '2026-11-17', '2026-11-18').filter(c => ['bb', 'gap', 'earn'].includes(c.key)).map(c => c.pass).join();
   eq('all three pass', pass({}), 'true,true,true');
   eq('inside the band fails BB', pass({ lo: 96 }), 'false,true,true');
   eq('gap up 0.5% fails', pass({ gap: 0.5 }), 'true,false,true');
@@ -149,6 +150,33 @@ for (const n of ['Direxion Daily Semiconductor Bear 3X Shares', 'ProShares Ultra
   eq('BB lower on the row', r1.bbLo, 95.14);
   const r2 = oversoldOf(h, { t: 'X', price: 90, prevClose: 92, vol: 1, lo: 88 }, b)!;
   eq('no open: pre-market gap from the price', `${r2.gap},${r2.gapPre}`, '-2.17,true');
+}
+
+// Monis checklist part 2 (25 Nov 2026): stretch, gap region, lower low, trend
+{
+  // 5 flat-ish bars, a gap up (prior high 80, gap-day low 82), a rally to 100, a 10-bar slide with no bounce.
+  const bars: { h: number; l: number; c: number }[] = [];
+  for (let i = 0; i < 5; i++) bars.push({ h: 78 + i * 0.5, l: 76 + i * 0.5, c: 77 + i * 0.5 });
+  bars[4].h = 80;
+  bars.push({ h: 86, l: 82, c: 85 });
+  for (let i = 0; i < 8; i++) bars.push({ h: 88 + i * 1.5, l: 86 + i * 1.5, c: 87 + i * 1.5 });
+  for (let i = 0; i < 10; i++) { const top = 99 - i * 1.8; bars.push({ h: top + 1, l: top - 1.5, c: top - 1 }); }
+  eq('swing: high, no bounce, 10-day low', swingOf(bars, 5)?.join(), '100,0,81.3');
+  const bounced = [...bars.slice(0, -1), { h: 90, l: 81.5, c: 89 }];
+  eq('swing: a 1-ADR close off the low is a bounce', swingOf(bounced, 5)?.[1], 1);
+  eq('gap zone open under the close', JSON.stringify(gapZonesOf(bars)), '[[80,82]]');
+  eq('gap zone filled to the bottom is dropped', JSON.stringify(gapZonesOf([...bars, { h: 82, l: 79.5, c: 81 }])), '[]');
+  const base = { lo: 81, price: 83, bbLo: 82, gap: -1, etf: false, adr: 5, swDrop: 3.8, swBounced: false, lo10: 81.3, gz: [[80, 82]] as [number, number][] };
+  const ck = (r: object) => monisChecksOf({ ...base, ...r } as never, null, '2026-11-25', '2026-11-27').filter(c => ['stretch', 'gapz', 'll'].includes(c.key)).map(c => c.pass).join();
+  eq('all three new checks pass', ck({}), 'true,true,true');
+  eq('under 3 ADRs is not stretched', ck({ swDrop: 2.5 }), 'false,true,true');
+  eq('already bounced fails stretch', ck({ swBounced: true }), 'false,true,true');
+  eq('low above the gap fails gap region', ck({ lo: 83, swDrop: 3.4 }), 'true,false,false');
+  eq('higher low fails lower low', ck({ lo10: 80.5 }), 'true,true,false');
+  eq('no nightly inputs, unknown', ck({ swDrop: null, gz: undefined, lo10: null }), ',,');
+  eq('six checks in all', monisChecksOf(base as never, null, '2026-11-25', '2026-11-27').length, 6);
+  eq('trend: bearish under a falling 21', osbTrendOf([10, 12, 12.5, 15, 8, null, null] as never, 11), 'bear');
+  eq('trend: bullish over a rising 21', osbTrendOf([13, 12, 11.8, 10, 8, null, null] as never, 14), 'bull');
 }
 
 // $10M dollar-volume floor (17 Nov 2026)

@@ -48,6 +48,12 @@ export interface LeaderHist {
   /* Bollinger Band inputs (17 Nov 2026, bbSumsOf): the sum and the sum of squares of the last 19
      closes, so the live job finishes the 20-period band with today's price (bbLowerOf). */
   bb?: [number, number];
+  /* Monis checklist inputs (25 Nov 2026), ADR-band names only (osbBand): `sw` = [the highest
+     high of the last 20 sessions, 1 if a 1-ADR bounce off the running low has happened since,
+     the lowest low of the last 10 sessions]; `gz` = up to 3 gap-up zones [bottom, top] from the
+     last 70 sessions that have not been filled to the bottom, nearest first. */
+  sw?: [number, 0 | 1, number];
+  gz?: [number, number][];
   /* Weinstein stage at the last close ('2A'): not stored — the live job attaches it from the
      System nightly's map (lib/stageBreadth STAGE_MAP_KEY) before buildLive. */
   stg?: string;
@@ -114,6 +120,12 @@ export interface OversoldRow extends LeaderRow {
   gap?: number | null;          // today's open vs yesterday's close, % (pre-market: the price now)
   gapPre?: boolean;             // `gap` is a pre-market price, not the open
   dvol?: number;                // dollars traded today so far (pre-market: pre-market dollars)
+  /* Monis checklist (25 Nov 2026), display only */
+  swDrop?: number | null;       // today's low under the 20-session swing high, in ADRs
+  swBounced?: boolean;          // a 1-ADR bounce has already happened since that high
+  lo10?: number | null;         // lowest low of the 10 sessions before today
+  gz?: [number, number][];      // open gap-up zones from last night
+  trend?: 'bear' | 'bull' | 'mixed' | null;   // daily trend off last night's EMAs and the price now
 }
 /* Key levels (16 Oct 2026, from Monis's SOXL entry chart: a horizontal level, the dip under it
    circled). Swing points of the last 60 sessions — a low, or a high price has since cleared,
@@ -195,9 +207,66 @@ export function bbLowerOf(bb: [number, number] | undefined, price: number): numb
   const sd = Math.sqrt(Math.max(0, (bb[1] + price * price) / 20 - m * m));
   return +(m - 2 * sd).toFixed(2);
 }
-export interface MonisCheck { key: 'bb' | 'gap' | 'earn'; pass: boolean | null; text: string }
-/** The three checks for one row. `earnDate` is the next report (YYYY-MM-DD; undefined = calendar not loaded, null = none soon). */
-export function monisChecksOf(r: Pick<OversoldRow, 'lo' | 'price' | 'bbLo' | 'gap' | 'gapPre' | 'etf'>, earnDate: string | null | undefined, today: string, nextDay: string): MonisCheck[] {
+/* MONIS CHECKLIST, part 2 (25 Nov 2026), from the owner's copy of his checklist:
+   "Oversold — touching BB, down 20% without bounce (roughly 4 times the ADR)", "Near key level —
+   in the gap region", "Lower-Low (Higher-Low is for continuation and reversal)", "Daily Trend —
+   bearish still, not a reversal". The first three are checks; the trend is shown in the hover
+   only (it says what kind of trade it is, not whether to take it). Display only, UNTESTED. */
+export const OSB_STRETCH_ADRS = 3;   // his "roughly 4×"; 3 so a near miss reads as one
+export const OSB_SWING_LOOK = 20;    // sessions searched for the swing high
+const OSB_GAP_MIN = 0.005;           // a gap up must clear the prior high by 0.5%
+/** Names the Monis inputs are stored for: the card's ADR band (stocks and leveraged ETFs). */
+export const osbBand = (h: Pick<LeaderHist, 'chk'>): boolean => { const a = h.chk?.[4]; return a != null && a >= OVERSOLD.minAdr && a <= OVERSOLD.maxAdr; };
+/** Nightly: [20-session swing high, bounced since (1-ADR close off the running low), 10-session low]. Bars oldest first. */
+export function swingOf(bars: { h: number; l: number; c: number }[], adrPct: number): [number, 0 | 1, number] | undefined {
+  const n = bars.length;
+  if (n < 11 || !(adrPct > 0)) return undefined;
+  const from = Math.max(0, n - OSB_SWING_LOOK);
+  let iH = from;
+  for (let i = from; i < n; i++) if (bars[i].h > bars[iH].h) iH = i;
+  let low = bars[iH].l, bounced: 0 | 1 = 0;
+  for (let i = iH + 1; i < n; i++) {
+    low = Math.min(low, bars[i].l);
+    if (bars[i].c >= low * (1 + adrPct / 100)) bounced = 1;
+  }
+  const lo10 = Math.min(...bars.slice(-10).map(b => b.l));
+  return [+bars[iH].h.toFixed(2), bounced, +lo10.toFixed(2)];
+}
+/** Nightly: gap-up zones [prior high, gap-day low] not yet filled to the bottom, under the close, nearest first (max 3). */
+export function gapZonesOf(bars: { h: number; l: number; c: number }[], max = 3): [number, number][] {
+  const n = bars.length;
+  if (n < 2) return [];
+  const close = bars[n - 1].c;
+  const suf: number[] = new Array(n + 1).fill(Infinity);
+  for (let i = n - 1; i >= 0; i--) suf[i] = Math.min(suf[i + 1], bars[i].l);
+  const out: [number, number][] = [];
+  for (let i = 1; i < n; i++) {
+    const bot = bars[i - 1].h, top = bars[i].l;
+    if (!(bot > 0) || !(top > bot * (1 + OSB_GAP_MIN))) continue;
+    if (suf[i + 1] <= bot) continue;          // filled to the bottom since
+    if (bot >= close) continue;               // above the price: not support
+    out.push([+bot.toFixed(2), +top.toFixed(2)]);
+  }
+  return out.sort((a, b) => b[1] - a[1]).slice(0, max);
+}
+/** Daily trend off last night's EMAs (chk) and the price now. */
+export function osbTrendOf(chk: LeaderHist['chk'], price: number): 'bear' | 'bull' | 'mixed' | null {
+  if (!chk || !(price > 0)) return null;
+  const [e10, e21, e21p] = chk;
+  if (!(e10 > 0 && e21 > 0 && e21p > 0)) return null;
+  if (price < e21 && (e10 < e21 || e21 < e21p)) return 'bear';
+  if (price > e21 && e10 > e21 && e21 >= e21p) return 'bull';
+  return 'mixed';
+}
+export const OSB_TREND_TEXT: Record<'bear' | 'bull' | 'mixed', string> = {
+  bear: 'Daily trend: bearish (under a falling or crossed 21 EMA) — a bounce, not a reversal',
+  bull: 'Daily trend: bullish (above a rising 21 EMA, 10 over 21) — a dip in an uptrend',
+  mixed: 'Daily trend: mixed (around the 21 EMA)',
+};
+
+export interface MonisCheck { key: 'bb' | 'gap' | 'earn' | 'stretch' | 'gapz' | 'll'; pass: boolean | null; text: string }
+/** The six checks for one row. `earnDate` is the next report (YYYY-MM-DD; undefined = calendar not loaded, null = none soon). */
+export function monisChecksOf(r: Pick<OversoldRow, 'lo' | 'price' | 'bbLo' | 'gap' | 'gapPre' | 'etf' | 'adr' | 'swDrop' | 'swBounced' | 'lo10' | 'gz'>, earnDate: string | null | undefined, today: string, nextDay: string): MonisCheck[] {
   const bb: MonisCheck = r.bbLo == null
     ? { key: 'bb', pass: null, text: 'Bollinger Band: not checked yet (starts after the nightly run)' }
     : r.lo <= r.bbLo
@@ -215,7 +284,29 @@ export function monisChecksOf(r: Pick<OversoldRow, 'lo' | 'price' | 'bbLo' | 'ga
       : earnDate === today || earnDate === nextDay
         ? { key: 'earn', pass: false, text: `Earnings ${earnDate === today ? 'today' : `next session (${earnDate})`} — a binary event` }
         : { key: 'earn', pass: true, text: 'No earnings today or next session' };
-  return [bb, gap, earn];
+  const stretch: MonisCheck = r.swDrop == null
+    ? { key: 'stretch', pass: null, text: 'Stretch: not checked yet (starts after the nightly run)' }
+    : r.swBounced
+      ? { key: 'stretch', pass: false, text: `Already bounced: a 1-ADR bounce since the 20-day high (now ${r.swDrop.toFixed(1)}× ADR under it)` }
+      : r.swDrop >= OSB_STRETCH_ADRS
+        ? { key: 'stretch', pass: true, text: `Stretched: ${r.swDrop.toFixed(1)}× ADR (${(r.swDrop * r.adr).toFixed(0)}%) under the 20-day high, no bounce` }
+        : { key: 'stretch', pass: false, text: `Not stretched enough: ${r.swDrop.toFixed(1)}× ADR (${(r.swDrop * r.adr).toFixed(0)}%) under the 20-day high, wants ${OSB_STRETCH_ADRS}×+` };
+  const zones = r.gz;
+  const band = (z: [number, number]) => z[0] * (1 - (0.25 * r.adr) / 100);
+  const hit = zones?.find(z => r.lo <= z[1] && r.lo >= band(z));
+  const gapz: MonisCheck = zones == null
+    ? { key: 'gapz', pass: null, text: 'Gap region: not checked yet (starts after the nightly run)' }
+    : hit
+      ? { key: 'gapz', pass: true, text: `In a gap region: low ${r.lo.toFixed(2)} inside the open gap ${hit[0].toFixed(2)}–${hit[1].toFixed(2)}` }
+      : zones.length
+        ? { key: 'gapz', pass: false, text: `Not in a gap region: nearest open gap ${zones[0][0].toFixed(2)}–${zones[0][1].toFixed(2)}` }
+        : { key: 'gapz', pass: false, text: 'No open gap under the price in the last 70 sessions' };
+  const ll: MonisCheck = r.lo10 == null
+    ? { key: 'll', pass: null, text: 'Lower low: not checked yet (starts after the nightly run)' }
+    : r.lo < r.lo10
+      ? { key: 'll', pass: true, text: `Lower low: today's ${r.lo.toFixed(2)} under the 10-day low ${r.lo10.toFixed(2)}` }
+      : { key: 'll', pass: false, text: `Higher low: today's ${r.lo.toFixed(2)} held above the 10-day low ${r.lo10.toFixed(2)} (continuation/reversal, not a washout)` };
+  return [bb, stretch, gapz, ll, gap, earn];
 }
 
 /** The oversold-bounce row for one name, or null when it does not qualify. */
@@ -235,7 +326,21 @@ export function oversoldOf(h: LeaderHist, q: Quote, base: LeaderRow): OversoldRo
     dvol: Math.round((q.vw && q.vw > 0 ? q.vw : q.price) * (q.vol || 0)),
     offLow: +((q.price / q.lo - 1) * 100).toFixed(2),
     deep: +(((h.wkHi - q.lo) / h.wkHi) * 100 / adr).toFixed(2),
+    ...monisInputsOf(h, q.price, q.lo, adr),
   };
+}
+
+/* Row fields for the 25 Nov 2026 Monis checks; absent until the nightly has stored sw/gz. */
+function monisInputsOf(h: LeaderHist, price: number, lo: number, adr: number): Partial<OversoldRow> {
+  const out: Partial<OversoldRow> = { trend: osbTrendOf(h.chk, price) };
+  if (h.sw) {
+    const hi = Math.max(h.sw[0], h.wkHi ?? 0);
+    out.swDrop = hi > 0 ? +(((hi - lo) / hi) * 100 / adr).toFixed(2) : null;
+    out.swBounced = h.sw[1] === 1;
+    out.lo10 = h.sw[2];
+  }
+  if (h.sw || h.gz) out.gz = h.gz ?? [];
+  return out;
 }
 
 export interface LeadersLive {

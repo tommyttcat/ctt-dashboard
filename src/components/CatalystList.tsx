@@ -44,40 +44,48 @@ type Filter = 'all' | 'earnings' | 'gappers' | 'new';
 
 type LQ = { pct: number; vol: number | null } | undefined;
 
-function Row({ r, i, runAt, lq }: { r: CatalystItem; i: number; runAt: string; lq: LQ }) {
+/* Type sizes. `sm` (25 Nov 2026) is the Briefing page's: 12px text and 8px chips like its other
+   cards; the default is the News page's larger list. */
+const SIZES = {
+  md: { idx: 'text-[12px]', chip: 'text-[12px] px-1.5 py-[2px]', name: 'text-[12px]', grade: 'text-[11px] px-1.5 py-[2px]', sum: 'text-[15px]', pill: PILL, time: 'text-[12px]', chg: 'text-[15px]', meta: 'text-[12px]', pad: 'px-3.5 md:px-4 py-3', col: 'w-[88px] md:w-[120px]' },
+  sm: { idx: 'text-[10px]', chip: 'text-[8px] px-1 py-[1px] min-w-[28px] text-center', name: 'text-[10px]', grade: 'text-[8px] px-1 py-[1px]', sum: 'text-[12px]', pill: 'inline-flex items-center rounded-full border px-1.5 py-[1px] text-[8px] font-bold tracking-[0.06em] uppercase leading-[1.3] whitespace-nowrap', time: 'text-[10px]', chg: 'text-[12px]', meta: 'text-[10px]', pad: 'px-3 md:px-4 py-2.5', col: 'w-[76px] md:w-[110px]' },
+} as const;
+
+function Row({ r, i, runAt, lq, size = 'md' }: { r: CatalystItem; i: number; runAt: string; lq: LQ; size?: keyof typeof SIZES }) {
+  const z = SIZES[size];
   const chg = lq ? lq.pct : r.chg;
   const vol = lq?.vol ?? r.vol;
   return (
-    <div className="flex gap-3 px-3.5 md:px-4 py-3 border-t border-[#1e293b] first:border-t-0">
-      <span className="w-5 shrink-0 text-[12px] text-slate-500 tabular-nums pt-[2px]">{i}</span>
-      <div className="w-[88px] md:w-[120px] shrink-0 min-w-0">
+    <div className={`flex gap-3 ${z.pad} border-t border-[#1e293b] first:border-t-0`}>
+      <span className={`w-5 shrink-0 ${z.idx} text-slate-500 tabular-nums pt-[2px]`}>{i}</span>
+      <div className={`${z.col} shrink-0 min-w-0`}>
         <div className="flex items-center gap-1.5">
           <WatchlistBtn symbol={r.ticker} />
           <TickerChartHover symbol={r.ticker}>
-            <span className="inline-block text-[12px] font-bold tracking-wider px-1.5 py-[2px] rounded border leading-none text-slate-200 bg-slate-500/10 border-white/10">{r.ticker}</span>
+            <span className={`inline-block ${z.chip} font-bold tracking-wider rounded border leading-none text-slate-200 bg-slate-500/10 border-white/10`}>{r.ticker}</span>
           </TickerChartHover>
         </div>
-        {r.name && <div className="text-[12px] text-slate-500 truncate mt-1">{r.name}</div>}
+        {r.name && <div className={`${z.name} text-slate-500 truncate mt-1`}>{r.name}</div>}
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-start gap-2">
           <InfoDot text={GRADE_TIP[r.grade]}>
-            <span className={`inline-block text-[11px] font-bold px-1.5 py-[2px] rounded border leading-none mt-[2px] ${GRADE_CLS[r.grade]}`}>{r.grade}</span>
+            <span className={`inline-block ${z.grade} font-bold rounded border leading-none mt-[2px] ${GRADE_CLS[r.grade]}`}>{r.grade}</span>
           </InfoDot>
           {r.url
-            ? <a href={r.url} target="_blank" rel="noopener noreferrer" className="text-[15px] leading-snug text-slate-100 hover:text-white no-underline">{r.summary}</a>
-            : <span className="text-[15px] leading-snug text-slate-100">{r.summary}</span>}
+            ? <a href={r.url} target="_blank" rel="noopener noreferrer" className={`${z.sum} leading-snug text-slate-100 hover:text-white no-underline`}>{r.summary}</a>
+            : <span className={`${z.sum} leading-snug text-slate-100`}>{r.summary}</span>}
         </div>
         <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-          {r.tags.map(t => <span key={t} className={`${PILL} ${TAG_CLS(t)}`}>{t}</span>)}
-          {r.isNew && <span className={`${PILL} text-sky-300 bg-sky-500/10 border-sky-400/30`}>New</span>}
-          <span className="text-[12px] text-slate-500">{fmtTime(runAt)}</span>
+          {r.tags.map(t => <span key={t} className={`${z.pill} ${TAG_CLS(t)}`}>{t}</span>)}
+          {r.isNew && <span className={`${z.pill} text-sky-300 bg-sky-500/10 border-sky-400/30`}>New</span>}
+          <span className={`${z.time} text-slate-500`}>{fmtTime(runAt)}</span>
         </div>
       </div>
       <div className="shrink-0 text-right tabular-nums">
-        <div className={`text-[15px] font-bold ${chgCls(chg)}`}>{fmtChg(chg)}</div>
-        <div className="text-[12px] text-slate-500">{fmtBig(vol)} vol</div>
-        <div className="text-[12px] text-slate-500">{fmtBig(r.mktCap, true)}</div>
+        <div className={`${z.chg} font-bold ${chgCls(chg)}`}>{fmtChg(chg)}</div>
+        <div className={`${z.meta} text-slate-500`}>{fmtBig(vol)} vol</div>
+        <div className={`${z.meta} text-slate-500`}>{fmtBig(r.mktCap, true)}</div>
       </div>
     </div>
   );
@@ -129,6 +137,22 @@ export function useTopCatalysts() {
 }
 
 export { GRADE_CLS, GRADE_TIP, fmtTime as fmtCatalystTime };
+
+/** Briefing page (25 Nov 2026): the top five as News-page rows at the page's own type sizes. */
+export function TopCatalysts({ wrap = b => b }: { wrap?: (body: React.ReactNode) => React.ReactNode }) {
+  const { data, top, live } = useTopCatalysts();
+  if (!data || !top.length) return null;
+  return wrap(
+    <div className="space-y-2">
+      <div className="text-[10px] text-slate-500 tabular-nums">
+        Top {top.length} of {data.ranked.length + data.passed.length} as of {fmtTime(data.runAt)} · % and volume live · grades are a read of the news, not a buy signal · <a href="/news" className="text-violet-400 hover:text-violet-300">all on News</a>
+      </div>
+      <div className="bg-[#111827] border border-[#1e293b] rounded-2xl overflow-hidden">
+        {top.map((r, i) => <Row key={r.ticker} r={r} i={i + 1} runAt={data.runAt} lq={live?.quotes?.[r.ticker]} size="sm" />)}
+      </div>
+    </div>
+  );
+}
 
 export default function CatalystList({ reloadKey }: { reloadKey: number }) {
   const [data, setData] = React.useState<CatalystsPayload | null>(null);
