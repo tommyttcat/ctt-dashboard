@@ -46,6 +46,7 @@ import {
   sessionTextColor,
 } from '@/lib/indicators/marketScorecard';
 import { poll } from '@/lib/poll';
+import { TopCatalysts } from '@/components/CatalystList';
 
 const MiniChart = lazy(() => import('./MiniChart'));
 
@@ -2386,6 +2387,10 @@ export default function AnalystBrief() {
                 </SectionCard>
               ) : null;
             })()}
+
+            {/* Top 5 catalysts (25 Nov 2026) — the News page list, ranked by
+                the catalyst routine. Renders nothing before today's first run. */}
+            <TopCatalysts wrap={body => <SectionCard title="Top Catalysts" accent="#a78bfa">{body}</SectionCard>} />
 
             {/* 4. Market Regime — the analyst's Core Thesis, the readings that
                 argue against it, and what the conditions structurally support.

@@ -16,6 +16,7 @@ import { C, esc, rich, plain, label, card, statusOf, statusPill, pickCard, outlo
 
 import type { LeadersLive } from '@/lib/leaders';
 import { bullShare, type SentimentLive } from '@/lib/sentiment';
+import type { CatalystsPayload } from '@/lib/catalysts';
 
 type Any = any;
 
@@ -139,6 +140,8 @@ export interface EmailV2Input {
   /** /api/leaders/latest `live` — Liquid Leaders (lib/leaders). */
   leaders?: LeadersLive | null;
   sentiment?: SentimentLive | null;
+  /** /api/catalysts — the News page catalyst run (lib/catalysts). */
+  catalysts?: CatalystsPayload | null;
 }
 
 /* ---- Liquid Leaders (30 Sep 2026) ---------------------------------------
@@ -199,7 +202,29 @@ function sentimentCard(s: SentimentLive | null | undefined): string {
     <div style="font-size:12px;line-height:1.5;color:${C.muted};margin-top:10px;">ST: StockTwits bullish share of tagged posts. RED: Reddit mentions in 24 hours (× vs the day before). BSKY: Bluesky posts in 24 hours. X not included. The crowd, not a signal.</div>`);
 }
 
-export function buildEmailV2({ phaseLabel, dateLabel, updatedTime, macro, brief, phaseKey, t2108, leaders, sentiment }: EmailV2Input): string {
+/* ---- Top catalysts (25 Nov 2026) ----------------------------------------
+   The top five of the latest catalyst run (News page, Briefing page, Setups
+   Summary). Skipped until today's first run. % change is as of that run:
+   the list stops updating at 12:30 ET, so later emails say the time. */
+function catalystsCard(c: CatalystsPayload | null | undefined): string {
+  if (!c?.ranked?.length) return '';
+  const day = (iso: string) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  if (day(c.runAt) !== day(new Date().toISOString())) return '';
+  const at = new Date(c.runAt).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
+  const gradeColor = (g: string) => (g.startsWith('A') ? C.green : g === 'B' ? C.amber : C.muted);
+  const rows = c.ranked.slice(0, 5).map((r, i, a) => {
+    const chg = r.chg == null ? '' : `<b style="color:${r.chg >= 0 ? C.green : C.red};">${r.chg >= 0 ? '+' : '−'}${Math.abs(r.chg).toFixed(1)}%</b>`;
+    const line = r.url ? `<a href="${esc(r.url)}" style="color:${C.body};text-decoration:none;">${esc(r.summary)}</a>` : esc(r.summary);
+    return `<tr><td style="padding:8px 0;${i < a.length - 1 ? `border-bottom:1px solid ${C.rule};` : ''}font-size:14px;line-height:1.5;color:${C.body};">
+      <b style="color:${C.ink};">${esc(r.ticker)}</b> <span style="font-size:11px;font-weight:700;color:${gradeColor(r.grade)};">${esc(r.grade)}</span>${chg ? ` &nbsp;${chg}` : ''}<br>${line}
+    </td></tr>`;
+  }).join('');
+  return card(`${label('Top catalysts', C.violet)}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;">${rows}</table>
+    <div style="font-size:12px;line-height:1.5;color:${C.muted};margin-top:10px;">As of ${esc(at)} ET; % is the move at that time. Grades are a read of the news, not a buy signal.</div>`);
+}
+
+export function buildEmailV2({ phaseLabel, dateLabel, updatedTime, macro, brief, phaseKey, t2108, leaders, sentiment, catalysts }: EmailV2Input): string {
   const rd = brief?.regimeDetail || {};
   const regime = plain(rd.regime);
   const firstStop = regime.search(/[.—]\s/);
@@ -348,7 +373,7 @@ export function buildEmailV2({ phaseLabel, dateLabel, updatedTime, macro, brief,
     title: `CTT ${phaseLabel}`,
     pill: `${phaseLabel} · ${dateLabel}`,
     updatedTime,
-    sections: [hero, since, macroCard, breadthCard, next, picksHtml, leadersCard(leaders), sentimentCard(sentiment), avoid, news, money, moversHtml, sipHtml, cal, earn, tomorrow],
+    sections: [hero, since, macroCard, breadthCard, next, picksHtml, leadersCard(leaders), sentimentCard(sentiment), avoid, news, catalystsCard(catalysts), money, moversHtml, sipHtml, cal, earn, tomorrow],
     footerNote: "Levels are each scan's own plan.",
   });
 }

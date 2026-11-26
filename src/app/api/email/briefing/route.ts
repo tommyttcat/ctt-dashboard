@@ -1439,7 +1439,7 @@ export async function GET(req: Request) {
     recipients = userRecipients.length > 0 ? userRecipients : [fallback];
   }
 
-  const [macro, chopData, t2108Data, snapshotRes, chopSetting, econRes, earningsRes, leadersRes, sentimentRes] = await Promise.all([
+  const [macro, chopData, t2108Data, snapshotRes, chopSetting, econRes, earningsRes, leadersRes, sentimentRes, catalystsRes] = await Promise.all([
     fetchJson(`${origin}/api/macro`),
     fetchJson(`${origin}/api/chop`),
     fetchJson(`${origin}/api/t2108/latest`),
@@ -1452,6 +1452,8 @@ export async function GET(req: Request) {
     // Liquid Leaders (30 Sep 2026): the CDN-cached list the dashboard card reads.
     fetchJson(`${origin}/api/leaders/latest`),
     fetchJson(`${origin}/api/sentiment/latest`),
+    // Top catalysts (25 Nov 2026): the News page list, edge-cached (NARRATIVE).
+    fetchJson(`${origin}/api/catalysts`),
   ]);
   const snapshot = snapshotRes?.data || {};
   const chopMode: ChopMode = chopSetting?.mode || DEFAULT_CHOP_MODE;
@@ -1472,6 +1474,7 @@ export async function GET(req: Request) {
           ? new Date(brief.snapshotTime).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
           : null,
         macro, brief, t2108: t2108Data, leaders: leadersRes?.live ?? null, sentiment: sentimentRes?.live ?? null,
+        catalysts: Array.isArray(catalystsRes?.ranked) ? catalystsRes : null,
       })
     : buildEmail(phase, macro, chopData, t2108Data, brief, snapshot, chopMode, econ, earnings);
 

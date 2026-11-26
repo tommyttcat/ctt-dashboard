@@ -115,6 +115,7 @@ import { EDGE_TINT, COLOUR_TIP, type EdgeTier } from '@/lib/scans/edge';
 const edgeOf = (s: any): EdgeTier | null => tierForScan(s?._early ? 'early' : s?._source, s)?.tier ?? null;
 import EdgeFilterPills from './EdgeFilterPills';
 import InfoDot from './InfoDot';
+import { useTopCatalysts, GRADE_CLS as CAT_GRADE_CLS, GRADE_TIP as CAT_GRADE_TIP, fmtCatalystTime } from './CatalystList';
 import { etMinute, type OrbWatchStatus, type OrbWatchState } from '@/lib/orb';
 import { earlyMovers, EARLY_MIN_PCT, EARLY_MIN_PACE } from '@/lib/summary/earlyMovers';
 import { swingCheck, checkTip, earningsDateOf } from '@/lib/scans/checklist';
@@ -1323,6 +1324,36 @@ const fmtEtClock = (ms: number | null | undefined) =>
   ms ? new Date(ms).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) : '—';
 
 
+/* Top catalysts strip (25 Nov 2026): the News page's top five, compact, at
+   the head of Setups Summary. Same data and live-quote URL as the Briefing
+   page (useTopCatalysts). Renders nothing before the day's first catalyst
+   run (7:30 ET). Grades are a read of the news, not a signal. */
+const CatalystStrip = () => {
+  const { data, top, live } = useTopCatalysts();
+  if (!data || !top.length) return null;
+  const badge = 'inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold text-center';
+  return (
+    <div className="mb-3 pb-2 border-b border-white/5">
+      <div className="flex items-center gap-1.5 text-[7px] font-bold tracking-widest uppercase text-slate-500 mb-1">
+        <span>Top catalysts · {fmtCatalystTime(data.runAt)}</span>
+        <a href="/news" className="text-violet-400/80 hover:text-violet-300 normal-case tracking-normal text-[9px] font-semibold">all {data.ranked.length + data.passed.length} →</a>
+      </div>
+      {top.map(r => {
+        const chg = live?.quotes?.[r.ticker]?.pct ?? r.chg;
+        return (
+          <InfoDot key={r.ticker} block className="flex items-center whitespace-nowrap py-[1px]"
+            text={`${r.ticker}${r.name ? ` — ${r.name}` : ''}\n${r.summary}${r.tags.length ? `\n${r.tags.join(' · ')}` : ''}\n${CAT_GRADE_TIP[r.grade]}`}>
+            <TickerChartHover symbol={r.ticker}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.ticker}</span></TickerChartHover>
+            <span className="inline-block shrink-0 w-[20px] md:w-[22px] text-center ml-1"><span className={`${badge} ${CAT_GRADE_CLS[r.grade]}`}>{r.grade}</span></span>
+            <span className={`inline-block shrink-0 text-[9px] tabular-nums font-semibold w-[46px] md:w-[52px] text-right ml-1 ${chg == null ? 'text-slate-500' : chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{chg == null ? '—' : `${chg >= 0 ? '+' : ''}${chg.toFixed(1)}%`}</span>
+            <span className="text-[9px] text-slate-300 truncate min-w-0 flex-1 ml-2">{r.summary}</span>
+          </InfoDot>
+        );
+      })}
+    </div>
+  );
+};
+
 const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter: sf, rsMap, stageMap, topSet, onVisibleChange, orbWatch, edgeMap }: {
   pool: any[];
   gradeMap?: Record<string, 'A' | 'B'>;
@@ -1497,6 +1528,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
 
   return (
     <div>
+      <CatalystStrip />
       <div className="flex items-center gap-1.5 flex-wrap mb-2">
         {pills(SETUP_SOURCE_FILTERS)}
         {pills(SETUP_PATTERN_FILTERS)}

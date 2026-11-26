@@ -83,11 +83,73 @@ function Row({ r, i, runAt, lq }: { r: CatalystItem; i: number; runAt: string; l
   );
 }
 
+/* Live % change and volume for a sorted symbol list: /api/live-quotes, 30s
+   in market hours, 5 min outside (lib/poll pauses hidden tabs). 0 KV. */
+function useLiveQuotes(syms: string): LiveQuotesPayload | null {
+  const [live, setLive] = React.useState<LiveQuotesPayload | null>(null);
+  React.useEffect(() => {
+    if (!syms) return;
+    let on = true;
+    const load = () => fetch(`/api/live-quotes?s=${syms}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => { if (on) setLive(j && typeof j === 'object' ? j : null); })
+      .catch(() => { if (on) setLive(null); });
+    load();
+    const stop = poll(load, pollMs.marketHours(30_000, 300_000));
+    return () => { on = false; stop(); };
+  }, [syms]);
+  return live;
+}
+
+/* Briefing page (25 Nov 2026): the top five of the latest catalyst run, same
+   rows as the News page; the dashboard's Setups Summary shows the same five
+   as a compact strip. Hidden until today's first run (7:30 ET) so a stale
+   list from the last trading day never reads as today's. Re-reads
+   /api/catalysts every 5 minutes (edge-cached 120s, so KV is flat in
+   readers); the list itself only changes every 30 minutes, 7:30-12:30 ET. */
+/** Today's top five ranked catalysts with live quotes; empty before the day's first run. */
+export function useTopCatalysts() {
+  const [data, setData] = React.useState<CatalystsPayload | null>(null);
+  React.useEffect(() => {
+    let on = true;
+    const load = () => fetch('/api/catalysts')
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => { if (on && j && Array.isArray(j.ranked)) setData(j); })
+      .catch(() => {});
+    load();
+    const stop = poll(load, 300_000);
+    return () => { on = false; stop(); };
+  }, []);
+  const top = React.useMemo(
+    () => (data && etDay(data.runAt) === etDay(new Date().toISOString()) ? data.ranked.slice(0, 5) : []),
+    [data],
+  );
+  /* Sorted, so the Briefing page and the dashboard send the same URL and share one edge entry. */
+  const live = useLiveQuotes(top.map(r => r.ticker).sort().join(','));
+  return { data, top, live };
+}
+
+export { GRADE_CLS, GRADE_TIP, fmtTime as fmtCatalystTime };
+
+export function TopCatalysts({ wrap = b => b }: { wrap?: (body: React.ReactNode) => React.ReactNode }) {
+  const { data, top, live } = useTopCatalysts();
+  if (!data || !top.length) return null;
+  return wrap(
+    <div className="space-y-2">
+      <div className="text-[12px] text-slate-500 tabular-nums">
+        Top {top.length} of {data.ranked.length + data.passed.length} as of {fmtTime(data.runAt)} · % and volume live · grades are a read of the news, not a buy signal
+      </div>
+      <div className="bg-[#111827] border border-[#1e293b] rounded-2xl overflow-hidden">
+        {top.map((r, i) => <Row key={r.ticker} r={r} i={i + 1} runAt={data.runAt} lq={live?.quotes?.[r.ticker]} />)}
+      </div>
+    </div>
+  );
+}
+
 export default function CatalystList({ reloadKey }: { reloadKey: number }) {
   const [data, setData] = React.useState<CatalystsPayload | null>(null);
   const [state, setState] = React.useState<'loading' | 'ready' | 'empty'>('loading');
   const [filter, setFilter] = React.useState<Filter>('all');
-  const [live, setLive] = React.useState<LiveQuotesPayload | null>(null);
 
   React.useEffect(() => {
     let on = true;
@@ -105,17 +167,7 @@ export default function CatalystList({ reloadKey }: { reloadKey: number }) {
     () => (data ? [...new Set([...data.ranked, ...data.passed].map(r => r.ticker))].sort().slice(0, 100).join(',') : ''),
     [data],
   );
-  React.useEffect(() => {
-    if (!liveSyms) return;
-    let on = true;
-    const load = () => fetch(`/api/live-quotes?s=${liveSyms}`)
-      .then(r => (r.ok ? r.json() : null))
-      .then(j => { if (on) setLive(j && typeof j === 'object' ? j : null); })
-      .catch(() => { if (on) setLive(null); });
-    load();
-    const stop = poll(load, pollMs.marketHours(30_000, 300_000));
-    return () => { on = false; stop(); };
-  }, [liveSyms]);
+  const live = useLiveQuotes(liveSyms);
   const lqOf = (t: string): LQ => live?.quotes?.[t];
 
   const keep = React.useCallback((r: CatalystItem) =>
