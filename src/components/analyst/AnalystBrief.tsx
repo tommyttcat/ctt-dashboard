@@ -313,7 +313,9 @@ function contextPctColor(raw: string, preceding: string, following: string): str
   return eff > 0 ? 'text-emerald-400 font-semibold' : 'text-rose-400 font-semibold';
 }
 
-function colorPcts(text: string, keyBase: number): React.ReactNode[] {
+/* `before` is the prose ahead of this segment (25 Nov 2026): segments are cut at ticker chips, so
+   "VRTX down 7.1% … and **NUVB** 7.0%" reached the 7.0% without its "down". */
+function colorPcts(text: string, keyBase: number, before = ''): React.ReactNode[] {
   const parts: React.ReactNode[] = [];
   const re = /(\b\d\/6\b)|(\bGREEN\b)|(\bRED\b)|([\d,]+\s+(?:advancers?|advancing))|(\b[\d,]+\s+(?:decliners?|declining))|([\d,]+\s+new\s+highs?)|([\d,]+\s+new\s+lows?)|(A\/D\s+[\d.]+)|((?:%K\s+)?[\d.]+\s+vs\s+(?:signal\s+)?[\d.]+)|([+-]?\d+\.?\d*%)/g;
   let last = 0;
@@ -344,7 +346,7 @@ function colorPcts(text: string, keyBase: number): React.ReactNode[] {
     } else if (m[9]) {
       cls = 'text-slate-200 font-semibold';
     } else if (m[10]) {
-      const preceding = text.slice(Math.max(0, m.index - 80), m.index);
+      const preceding = (before + text.slice(0, m.index)).slice(-120);
       const following = text.slice(m.index + m[0].length, Math.min(text.length, m.index + m[0].length + 30));
       cls = contextPctColor(m[10], preceding, following);
     }
@@ -365,9 +367,9 @@ function colorPcts(text: string, keyBase: number): React.ReactNode[] {
    tokens, MIX / PRE / TAPE from the phase names, and CHOP, EIA and NFIB from
    the data itself all rendered as chips on 8 Sep 2026. NOT_TICKERS could only
    ever chase them one word at a time. */
-function enrichSegment(seg: string, offset: number, pctColor?: boolean, _tickers?: boolean, _gradeMap?: Record<string, 'A' | 'B'>, _avoidSet?: Set<string>): React.ReactNode[] {
+function enrichSegment(seg: string, offset: number, pctColor?: boolean, _tickers?: boolean, _gradeMap?: Record<string, 'A' | 'B'>, _avoidSet?: Set<string>, before = ''): React.ReactNode[] {
   if (!pctColor) return [seg];
-  return colorPcts(seg, offset);
+  return colorPcts(seg, offset, before);
 }
 
 function highlightBold(text: string, colorClass: string, pctColor?: boolean, tickers?: boolean, gradeMap?: Record<string, 'A' | 'B'>, avoidSet?: Set<string>): React.ReactNode {
@@ -377,10 +379,10 @@ function highlightBold(text: string, colorClass: string, pctColor?: boolean, tic
   let match: RegExpExecArray | null;
   while ((match = regex.exec(text)) !== null) {
     if (match.index > last) {
-      parts.push(...enrichSegment(text.slice(last, match.index), last, pctColor, tickers, gradeMap, avoidSet));
+      parts.push(...enrichSegment(text.slice(last, match.index), last, pctColor, tickers, gradeMap, avoidSet, text.slice(0, last).replace(/\*\*/g, '')));
     }
     const inner = match[1];
-    const isTicker = tickers && /^[A-Z]{2,5}$/.test(inner) && !NOT_TICKERS.has(inner);
+    const isTicker = tickers && /^[A-Z]{1,5}$/.test(inner) && !NOT_TICKERS.has(inner);
     if (isTicker) {
       parts.push(<TickerChartHover key={match.index} symbol={inner}><span className={briefChipCls(inner, gradeMap, avoidSet)}>{inner}</span></TickerChartHover>);
     } else {
@@ -391,9 +393,29 @@ function highlightBold(text: string, colorClass: string, pctColor?: boolean, tic
     last = match.index + match[0].length;
   }
   if (last < text.length) {
-    parts.push(...enrichSegment(text.slice(last), last, pctColor, tickers, gradeMap, avoidSet));
+    parts.push(...enrichSegment(text.slice(last), last, pctColor, tickers, gradeMap, avoidSet, text.slice(0, last).replace(/\*\*/g, '')));
   }
   return <>{parts}</>;
+}
+
+/* PROSE (25 Nov 2026, owner: "un readable"). Every narrative card on the page renders through
+   this: 12px, ticker chips, coloured moves, and ONE SENTENCE A LINE — the brief writes 4-6
+   sentence paragraphs that read as a wall at 12px. Paragraphs keep their divider. */
+const SENTENCE_RX = /(?<=[.!?])(?<!\b(?:U\.S|vs|Inc|Corp|Co|Mr|Dr|St|e\.g|i\.e)\.)\s+(?=(?:\*\*)?[A-Z$])/;
+const sentencesOf = (t: string): string[] => t.split(SENTENCE_RX).map(x => x.trim()).filter(Boolean);
+function Prose({ text, strong = 'text-white', pct = true, tickers = true, gradeMap, avoidSet }: { text: string; strong?: string; pct?: boolean; tickers?: boolean; gradeMap?: Record<string, 'A' | 'B'>; avoidSet?: Set<string> }) {
+  const paras = text.split(/\n\n+/).map(p => p.replace(/\n/g, ' ').trim()).filter(Boolean);
+  return (
+    <div className="text-[12px] text-slate-200 leading-[1.7]">
+      {paras.map((p, i) => (
+        <div key={i} className={i > 0 ? 'pt-3 mt-3 border-t border-white/[0.06]' : ''}>
+          {sentencesOf(p).map((sn, j) => (
+            <p key={j} className={j > 0 ? 'mt-1.5' : ''}>{highlightBold(sn, strong, pct, tickers, gradeMap, avoidSet)}</p>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 const REGIME_COLORS: Record<string, { border: string; bg: string; label: string; highlight: string }> = {
@@ -1065,13 +1087,7 @@ function GapperSection({ section, gradeMap, avoidSet, scannerGainers, scannerLos
     {section.analysis && (
       <div className="mt-3 pt-3 border-t border-white/[0.04]">
         <div className="text-[8px] font-bold text-slate-500 tracking-wider uppercase mb-1">WIM</div>
-        <div className="text-[12px] text-slate-200 leading-[1.7]">
-          {section.analysis.split(/\n\n+/).filter(p => p.trim()).map((block, i) => (
-            <div key={i} className={i > 0 ? 'pt-3 mt-3 border-t border-white/[0.06]' : ''}>
-              <p className="leading-[1.7]">{highlightBold(block.replace(/\n/g, ' '), 'text-white', true, true, gradeMap, avoidSet)}</p>
-            </div>
-          ))}
-        </div>
+        <Prose text={section.analysis} gradeMap={gradeMap} avoidSet={avoidSet} />
       </div>
     )}
     </SectionCard>
@@ -1109,13 +1125,7 @@ function SIPSection({ section, gradeMap, avoidSet }: { section: SectionResult; g
       })()}
       {section.analysis && (
         <div className="mt-3 pt-3 border-t border-white/[0.04]">
-          <div className="text-[12px] text-slate-200 leading-[1.7]">
-            {section.analysis.split(/\n\n+/).filter(p => p.trim()).map((block, i) => (
-              <div key={i} className={i > 0 ? 'pt-3 mt-3 border-t border-white/[0.06]' : ''}>
-                <p className="leading-[1.7]">{highlightBold(block.replace(/\n/g, ' '), 'text-white', true, true, gradeMap, avoidSet)}</p>
-              </div>
-            ))}
-          </div>
+          <Prose text={section.analysis} gradeMap={gradeMap} avoidSet={avoidSet} />
         </div>
       )}
     </SectionCard>
@@ -1156,13 +1166,13 @@ function richText(text: string, withTickers = false, gradeMap?: Record<string, '
     const part = boldParts[i];
     if (!part) continue;
     if (i % 2 === 1) {
-      const colored = colorPcts(part, i * 100);
+      const colored = colorPcts(part, i * 100, boldParts.slice(0, i).join(''));
       const rendered = withTickers
         ? colored.map((c, j) => typeof c === 'string' ? renderTickerChips(c, i * 1000 + j * 100, gradeMap, avoidSet) : c)
         : colored;
       elements.push(<span key={`b${i}`} className="font-semibold text-slate-100">{rendered}</span>);
     } else {
-      const colored = colorPcts(part, i * 100);
+      const colored = colorPcts(part, i * 100, boldParts.slice(0, i).join(''));
       const processed = withTickers
         ? colored.map((c, j) => typeof c === 'string' ? renderTickerChips(c, i * 1000 + j * 100, gradeMap, avoidSet) : c)
         : colored;
@@ -1525,13 +1535,7 @@ function BriefSection({ section }: { section: SectionResult }) {
         {section.section}
       </div>
       {section.analysis && (
-        <div className="text-[12px] text-slate-200 leading-[1.7]">
-          {section.analysis.split(/\n\n+/).filter(p => p.trim()).map((block, i) => (
-            <div key={i} className={i > 0 ? 'pt-3 mt-3 border-t border-white/[0.06]' : ''}>
-              <p className="leading-[1.7]">{highlightBold(block.replace(/\n/g, ' '), 'text-slate-100', usePct, !usePct)}</p>
-            </div>
-          ))}
-        </div>
+        <Prose text={section.analysis} strong="text-slate-100" pct={usePct} tickers={!usePct} />
       )}
     </div>
   );
@@ -1660,12 +1664,8 @@ function SectorSection({ section, scannerData, auxScanData }: { section: Section
       )}
 
       {sectorNarrative && (
-        <div className="border-t border-white/[0.06] pt-3 max-w-[72ch] flex flex-col gap-3">
-          {sectorNarrative.split(/\n\n+/).filter((t) => t.trim()).map((para, i) => (
-            <p key={i} className="text-[12px] text-slate-200 leading-[1.75]">
-              {highlightBold(para.replace(/\n/g, ' '), 'text-slate-100', true)}
-            </p>
-          ))}
+        <div className="border-t border-white/[0.06] pt-3">
+          <Prose text={sectorNarrative} strong="text-slate-100" />
         </div>
       )}
     </div>
@@ -2315,13 +2315,7 @@ export default function AnalystBrief() {
               const macroSec = brief.sections.find(s => /Futures.*Macro|Macro.*Snapshot/i.test(s.section));
               return macroSec?.analysis ? (
                 <SectionCard title="Macro Snapshot" accent="#22d3ee">
-                  <div className="text-[12px] text-slate-200 leading-[1.7]">
-                    {macroSec.analysis.split(/\n\n+/).filter(p => p.trim()).map((block, i) => (
-                      <div key={i} className={i > 0 ? 'pt-3 mt-3 border-t border-white/[0.06]' : ''}>
-                        <p className="leading-[1.7]">{highlightBold(block.replace(/\n/g, ' '), 'text-white', true, true, gradeMap, avoidSet)}</p>
-                      </div>
-                    ))}
-                  </div>
+                  <Prose text={macroSec.analysis} gradeMap={gradeMap} avoidSet={avoidSet} />
                 </SectionCard>
               ) : null;
             })()}

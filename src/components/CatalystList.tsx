@@ -48,11 +48,13 @@ type LQ = { pct: number; vol: number | null } | undefined;
    cards; the default is the News page's larger list. */
 const SIZES = {
   md: { idx: 'text-[12px]', chip: 'text-[12px] px-1.5 py-[2px]', name: 'text-[12px]', grade: 'text-[11px] px-1.5 py-[2px]', sum: 'text-[15px]', pill: PILL, time: 'text-[12px]', chg: 'text-[15px]', meta: 'text-[12px]', pad: 'px-3.5 md:px-4 py-3', col: 'w-[88px] md:w-[120px]' },
-  sm: { idx: 'text-[10px]', chip: 'text-[8px] px-1 py-[1px] min-w-[28px] text-center', name: 'text-[10px]', grade: 'text-[8px] px-1 py-[1px]', sum: 'text-[12px]', pill: 'inline-flex items-center rounded-full border px-1.5 py-[1px] text-[8px] font-bold tracking-[0.06em] uppercase leading-[1.3] whitespace-nowrap', time: 'text-[10px]', chg: 'text-[12px]', meta: 'text-[10px]', pad: 'px-3 md:px-4 py-2.5', col: 'w-[76px] md:w-[110px]' },
+  sm: { idx: 'text-[10px]', chip: 'text-[8px] px-1 py-[1px] min-w-[28px] text-center', name: 'text-[10px]', grade: 'text-[8px] px-1 py-[1px]', sum: 'text-[12px]', pill: 'inline-flex items-center rounded-full border px-1.5 py-[1px] text-[8px] font-bold tracking-[0.06em] uppercase leading-[1.3] whitespace-nowrap', time: 'text-[10px]', chg: 'text-[12px]', meta: 'text-[10px]', pad: 'px-3 md:px-4 py-2', col: 'w-[76px] md:w-[110px]' },
 } as const;
 
-function Row({ r, i, runAt, lq, size = 'md' }: { r: CatalystItem; i: number; runAt: string; lq: LQ; size?: keyof typeof SIZES }) {
+function Row({ r, i, runAt, lq, size = 'md', showNew = true }: { r: CatalystItem; i: number; runAt: string; lq: LQ; size?: keyof typeof SIZES; showNew?: boolean }) {
   const z = SIZES[size];
+  /* sm (Briefing): two lines a row — no per-row time (the header has it), volume and cap on one line. */
+  const sm = size === 'sm';
   const chg = lq ? lq.pct : r.chg;
   const vol = lq?.vol ?? r.vol;
   return (
@@ -78,14 +80,18 @@ function Row({ r, i, runAt, lq, size = 'md' }: { r: CatalystItem; i: number; run
         </div>
         <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
           {r.tags.map(t => <span key={t} className={`${z.pill} ${TAG_CLS(t)}`}>{t}</span>)}
-          {r.isNew && <span className={`${z.pill} text-sky-300 bg-sky-500/10 border-sky-400/30`}>New</span>}
-          <span className={`${z.time} text-slate-500`}>{fmtTime(runAt)}</span>
+          {showNew && r.isNew && <span className={`${z.pill} text-sky-300 bg-sky-500/10 border-sky-400/30`}>New</span>}
+          {!sm && <span className={`${z.time} text-slate-500`}>{fmtTime(runAt)}</span>}
         </div>
       </div>
       <div className="shrink-0 text-right tabular-nums">
         <div className={`${z.chg} font-bold ${chgCls(chg)}`}>{fmtChg(chg)}</div>
-        <div className={`${z.meta} text-slate-500`}>{fmtBig(vol)} vol</div>
-        <div className={`${z.meta} text-slate-500`}>{fmtBig(r.mktCap, true)}</div>
+        {sm
+          ? <div className={`${z.meta} text-slate-500 whitespace-nowrap mt-1`}>{fmtBig(vol)} vol · {fmtBig(r.mktCap, true)} cap</div>
+          : <>
+              <div className={`${z.meta} text-slate-500`}>{fmtBig(vol)} vol</div>
+              <div className={`${z.meta} text-slate-500`}>{fmtBig(r.mktCap, true)}</div>
+            </>}
       </div>
     </div>
   );
@@ -148,7 +154,7 @@ export function TopCatalysts({ wrap = b => b }: { wrap?: (body: React.ReactNode)
         Top {top.length} of {data.ranked.length + data.passed.length} as of {fmtTime(data.runAt)} · % and volume live · grades are a read of the news, not a buy signal · <a href="/news" className="text-violet-400 hover:text-violet-300">all on News</a>
       </div>
       <div className="bg-[#111827] border border-[#1e293b] rounded-2xl overflow-hidden">
-        {top.map((r, i) => <Row key={r.ticker} r={r} i={i + 1} runAt={data.runAt} lq={live?.quotes?.[r.ticker]} size="sm" />)}
+        {top.map((r, i) => <Row key={r.ticker} r={r} i={i + 1} runAt={data.runAt} lq={live?.quotes?.[r.ticker]} size="sm" showNew={top.some(x => !x.isNew)} />)}
       </div>
     </div>
   );
