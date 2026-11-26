@@ -1,6 +1,6 @@
 /* scripts/leaders.test.mts — Liquid Leaders arithmetic (lib/leaders). */
 
-import { expectedCum, trackingPct, profileOf, buildLive, chkOf, checkFields, oversoldOf, isLeveragedBull, keyLevelsOf, levelStatusOf, liveCnf, osbScoreOf, osbThin, bbSumsOf, bbLowerOf, monisChecksOf, swingOf, gapZonesOf, osbTrendOf, BUCKETS, type LeadersState } from '../src/lib/leaders.ts';
+import { expectedCum, trackingPct, profileOf, buildLive, chkOf, checkFields, oversoldOf, isLeveragedBull, keyLevelsOf, levelStatusOf, liveCnf, osbScoreOf, osbThin, bbSumsOf, bbLowerOf, monisChecksOf, swingOf, gapZonesOf, osbTrendOf, monisTierOf, osbOrder, osbLevelsOf, BUCKETS, type LeadersState } from '../src/lib/leaders.ts';
 import { eq, near, ok, done } from './testkit.mts';
 
 // A flat day: 100 shares every half hour -> cumulative 100, 200, ... 1300.
@@ -166,15 +166,34 @@ for (const n of ['Direxion Daily Semiconductor Bear 3X Shares', 'ProShares Ultra
   eq('swing: a 1-ADR close off the low is a bounce', swingOf(bounced, 5)?.[1], 1);
   eq('gap zone open under the close', JSON.stringify(gapZonesOf(bars)), '[[80,82]]');
   eq('gap zone filled to the bottom is dropped', JSON.stringify(gapZonesOf([...bars, { h: 82, l: 79.5, c: 81 }])), '[]');
-  const base = { lo: 81, price: 83, bbLo: 82, gap: -1, etf: false, adr: 5, swDrop: 3.8, swBounced: false, lo10: 81.3, gz: [[80, 82]] as [number, number][] };
+  const base = { lo: 81, price: 83, bbLo: 82, gap: -1, etf: false, adr: 5, swDrop: 4.2, swBounced: false, lo10: 81.3, gz: [[80, 82]] as [number, number][] };
   const ck = (r: object) => monisChecksOf({ ...base, ...r } as never, null, '2026-11-25', '2026-11-27').filter(c => ['stretch', 'gapz', 'll'].includes(c.key)).map(c => c.pass).join();
   eq('all three new checks pass', ck({}), 'true,true,true');
-  eq('under 3 ADRs is not stretched', ck({ swDrop: 2.5 }), 'false,true,true');
+  eq('under 4 ADRs is not stretched', ck({ swDrop: 3.8 }), 'false,true,true');
   eq('already bounced fails stretch', ck({ swBounced: true }), 'false,true,true');
-  eq('low above the gap fails gap region', ck({ lo: 83, swDrop: 3.4 }), 'true,false,false');
+  eq('low above the gap fails gap region', ck({ lo: 83, swDrop: 4.4 }), 'true,false,false');
   eq('higher low fails lower low', ck({ lo10: 80.5 }), 'true,true,false');
   eq('no nightly inputs, unknown', ck({ swDrop: null, gz: undefined, lo10: null }), ',,');
-  eq('six checks in all', monisChecksOf(base as never, null, '2026-11-25', '2026-11-27').length, 6);
+  eq('seven checks in all', monisChecksOf(base as never, null, '2026-11-25', '2026-11-27').length, 7);
+  const tr = (trend: string | null) => monisChecksOf({ ...base, trend } as never, null, '2026-11-25', '2026-11-27').find(c => c.key === 'trend')!.pass;
+  eq('trend check: bearish passes, bullish and mixed fail, unread unknown', [tr('bear'), tr('bull'), tr('mixed'), tr(null)].join(), 'true,false,false,');
+  const all = { ...base, trend: 'bear' };
+  const tier = (r: object, e: string | null | undefined = null) => monisTierOf(monisChecksOf({ ...all, ...r } as never, e, '2026-11-25', '2026-11-27')).tier;
+  eq('tier: every check passes is green', tier({}), 'green');
+  eq('tier: one fails is yellow', tier({ trend: 'mixed' }), 'yellow');
+  eq('tier: one unread is yellow', tier({ bbLo: null }), 'yellow');
+  eq('tier: not stretched is red on its own', tier({ swDrop: 3 }), 'red');
+  eq('tier: already bounced is red on its own', tier({ swBounced: true }), 'red');
+  eq('tier: two fail is red', tier({ trend: 'bull', gap: 1 }), 'red');
+  const rows = [
+    { ...all, t: 'RED', swDrop: 2, score: 90, offLow: 1 },
+    { ...all, t: 'YEL', trend: 'mixed', score: 80, offLow: 1 },
+    { ...all, t: 'GRN', score: 10, offLow: 1 },
+  ];
+  eq('order: green, yellow, red, whatever the score', osbOrder(rows as never[], (r: never) => monisChecksOf(r, null, '', '')).map((r: { t: string }) => r.t).join(), 'GRN,YEL,RED');
+  eq('levels: swing levels and both gap edges, highest first', osbLevelsOf([90, 70], [[80, 82]]).join(), '90,82,80,70');
+  eq('levels: edges within 1% merge', osbLevelsOf([82.5], [[80, 82]]).join(), '82.5,80');
+  eq('levels: none', osbLevelsOf(undefined, undefined).length, 0);
   eq('trend: bearish under a falling 21', osbTrendOf([10, 12, 12.5, 15, 8, null, null] as never, 11), 'bear');
   eq('trend: bullish over a rising 21', osbTrendOf([13, 12, 11.8, 10, 8, null, null] as never, 14), 'bull');
 }

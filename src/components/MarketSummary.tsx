@@ -119,7 +119,7 @@ import { useTopCatalysts, GRADE_CLS as CAT_GRADE_CLS, GRADE_TIP as CAT_GRADE_TIP
 import { etMinute, type OrbWatchStatus, type OrbWatchState } from '@/lib/orb';
 import { earlyMovers, EARLY_MIN_PCT, EARLY_MIN_PACE } from '@/lib/summary/earlyMovers';
 import { swingCheck, checkTip, earningsDateOf } from '@/lib/scans/checklist';
-import { type LeadersLive, type LeaderRow, type OversoldRow, osbScoreOf, trackingPct, monisChecksOf, OSB_BELLWETHERS, OSB_TREND_TEXT } from '@/lib/leaders';
+import { type LeadersLive, type LeaderRow, type OversoldRow, osbScoreOf, trackingPct, monisChecksOf, monisTierOf, osbOrder, OSB_BELLWETHERS, OSB_STRETCH_ADRS } from '@/lib/leaders';
 import { chartLevelsGlobal } from '@/lib/chartLevels';
 import { bullShare, type SentimentLive } from '@/lib/sentiment';
 import { EARLY_PASS_N, type EarlySummary } from '@/lib/earlyTrack';
@@ -1863,7 +1863,7 @@ const OS_STATUS: Record<string, { tint: EdgeTier; word: string; why: string }> =
   holding: { tint: 'yellow', word: 'HOLDING', why: 'above its key levels, not testing one' },
   lost: { tint: 'red', word: 'LOST', why: 'below its nearest key level' },
 };
-const OS_TIP = "OVERSOLD BOUNCE — Monis-style (x.com/mmonis): liquid names ($10+, $100M+ a day) that move a lot (ADR 6–15%), stocks and leveraged bull ETFs, that traded down today to 1.5 ADRs or more under their 5-session high. Top 20 by the OSB score. From 10:00 ET a name also needs $10M AND 1M shares traded today, or it is left off (before 10:00 nothing is dropped; hover a row for today's dollars).\n\nOSB SCORE (0–100, untested) — LEVEL 40: reclaimed 40, testing 23, holding 17, lost 0. OFF LOW 30: the bounce off today's low in ADRs, one full ADR earns it all. STRETCH 18: how far today's low got under the 5-day high, 1.5 ADRs earns 0 and 3+ earns it all. VOLUME 12: today's pace against usual, 2x or more earns it all (leveraged ETFs have no volume profile, so they are scored on the other 88 and scaled up). RS and stage do not count.\n\nKEY LEVELS — the swing lows and old highs of the last 60 sessions under last night's close, drawn as green lines on the ticker's pop-up chart. ROW COLOUR — green RECLAIMED (dipped under a key level today and back above it — his entry), yellow TESTING (at a level) or HOLDING (above them), red LOST (under the nearest one). Hover a row for the level.\n\nM (Monis checks; display only, untested) — how many of 6 pass: OUTSIDE BB, today's low reached the lower Bollinger Band (20, 2); STRETCHED, today's low is 3+ ADRs under the 20-day high with no 1-ADR bounce since (his 'down 20% without a bounce, roughly 4× the ADR'); GAP REGION, today's low is inside an open gap-up zone from the last 70 sessions; LOWER LOW, today's low is under the 10-day low (a higher low is continuation or reversal, not this trade); NO GAP UP, the open was less than +0.5% over yesterday's close (pre-market: the price now); NO EARNINGS today or next session. Green 5-6, yellow 3-4, red under 3. The hover also says the daily trend — bearish means a bounce, not a reversal. They do not change the score, order or colour. Hover a row for each one. When a big name (NVDA, AAPL, MSFT…) reports today, a line above the list says so — the whole group trades the report.\n\nOL (off low) — % above today's low. OH (off high) — % below the 5-day high now (hover a row for the drop in ADRs). STG — the scan's own where a scan carries the name, else last night's. Inverse ETFs are left out. Untested. Data 15 minutes delayed.";
+const OS_TIP = `OVERSOLD BOUNCE — Monis-style (x.com/mmonis): liquid names ($10+, $100M+ a day) that move a lot (ADR 6–15%), stocks and leveraged bull ETFs, that traded down today to 1.5 ADRs or more under their 5-session high. Top 20 by the Monis checklist, then the OSB score. From 10:00 ET a name also needs $10M AND 1M shares traded today, or it is left off (before 10:00 nothing is dropped; hover a row for today's dollars).\n\nOSB SCORE (0–100, untested) — LEVEL 40: reclaimed 40, testing 23, holding 17, lost 0. OFF LOW 30: the bounce off today's low in ADRs, one full ADR earns it all. STRETCH 18: how far today's low got under the 5-day high, 1.5 ADRs earns 0 and 3+ earns it all. VOLUME 12: today's pace against usual, 2x or more earns it all (leveraged ETFs have no volume profile, so they are scored on the other 88 and scaled up). RS and stage do not count.\n\nKEY LEVELS — the swing lows and old highs of the last 60 sessions under last night's close, plus both edges of each open gap-up zone (his 'gap region'), drawn as green lines on the ticker's pop-up chart. The level status (reclaimed / testing / holding / lost) is in the row hover and the score.\n\nM (Monis checklist, untested) — how many of 7 pass: OUTSIDE BB, today's low reached the lower Bollinger Band (20, 2); STRETCHED, today's low is ${OSB_STRETCH_ADRS}+ ADRs under the 20-day high with no 1-ADR bounce since (his 'down 20% without a bounce, roughly 4× the ADR'); GAP REGION, today's low is inside an open gap-up zone from the last 70 sessions; LOWER LOW, today's low is under the 10-day low (a higher low is continuation or reversal, not this trade); TREND, the daily trend is still bearish (under a falling or crossed 21 EMA — a bounce, not a reversal); NO GAP UP, the open was less than +0.5% over yesterday's close (pre-market: the price now); NO EARNINGS today or next session.\n\nROW COLOUR AND ORDER — set by the checklist: green, every check passes; yellow, one fails or one cannot be read yet; red, not stretched, already bounced, or 2+ fail. Green first, then yellow, then red; within each, most checks passed, then the OSB score. Hover a row for each check. When a big name (NVDA, AAPL, MSFT…) reports today, a line above the list says so — the whole group trades the report.\n\nOL (off low) — % above today's low. OH (off high) — % below the 5-day high now (hover a row for the drop in ADRs). STG — the scan's own where a scan carries the name, else last night's. Inverse ETFs are left out. Untested. Data 15 minutes delayed.`;
 /** % below the 5-session high now (negative). */
 const offHi = (r: OversoldRow): number => (r.wkHi > 0 ? (r.price / r.wkHi - 1) * 100 : 0);
 const OversoldBounce = ({ stageMap, newsMap }: {
@@ -1903,9 +1903,13 @@ const OversoldBounce = ({ stageMap, newsMap }: {
   /* A payload written before the score existed (30 Oct 2026) is scored here and re-ranked, so the
      OSB column is never blank (2 Nov). Pure arithmetic on the row — no fetch. */
   const scored = live.oversold.some(r => r.score == null)
-    ? live.oversold.map(r => (r.score != null ? r : { ...r, ...osbScoreOf(r) })).sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || b.offLow - a.offLow)
+    ? live.oversold.map(r => (r.score != null ? r : { ...r, ...osbScoreOf(r) }))
     : live.oversold;
-  const top = scored.slice(0, 20);
+  /* Monis checks (lib/leaders monisChecksOf): BB, gap up, earnings (17 Nov 2026); stretch, gap region, lower low (25 Nov 2026);
+     trend (25 Nov, later). Since 25 Nov they set the row colour and the order (monisTierOf / osbOrder), here with the earnings calendar. */
+  const today = etDateString(), nextDay = nextTradingDay(today);
+  const checksOf = (r: OversoldRow) => monisChecksOf(r, r.etf ? null : earningsDateOf(r.t), today, nextDay);
+  const top = osbOrder(scored, checksOf).slice(0, 20);
   /* Before the first live run of the day (9:45 ET — the data is 15 minutes delayed) the payload is the
      last session's close; say so, or yesterday's moves read as today's (2 Nov 2026). */
   const etDay = (ms: number) => new Date(ms).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
@@ -1925,9 +1929,6 @@ const OversoldBounce = ({ stageMap, newsMap }: {
   const C = 'inline-block shrink-0';
   const badge = 'inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center';
   const dash = <span className={`${badge} text-slate-600 border-slate-700/40 bg-slate-800/30`}>-</span>;
-  /* Monis checks (lib/leaders monisChecksOf): BB, gap up, earnings (17 Nov 2026); stretch, gap region, lower low (25 Nov 2026). Display only. */
-  const today = etDateString(), nextDay = nextTradingDay(today);
-  const checksOf = (r: OversoldRow) => monisChecksOf(r, r.etf ? null : earningsDateOf(r.t), today, nextDay);
   const bellwethers = OSB_BELLWETHERS.filter(t => earningsDateOf(t) === today);
   const osbClock = live.osb?.clockEt ?? live.clockEt;
   const clock = `${Math.floor(osbClock / 60) % 12 || 12}:${String(osbClock % 60).padStart(2, '0')}`;
@@ -1950,16 +1951,16 @@ const OversoldBounce = ({ stageMap, newsMap }: {
     const sc = r.sc ? `\nOSB ${r.score} = level ${r.sc[0]}/40 · off low ${r.sc[1]}/30 · stretch ${r.sc[2]}/18 · ${r.sc[3] == null ? 'no volume profile (scaled from 88)' : `volume ${r.sc[3]}/12`}` : '';
     const st = r.status ? OS_STATUS[r.status] : null;
     const q = lqOf(r.t), chg = q?.pct ?? r.chg, px = q?.price ?? r.price;
-    const mc = checksOf(r), mPass = mc.filter(c => c.pass === true).length, mKnown = mc.filter(c => c.pass != null).length;
+    const mc = checksOf(r), mt = monisTierOf(mc), mPass = mt.pass, mKnown = mc.filter(c => c.pass != null).length;
     const dv = r.dvol == null ? '' : `\nToday $${r.dvol >= 1e9 ? `${(r.dvol / 1e9).toFixed(2)}B` : `${(r.dvol / 1e6).toFixed(1)}M`} traded${r.gapPre ? ' pre-market' : ''}, ${((r.vol ?? 0) / 1e6).toFixed(2)}M shares${r.dvol < 10e6 || (r.vol ?? 0) < 1e6 ? ' — under the $10M / 1M-share floor (it applies from 10:00 ET)' : ''}`;
-    const mTip = `${dv}\nMONIS ${mPass}/${mc.length} — ${mc.map(c => `${c.pass == null ? '?' : c.pass ? '✓' : '✗'} ${c.text}`).join(' · ')}${r.trend ? `\n${OSB_TREND_TEXT[r.trend]}` : ''}`;
+    const mTip = `${dv}\nMONIS ${mPass}/${mc.length} — ${mc.map(c => `${c.pass == null ? '?' : c.pass ? '✓' : '✗'} ${c.text}`).join(' · ')}`;
     return (
-      <InfoDot key={r.t} block className={`flex items-center whitespace-nowrap py-[1px] ${st ? `${EDGE_TINT[st.tint]} rounded-sm` : ''}`}
+      <InfoDot key={r.t} block className={`flex items-center whitespace-nowrap py-[1px] ${mKnown ? `${EDGE_TINT[mt.tier]} rounded-sm` : st ? `${EDGE_TINT[st.tint]} rounded-sm` : ''}`}
         text={`#${i + 1} ${r.n ?? r.t}${r.etf ? ' (leveraged ETF)' : ''}\n${st && r.key != null ? `${st.word} — ${st.why}: key level ${r.key.toFixed(2)}` : 'No key level under last night\'s close'}\n5-day high ${r.wkHi.toFixed(2)} · today's low ${r.lo.toFixed(2)}, ${r.deep.toFixed(1)}× its ADR under that high · now ${r.offLow.toFixed(1)}% off the low · ADR ${r.adr.toFixed(1)}%${sc}${mTip}`}>
         <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover>
         <span className={`${C} w-[20px] md:w-[22px] text-center ml-1`}>{r.score != null ? <span className={`${badge} ${cnfBadgeCls(r.score)}`}>{r.score}</span> : dash}</span>
         <span className={`${C} w-[20px] md:w-[22px] text-center ml-1`}>{mKnown === 0 ? dash : (
-          <span className={`${badge} ${postureChipCls(mPass >= mc.length - 1 ? 'good' : mPass >= mc.length - 3 ? 'warn' : 'bad')}`}>{mPass}/{mc.length}</span>
+          <span className={`${badge} ${postureChipCls(mt.tier === 'green' ? 'good' : mt.tier === 'yellow' ? 'warn' : 'bad')}`}>{mPass}/{mc.length}</span>
         )}</span>
         <span className={`${C} text-[9px] tabular-nums font-semibold w-[46px] md:w-[52px] text-right ml-1 ${chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>
         <span className={`${C} text-[9px] tabular-nums hidden md:inline-block w-[42px] text-right text-slate-300 ml-1`}>{px.toFixed(2)}</span>
@@ -1986,7 +1987,7 @@ const OversoldBounce = ({ stageMap, newsMap }: {
   return (
     <div>
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-[9px] text-slate-500 flex-1">Ranked by OSB score (level, bounce off the low, stretch, volume). OL = % off today&apos;s low · OH = % off the 5-day high. M = Monis checks passed (outside BB, no gap up, no earnings). Key levels on each ticker&apos;s chart. Untested.</span>
+        <span className="text-[9px] text-slate-500 flex-1">Ranked and coloured by the Monis checklist (M = checks passed), then the OSB score. OL = % off today&apos;s low · OH = % off the 5-day high. Key levels and gap edges on each ticker&apos;s chart. Untested.</span>
         <InfoDot text={OS_TIP} />
       </div>
       {bellwethers.length > 0 && <p className="text-[9px] text-amber-300/90 font-semibold mb-1.5">{bellwethers.join(', ')} report{bellwethers.length === 1 ? 's' : ''} today — a binary event for {bellwethers.length === 1 ? 'its' : 'their'} group. Monis sits those out.</p>}
@@ -2768,12 +2769,13 @@ export default function MarketSummary() {
   }, [macroInsights?.setupPool]);
   /* OSB in the Setups Summary (15 Oct 2026): the Oversold Bounce rows join the pool from the
      shared Liquid Leaders poll — no extra request. Names already in the pool are flagged _osb;
-     the rest are added in the scan-row shape the summary reads, coloured by the washout light. */
+     the rest are added in the scan-row shape the summary reads, coloured by the Monis checklist (_monis, 25 Nov 2026). */
   const leadersLive = useLeadersLive();
   const setupPoolOsb = React.useMemo(() => {
     const pool = macroInsights?.setupPool ?? [];
     const os = leadersLive?.oversold ?? [];
     if (!os.length) return pool;
+    const today = etDateString();
     const byT = new Map(os.map(r => [r.t, r]));
     const out = pool.map(s => (byT.has(String(s?.ticker ?? '').toUpperCase()) ? { ...s, _osb: true } : s));
     const have = new Set(out.map(s => String(s?.ticker ?? '').toUpperCase()));
@@ -2783,6 +2785,7 @@ export default function MarketSummary() {
         ticker: r.t, name: r.n, price: r.price, changePct: r.chg, vol: r.vol, volume: r.vol,
         rvol: r.track == null ? null : Math.max(0, 1 + r.track / 100), rsRating: r.rs ?? null,
         stage: macroInsights?.stageMap?.[r.t] ?? r.stg ?? undefined, cnfScore: r.cnf ?? undefined, adrPct: r.adr, _source: 'osb', _status: r.status ?? null, _key: r.key ?? null,
+        _monis: monisTierOf(monisChecksOf(r, r.etf ? null : earningsDateOf(r.t), today, nextTradingDay(today))).tier,
         setupName: 'Oversold Bounce',
         thesis: `Oversold: ${offHi(r).toFixed(1)}% off the 5-day high (${r.wkHi.toFixed(2)}), now +${r.offLow.toFixed(1)}% off today's low${r.etf ? ' · leveraged ETF' : ''}.`,
       });

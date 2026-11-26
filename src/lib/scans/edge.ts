@@ -386,15 +386,17 @@ export function checkedFor(source: string, row: any): Checked | null {
    key-level status (lib/leaders levelStatusOf, carried as _status): GREEN reclaimed — the low
    went under a key level today and the price is back above it, Monis's entry — RED lost (under
    the nearest level), YELLOW testing / holding / no level. Untested; the market-washout gate
-   was dropped on 16 Oct at the owner's request. */
-function osbTierRule(row: { _status?: string | null } | null | undefined): EdgeTier | null {
+   was dropped on 16 Oct at the owner's request. 25 Nov 2026: the colour is the Monis checklist
+   (lib/leaders monisTierOf, carried as _monis); the level status is the fallback for a row without it. */
+function osbTierRule(row: { _status?: string | null; _monis?: EdgeTier | null } | null | undefined): EdgeTier | null {
   if (!row) return null;
+  if (row._monis) return row._monis;
   return row._status === 'reclaimed' ? 'green' : row._status === 'lost' ? 'red' : 'yellow';
 }
 export const OSB_TIP: Record<EdgeTier, string> = {
-  green: 'RECLAIMED (Oversold Bounce): dipped under a key level today and is back above it — the entry Monis circles on his charts. Key levels are on the pop-up chart. Untested.',
-  yellow: 'TESTING / HOLDING (Oversold Bounce): oversold, at a key level now or still above its levels. Key levels are on the pop-up chart. Untested.',
-  red: 'LOST (Oversold Bounce): oversold and under its nearest key level. Key levels are on the pop-up chart. Untested.',
+  green: 'MONIS CHECKLIST PASSES (Oversold Bounce): outside the lower BB, 4+ ADRs down with no bounce, in a gap region, a lower low, daily trend still bearish, no gap up, no earnings. Hover the row on the Oversold Bounce card for each check. Untested.',
+  yellow: 'ONE CHECK OFF (Oversold Bounce): one Monis check fails, or one cannot be read yet. Hover the row on the Oversold Bounce card for which. Untested.',
+  red: 'NOT HIS SETUP (Oversold Bounce): not stretched 4 ADRs, already bounced, or 2+ Monis checks fail. Untested.',
 };
 
 /* Tips for the day-coloured daily source, defined here because TIER_BY_SOURCE is built at load. */

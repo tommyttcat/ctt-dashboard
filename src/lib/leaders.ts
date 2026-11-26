@@ -169,6 +169,20 @@ export function levelStatusOf(levels: number[] | undefined, price: number, lo: n
   if (price < levels[0]) return { status: 'lost', key: Math.min(...levels.filter(L => L > price)) };
   return { status: 'holding', key: levels[0] };
 }
+/* KEY LEVELS + GAP ZONES (25 Nov 2026, owner: "build all four"): his key level is the gap region,
+   so both edges of each open gap-up zone (the prior high and the gap day's low) join the swing
+   levels for the status, the score's level part and the pop-up chart lines. Highest first,
+   merged within 1%, up to 6. */
+export function osbLevelsOf(lv: number[] | undefined, gz: [number, number][] | undefined, max = 6): number[] {
+  const pts = [...(lv ?? []), ...(gz ?? []).flat()].filter(x => x > 0).sort((a, b) => b - a);
+  const out: number[] = [];
+  for (const p of pts) {
+    if (out.length && Math.abs(out[out.length - 1] - p) / p < 0.01) continue;
+    out.push(+p.toFixed(2));
+    if (out.length >= max) break;
+  }
+  return out;
+}
 /* OSB score (30 Oct 2026, owner asked for a ranking; leadership left out at the owner's call — Monis trades
    beaten-down names and leveraged ETFs too). UNTESTED. Out of 100:
    LEVEL 40 — reclaimed 40, testing 23, holding 17, lost or no level 0.
@@ -210,9 +224,10 @@ export function bbLowerOf(bb: [number, number] | undefined, price: number): numb
 /* MONIS CHECKLIST, part 2 (25 Nov 2026), from the owner's copy of his checklist:
    "Oversold — touching BB, down 20% without bounce (roughly 4 times the ADR)", "Near key level —
    in the gap region", "Lower-Low (Higher-Low is for continuation and reversal)", "Daily Trend —
-   bearish still, not a reversal". The first three are checks; the trend is shown in the hover
-   only (it says what kind of trade it is, not whether to take it). Display only, UNTESTED. */
-export const OSB_STRETCH_ADRS = 3;   // his "roughly 4×"; 3 so a near miss reads as one
+   bearish still, not a reversal". Later the same day (owner: "build all four") the stretch moved
+   to his 4×, the trend became a check, and the checks set the row colour and order (monisTierOf,
+   osbOrder). UNTESTED. */
+export const OSB_STRETCH_ADRS = 4;   // his "roughly 4 times the ADR"
 export const OSB_SWING_LOOK = 20;    // sessions searched for the swing high
 const OSB_GAP_MIN = 0.005;           // a gap up must clear the prior high by 0.5%
 /** Names the Monis inputs are stored for: the card's ADR band (stocks and leveraged ETFs). */
@@ -264,9 +279,9 @@ export const OSB_TREND_TEXT: Record<'bear' | 'bull' | 'mixed', string> = {
   mixed: 'Daily trend: mixed (around the 21 EMA)',
 };
 
-export interface MonisCheck { key: 'bb' | 'gap' | 'earn' | 'stretch' | 'gapz' | 'll'; pass: boolean | null; text: string }
-/** The six checks for one row. `earnDate` is the next report (YYYY-MM-DD; undefined = calendar not loaded, null = none soon). */
-export function monisChecksOf(r: Pick<OversoldRow, 'lo' | 'price' | 'bbLo' | 'gap' | 'gapPre' | 'etf' | 'adr' | 'swDrop' | 'swBounced' | 'lo10' | 'gz'>, earnDate: string | null | undefined, today: string, nextDay: string): MonisCheck[] {
+export interface MonisCheck { key: 'bb' | 'gap' | 'earn' | 'stretch' | 'gapz' | 'll' | 'trend'; pass: boolean | null; text: string }
+/** The seven checks for one row. `earnDate` is the next report (YYYY-MM-DD; undefined = calendar not loaded, null = none soon). */
+export function monisChecksOf(r: Pick<OversoldRow, 'lo' | 'price' | 'bbLo' | 'gap' | 'gapPre' | 'etf' | 'adr' | 'swDrop' | 'swBounced' | 'lo10' | 'gz' | 'trend'>, earnDate: string | null | undefined, today: string, nextDay: string): MonisCheck[] {
   const bb: MonisCheck = r.bbLo == null
     ? { key: 'bb', pass: null, text: 'Bollinger Band: not checked yet (starts after the nightly run)' }
     : r.lo <= r.bbLo
@@ -306,8 +321,36 @@ export function monisChecksOf(r: Pick<OversoldRow, 'lo' | 'price' | 'bbLo' | 'ga
     : r.lo < r.lo10
       ? { key: 'll', pass: true, text: `Lower low: today's ${r.lo.toFixed(2)} under the 10-day low ${r.lo10.toFixed(2)}` }
       : { key: 'll', pass: false, text: `Higher low: today's ${r.lo.toFixed(2)} held above the 10-day low ${r.lo10.toFixed(2)} (continuation/reversal, not a washout)` };
-  return [bb, stretch, gapz, ll, gap, earn];
+  const trend: MonisCheck = r.trend == null
+    ? { key: 'trend', pass: null, text: 'Daily trend: not read yet (needs last night\'s EMAs)' }
+    : r.trend === 'bear'
+      ? { key: 'trend', pass: true, text: OSB_TREND_TEXT.bear }
+      : { key: 'trend', pass: false, text: r.trend === 'bull'
+        ? 'Daily trend: bullish (above a rising 21 EMA) — a dip in an uptrend, a different trade; his checklist wants it bearish still'
+        : 'Daily trend: mixed (around the 21 EMA) — not bearish still, as his checklist wants' };
+  return [bb, stretch, gapz, ll, trend, gap, earn];
 }
+/* COLOUR AND ORDER (25 Nov 2026, owner: "build all four"): the checklist decides. GREEN every check
+   passes. RED it is not stretched or has already bounced (not his setup at all), or 2+ checks fail.
+   YELLOW one fails, or a check cannot be read yet. Order: green, yellow, red; then checks passed;
+   then the OSB score. UNTESTED. */
+export type MonisTier = 'green' | 'yellow' | 'red';
+export function monisTierOf(cs: MonisCheck[]): { tier: MonisTier; pass: number; fail: number } {
+  const pass = cs.filter(c => c.pass === true).length, fail = cs.filter(c => c.pass === false).length;
+  const notSetup = cs.some(c => c.key === 'stretch' && c.pass === false);
+  const tier: MonisTier = notSetup || fail >= 2 ? 'red' : fail === 1 || pass < cs.length ? 'yellow' : 'green';
+  return { tier, pass, fail };
+}
+const TIER_RANK: Record<MonisTier, number> = { green: 0, yellow: 1, red: 2 };
+export function osbOrder<T extends OversoldRow>(rows: T[], checksOf: (r: T) => MonisCheck[]): T[] {
+  const m = new Map(rows.map(r => [r, monisTierOf(checksOf(r))]));
+  return [...rows].sort((a, b) => {
+    const x = m.get(a)!, y = m.get(b)!;
+    return TIER_RANK[x.tier] - TIER_RANK[y.tier] || y.pass - x.pass || (b.score ?? 0) - (a.score ?? 0) || b.offLow - a.offLow;
+  });
+}
+/* The server has no earnings calendar (the page loads it), so it orders as if none report; the card re-orders with it. */
+const serverChecks = (r: OversoldRow) => monisChecksOf(r, null, '', '');
 
 /** The oversold-bounce row for one name, or null when it does not qualify. */
 export function oversoldOf(h: LeaderHist, q: Quote, base: LeaderRow): OversoldRow | null {
@@ -317,11 +360,12 @@ export function oversoldOf(h: LeaderHist, q: Quote, base: LeaderRow): OversoldRo
   if (!(h.wkHi && h.wkHi > 0) || !(q.lo && q.lo > 0) || !(q.price > 0)) return null;
   const level = h.wkHi * (1 - (OVERSOLD.adrs * adr) / 100);
   if (q.lo > level) return null;
-  const ks = levelStatusOf(h.lv, q.price, q.lo, adr);
+  const lvs = osbLevelsOf(h.lv, h.gz);
+  const ks = levelStatusOf(lvs, q.price, q.lo, adr);
   const pre = !(q.o && q.o > 0);
   const gap = q.prevClose > 0 ? +((((pre ? q.price : q.o!) / q.prevClose) - 1) * 100).toFixed(2) : null;
   return {
-    ...base, adr, level: +level.toFixed(2), wkHi: h.wkHi, lo: q.lo, key: ks.key, status: ks.status, ...(h.lv?.length ? { lvs: h.lv } : {}),
+    ...base, adr, level: +level.toFixed(2), wkHi: h.wkHi, lo: q.lo, key: ks.key, status: ks.status, ...(lvs.length ? { lvs } : {}),
     bbLo: bbLowerOf(h.bb, q.price), gap, ...(pre ? { gapPre: true } : {}),
     dvol: Math.round((q.vw && q.vw > 0 ? q.vw : q.price) * (q.vol || 0)),
     offLow: +((q.price / q.lo - 1) * 100).toFixed(2),
@@ -398,8 +442,8 @@ export function buildOsbEarly(state: LeadersState, quotes: Quote[], clockEt: num
     if (os) oversold.push(h.etf ? { ...os, etf: true } : os);
   }
   for (const r of oversold) Object.assign(r, osbScoreOf(r));
-  oversold.sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || b.offLow - a.offLow);
-  return { asOf, clockEt, pre, pool: quotes.length, count: oversold.length, oversold: oversold.slice(0, OVERSOLD.max), lows };
+  const ordered = osbOrder(oversold, serverChecks);
+  return { asOf, clockEt, pre, pool: quotes.length, count: ordered.length, oversold: ordered.slice(0, OVERSOLD.max), lows };
 }
 
 /** Expected cumulative volume by `etMin` from a half-hour profile (linear within a bucket). */
@@ -515,7 +559,7 @@ export function buildLive(state: LeadersState, quotes: Quote[], spyPrice: number
   const thinOsb = oversold.filter(r => osbThin(r, clockEt)).length;
   const thinDvol = oversold.filter(r => osbThinDollars(r, clockEt)).length, thinShr = oversold.filter(r => osbThinShares(r, clockEt)).length;
   const liquid = thinOsb ? oversold.filter(r => !osbThin(r, clockEt)) : oversold;
-  liquid.sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || b.offLow - a.offLow);
+  const liquidOrdered = osbOrder(liquid, serverChecks);
   const strip = ({ isRs: _r, isHi: _h, ...r }: LeaderRow & { isRs: boolean; isHi: boolean }): LeaderRow => r;
   const byChg = (a: LeaderRow, b: LeaderRow) => b.chg - a.chg;
   const rsHigh = rows.filter(r => r.isRs).sort(byChg);
@@ -526,7 +570,7 @@ export function buildLive(state: LeadersState, quotes: Quote[], spyPrice: number
     priceHigh: priceHigh.map(strip),
     gainers: rows.filter(r => (r.rs ?? 0) >= GAINER_MIN_RS).sort(byChg).slice(0, 50).map(strip),
     volume: rows.filter(r => r.track != null && r.chg > 0 && (r.rs ?? 0) >= VOLUME_MIN_RS).sort((a, b) => (b.track ?? 0) - (a.track ?? 0)).slice(0, 100).map(strip),
-    oversold: liquid.slice(0, OVERSOLD.max),
+    oversold: liquidOrdered.slice(0, OVERSOLD.max),
     counts: { rsHigh: rsHigh.length, priceHigh: priceHigh.length, heavy: rows.filter(r => (r.track ?? -100) >= 100).length, oversold: liquid.length, thinOsb, thinDvol, thinShr },
   };
 }
