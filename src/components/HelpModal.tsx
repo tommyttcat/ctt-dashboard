@@ -98,12 +98,12 @@ function OverviewTab({ tier }: { tier: string }) {
         <P>
           Your Core plan includes email briefings for all five trading sessions, plus live dashboard access with the market scorecard,
           Top Movers, Stocks in Play, Dollar Volume, Sector Performance, Industry Heat Map, and Key Events.
-          You also have access to the Analyst Brief page. Upgrade to Pro for full scanner access, Confluence reports, and Macro analysis.
+          You also have access to the Analyst Brief page. Upgrade to Pro for full scanner access and Macro analysis.
         </P>
       )}
       {rank >= 2 && (
         <P>
-          Your Pro plan gives you full access to every feature — all scanners, the Confluence report, Macro Scorecard,
+          Your Pro plan gives you full access to every feature — all scanners, Macro Scorecard,
           Economic Calendar, Earnings Calendar, and all five session email briefings.
         </P>
       )}
@@ -251,6 +251,13 @@ function DashboardTab({ tier }: { tier: string }) {
             crypto. The <strong className="text-slate-200">Market Tone</strong> card synthesizes breadth into a
             single signal. Click the section header to expand or collapse.
           </P>
+          <P>
+            <strong className="text-slate-200">Above 40-Day</strong> is the share of stocks above their own 40-day
+            average. The number is green when it is up on the previous session and red when it is down (with an
+            arrow). Once it has lifted a point or more off its lowest reading of the last 15 sessions, the line
+            under it adds where it bounced from, e.g. &quot;Oversold &middot; from 18%&quot;. Hover the card for the
+            previous reading and the low&apos;s date.
+          </P>
         </>
       )}
 
@@ -285,6 +292,12 @@ function DashboardTab({ tier }: { tier: string }) {
       <P>
         The active filter name appears in the section title (e.g. &quot;Setups Summary — CNF&quot;).
         CNF is selected by default. Click a pill to switch; click again to deselect and show all.
+      </P>
+      <P>
+        <strong className="text-slate-200">Top catalysts</strong> — the first lines of the card are the top five
+        of the News page&apos;s catalyst list: ticker, grade, live change% and the one-line reason for the move.
+        Hover a row for the full read; &quot;all →&quot; opens the whole list on News. The strip appears after the
+        day&apos;s first catalyst run (7:30 AM ET). Grades are a read of the news, not a buy signal.
       </P>
 
       <H>No buy or stop levels</H>
@@ -475,12 +488,6 @@ function AnalystTab({ tier }: { tier: string }) {
 
       {isPro && (
         <>
-          <H>Macro Scorecard<ProBadge /></H>
-          <P>
-            Market internals scorecard showing SPY, QQQ, VIX, bonds, gold, sector ETFs, and crypto performance
-            at a glance. Color-coded green/amber/red by signal strength.
-          </P>
-
           <H>Macro Economic Analysis<ProBadge /></H>
           <P>
             Economic data overlay showing key macro indicators and their market impact. Helps contextualize
@@ -505,6 +512,15 @@ function AnalystTab({ tier }: { tier: string }) {
         Top market-moving catalysts pulled from the scanner&apos;s per-ticker news data — the same source as the
         dashboard&apos;s Actionable Catalysts panel. Each entry shows ticker, change%, catalyst tag, and headline.
         Ranked by impact (volume against usual, and size of the move).
+      </P>
+
+      <H>Top Catalysts</H>
+      <P>
+        The top five of the News page&apos;s catalyst list, right under Key News &amp; Catalysts: the ticker, a
+        grade (A&#9733; / A / B / P2 — how hard and new the news is), the one-line reason for the move, and the
+        change% and volume, live. The list is re-read every 30 minutes from 7:30 AM to 12:30 PM ET and appears
+        after the day&apos;s first run. The phase emails carry the same five, with the move as of that run.
+        Grades are a read of the news, not a buy signal.
       </P>
 
       <H>Top Movers &amp; Stocks in Play</H>
@@ -665,6 +681,9 @@ function UpdatesTab({ tier }: { tier: string }) {
           <Sched time="Every 15 min">
             <strong className="text-slate-200">Main Scanner</strong> — Stocks in Play, Top Movers, Daily Setups. Runs at :05, :20, :35, :50 past the hour, 4 AM – 7 PM ET.
           </Sched>
+          <Sched time="Every 30 min">
+            <strong className="text-slate-200">Catalysts</strong> — today&apos;s gappers and earnings reporters, read and graded (News page, Top Catalysts on the Briefing page and Setups Summary, the phase emails). 7:30 AM – 12:30 PM ET.
+          </Sched>
           <Sched time="Every 15 min">
             <strong className="text-slate-200">Dollar Volume</strong> — Dollar volume scanner. Runs at :07, :22, :37, :52 past the hour, 4 AM – 7 PM ET.
           </Sched>
@@ -705,11 +724,6 @@ function UpdatesTab({ tier }: { tier: string }) {
               <H>Macro Environment</H>
               <Sched time="Every 15 min">
                 <strong className="text-slate-200">Macro Update</strong> — Economic indicators, breadth internals, and macro scorecard data refresh at :10, :25, :40, :55 past the hour, 4 AM – 7 PM ET.
-              </Sched>
-
-              <H>Confluence Report</H>
-              <Sched time="Every hour">
-                <strong className="text-slate-200">Confluence Run</strong> — Multi-timeframe analysis runs every hour from 9:30 AM – 7:30 PM ET on the half-hour.
               </Sched>
             </>
           )}

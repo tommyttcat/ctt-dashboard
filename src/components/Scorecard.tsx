@@ -148,6 +148,8 @@ interface T2108Data {
   above: number | null;
   total: number | null;
   updatedAt: string | null;
+  prev?: number | null;
+  low?: { value: number; date: string } | null;
 }
 
 interface ChopIntraday {
@@ -857,6 +859,8 @@ export default function MacroScorecard() {
             above: data.above ?? null,
             total: data.total ?? null,
             updatedAt: data.updatedAt ?? null,
+            prev: typeof data.prev === 'number' ? data.prev : null,
+            low: data.low && typeof data.low.value === 'number' ? data.low : null,
           });
         }
       } catch {
@@ -1133,6 +1137,8 @@ export default function MacroScorecard() {
             quotes={quotes}
             breadth={breadth}
             tVal={tVal}
+            tPrev={t2108?.prev ?? null}
+            tLow={t2108?.low ?? null}
             chop={chop}
             chopVal={chopVal}
             chopRaw={chopRaw}

@@ -15,9 +15,7 @@ import { stageColor, stageBadge } from '@/lib/indicators/stage';
 import { rsColor, rsBadge } from '@/lib/indicators/rs';
 import { dedupeByTicker, chgOf, dVolOf, advancingDollarShare } from '@/lib/indicators/marketMath';
 import { industryHeat, type SectorHeat, isEtfSector, displaySector } from '@/lib/sectors';
-import MacroScorecardPanel from '../MacroScorecardPanel';
 import MacroEconPanel from '../MacroEconPanel';
-import { useMacroScorecard } from '../useMacroScorecard';
 import { rvolColor } from '@/lib/indicators/columnColors';
 import {
   type ChopMode,
@@ -42,11 +40,10 @@ import {
   mkmCellTone as mkmColor,
   vixPctTone,
   toneCellTone,
-  getMarketSession,
-  sessionTextColor,
 } from '@/lib/indicators/marketScorecard';
 import { poll } from '@/lib/poll';
-import { TopCatalysts } from '@/components/CatalystList';
+import { useTopCatalysts, GRADE_CLS as CAT_GRADE_CLS, GRADE_TIP as CAT_GRADE_TIP, fmtCatalystTime } from '@/components/CatalystList';
+import InfoDot from '../InfoDot';
 
 const MiniChart = lazy(() => import('./MiniChart'));
 
@@ -1278,6 +1275,45 @@ function FormattedBlock({ text, tickers, summaryLabel, skipLabels, distributeLab
   );
 }
 
+/* ---- Top Catalysts (25 Nov 2026) ------------------------------------------
+   The top five of the News page's catalyst run, written in Key News &
+   Catalysts' own format: 12px lines, the brief's ticker chips, the same
+   dividers. % and volume are live; nothing renders before the day's first
+   run (7:30 ET). */
+function TopCatalystsSection() {
+  const { data, top, live } = useTopCatalysts();
+  if (!data || !top.length) return null;
+  return (
+    <SectionCard title="Top Catalysts" accent="#a78bfa">
+      <div className="space-y-0">
+        {top.map((r, i) => {
+          const q = live?.quotes?.[r.ticker];
+          const chg = q?.pct ?? r.chg;
+          const vol = q?.vol ?? r.vol;
+          return (
+            <div key={r.ticker} className={i > 0 ? 'pt-3 mt-3 border-t border-white/[0.06]' : ''}>
+              <p className="text-[12px] text-slate-200 leading-[1.7]">
+                {'• '}
+                <TickerChartHover symbol={r.ticker}><span className={BRIEF_TICKER_CHIP}>{r.ticker}</span></TickerChartHover>
+                <InfoDot text={CAT_GRADE_TIP[r.grade]}>
+                  <span className={`inline-block align-baseline text-[8px] font-bold px-1 py-[1px] rounded border tracking-wider mx-0.5 text-center ${CAT_GRADE_CLS[r.grade]}`}>{r.grade}</span>
+                </InfoDot>
+                {' '}{r.summary.replace(/\.?$/, '.')}
+                {chg != null && (
+                  <>{' '}<span className={chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{chg >= 0 ? '+' : ''}{chg.toFixed(1)}%</span>{vol ? ` on ${formatVol(vol)} shares` : ''}.</>
+                )}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-[12px] text-slate-500 leading-[1.7] pt-3 mt-3 border-t border-white/[0.06]">
+        As of {fmtCatalystTime(data.runAt)} · % and volume live · grades are a read of the news, not a buy signal · <a href="/news" className="text-violet-400 hover:text-violet-300">all {data.ranked.length + data.passed.length} on News</a>
+      </p>
+    </SectionCard>
+  );
+}
+
 /* ---- Key Events section (econ + earnings, same data as main dashboard) ---- */
 interface EconEvent { event: string; date: string; actual: number | null; previous: number | null; estimate: number | null; impact: string }
 interface EarningsEvent { symbol: string; date: string; name: string; epsEstimated?: number | null; revenueEstimated?: number | null; epsActual?: number | null; epsSurprisePct?: number | null; mktCap?: number }
@@ -1967,8 +2003,6 @@ export default function AnalystBrief() {
   const [macroBadges, setMacroBadges] = useState<MacroBadges | null>(null);
   const [rawBreadth, setRawBreadth] = useState<any>(null);
   const [scannerData, setScannerData] = useState<any>(null);
-  const macro = useMacroScorecard();
-  const [session, setSession] = useState(getMarketSession());
   const [helpOpen, setHelpOpen] = useState(false);
   const [tier, setTier] = useState<string>('pro');
 
@@ -1978,10 +2012,6 @@ export default function AnalystBrief() {
     }).catch(() => {});
   }, []);
 
-  useEffect(() => {
-    const id = setInterval(() => setSession(getMarketSession()), 30_000);
-    return () => clearInterval(id);
-  }, []);
   /* Follows the dashboard's sensitivity toggle — see /api/settings/chop. */
   /* Starts on the house default, not a hard-coded MAX, so the label does not
      flash the wrong setting before the fetch below lands. */
@@ -2283,57 +2313,7 @@ export default function AnalystBrief() {
         <div className="px-0 md:px-10 py-6 space-y-6">
 
         {tier !== 'core' && (<>
-        <div className="bg-[#101623] border-0 md:border md:border-white/5 md:rounded-2xl p-2 md:p-8 relative overflow-hidden md:shadow-xl w-full">
-          <div className="hidden md:block absolute right-0 top-0 w-64 h-64 bg-indigo-500/5 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
-          <div className="flex justify-between items-center relative z-10 mb-3 md:mb-6 border-b border-white/5 pb-2 md:pb-4">
-            <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
-              Macro Scorecard
-            </span>
-            <div className="flex flex-col items-center gap-1.5">
-              <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
-                <span className={`text-[12px] font-bold tracking-widest uppercase ${sessionTextColor(session)}`}>
-                  {session}
-                </span>
-              </div>
-              {brief?.snapshotTime && (
-                <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
-                  Updated: {new Date(brief.snapshotTime).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', second: '2-digit' })} EST
-                </span>
-              )}
-            </div>
-          </div>
-          <MacroScorecardPanel
-            marketTone={macro.marketTone}
-            quotes={macro.quotes}
-            breadth={macro.breadth}
-            tVal={macro.tVal}
-            chop={macro.chop}
-            chopVal={macro.chopVal}
-            chopRaw={macro.chopRaw}
-            chopDelta={macro.chopDelta}
-            chopTrend={macro.chopTrend}
-            adTrend={macro.adTrend}
-            hlTrend={macro.hlTrend}
-            advPct={macro.advPct}
-            highsPct={macro.highsPct}
-            intraVal={macro.intraVal}
-            intraStale={macro.intraStale}
-            intraLastBar={macro.intraLastBar}
-            hourVal={macro.hourVal}
-            hourStale={macro.hourStale}
-            hourLastBar={macro.hourLastBar}
-            chopTooltipText={macro.chopTooltipText}
-            chopMode={macro.chopMode}
-            setChopMode={macro.setChopMode}
-            bands={macro.bands}
-            divergence={macro.divergence}
-            tapeSetup={macro.tapeSetup}
-            tapeSignal={macro.tapeSignal}
-            cellsOnly
-          />
-        </div>
-
+        {/* Macro Scorecard strip removed from the Briefing page 25 Nov 2026 — it lives on the dashboard. */}
         <MacroEconPanel />
         </>)}
 
@@ -2390,7 +2370,7 @@ export default function AnalystBrief() {
 
             {/* Top 5 catalysts (25 Nov 2026) — the News page list, ranked by
                 the catalyst routine. Renders nothing before today's first run. */}
-            <TopCatalysts wrap={body => <SectionCard title="Top Catalysts" accent="#a78bfa">{body}</SectionCard>} />
+            <TopCatalystsSection />
 
             {/* 4. Market Regime — the analyst's Core Thesis, the readings that
                 argue against it, and what the conditions structurally support.

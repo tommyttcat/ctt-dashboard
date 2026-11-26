@@ -101,9 +101,8 @@ function useLiveQuotes(syms: string): LiveQuotesPayload | null {
   return live;
 }
 
-/* Briefing page (25 Nov 2026): the top five of the latest catalyst run, same
-   rows as the News page; the dashboard's Setups Summary shows the same five
-   as a compact strip. Hidden until today's first run (7:30 ET) so a stale
+/* Briefing page and Setups Summary (25 Nov 2026): the top five of the latest
+   catalyst run, each in its own page's format. Hidden until today's first run (7:30 ET) so a stale
    list from the last trading day never reads as today's. Re-reads
    /api/catalysts every 5 minutes (edge-cached 120s, so KV is flat in
    readers); the list itself only changes every 30 minutes, 7:30-12:30 ET. */
@@ -130,21 +129,6 @@ export function useTopCatalysts() {
 }
 
 export { GRADE_CLS, GRADE_TIP, fmtTime as fmtCatalystTime };
-
-export function TopCatalysts({ wrap = b => b }: { wrap?: (body: React.ReactNode) => React.ReactNode }) {
-  const { data, top, live } = useTopCatalysts();
-  if (!data || !top.length) return null;
-  return wrap(
-    <div className="space-y-2">
-      <div className="text-[12px] text-slate-500 tabular-nums">
-        Top {top.length} of {data.ranked.length + data.passed.length} as of {fmtTime(data.runAt)} · % and volume live · grades are a read of the news, not a buy signal
-      </div>
-      <div className="bg-[#111827] border border-[#1e293b] rounded-2xl overflow-hidden">
-        {top.map((r, i) => <Row key={r.ticker} r={r} i={i + 1} runAt={data.runAt} lq={live?.quotes?.[r.ticker]} />)}
-      </div>
-    </div>
-  );
-}
 
 export default function CatalystList({ reloadKey }: { reloadKey: number }) {
   const [data, setData] = React.useState<CatalystsPayload | null>(null);

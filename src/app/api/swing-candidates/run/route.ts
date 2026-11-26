@@ -290,7 +290,7 @@ async function getUniverse(): Promise<{ symbols: string[]; snapMap: Map<string, 
 }
 
 
-async function getGroupedSeries(validSymbols: Set<string>): Promise<Map<string, LiteBar[]>> {
+async function getGroupedSeries(validSymbols: Set<string>): Promise<{ series: Map<string, LiteBar[]>; dates: string[] }> {
   const dates: string[] = [];
   for (let d = GROUPED.maxCalendarDays; d >= 1; d--) {
     const dt = new Date(Date.now() - d * 86400000);
@@ -329,7 +329,7 @@ async function getGroupedSeries(validSymbols: Set<string>): Promise<Map<string, 
       arr.push({ c: t.c, h: t.h, l: t.l, v: t.v });
     }
   }
-  return series;
+  return { series, dates: kept.map(d => d.date) };
 }
 
 // ---------------------------------------------------------------
@@ -345,7 +345,10 @@ async function getGroupedSeries(validSymbols: Set<string>): Promise<Map<string, 
 //
 // Free: reuses the grouped series already fetched for the 10/21 shortlist.
 // ---------------------------------------------------------------
-function computeT2108(series: Map<string, LiteBar[]>): {
+// `back` = sessions before the latest (0 = latest). Used to rebuild the last
+// few days for the "bounced from" low; same approximation as the latest
+// reading (each name's own last bars, not date-aligned).
+function computeT2108(series: Map<string, LiteBar[]>, back = 0): {
   value: number | null;
   above: number;
   total: number;
@@ -354,7 +357,8 @@ function computeT2108(series: Map<string, LiteBar[]>): {
   let above = 0;
   let total = 0;
 
-  series.forEach((bars) => {
+  series.forEach((all) => {
+    const bars = back > 0 ? all.slice(0, all.length - back) : all;
     if (bars.length < 41) return;
     const closes = bars.map(b => b.c).filter(c => c > 0);
     if (closes.length < 41) return;
@@ -451,7 +455,7 @@ async function runSwingScan() {
     const [{ symbols: universe, snapMap, snapMapAll, wide }, earningsBlackout] = await Promise.all([getUniverse(), getEarningsBlackout()]);
     let toScan = universe.filter(sym => !earningsBlackout.has(sym));
 
-    const groupedSeries = await getGroupedSeries(new Set(snapMapAll.keys()));
+    const { series: groupedSeries, dates: groupedDates } = await getGroupedSeries(new Set(snapMapAll.keys()));
     /* Wider universe (12 Oct 2026): up to 150 more $20M+ names that the whole-market bars
        already in hand say are near the 21 EMA and oversold. Each costs the same 3 per-name
        calls as the top 120, so a run is ~270 names, not 120. */
@@ -465,8 +469,26 @@ async function runSwingScan() {
     const t2108 = computeT2108(groupedSeries);
     if (t2108.value != null) {
       try {
+        /* Daily history (25 Nov 2026) for the Scorecard's "from X%" low and
+           its up/down colour. The last 5 sessions are rebuilt from the bars
+           in hand each run; older days come from the stored history, kept to
+           30 sessions. One extra KV read per run, flat in users. */
+        const recent: [string, number][] = [];
+        for (let back = 0; back <= 4; back++) {
+          const d = groupedDates[groupedDates.length - 1 - back];
+          const r = back === 0 ? t2108 : computeT2108(groupedSeries, back);
+          if (d && r.value != null) recent.push([d, r.value]);
+        }
+        const stored = await kv.get<{ hist?: unknown }>('t2108_v1').catch(() => null);
+        const byDate = new Map<string, number>(
+          (Array.isArray(stored?.hist) ? stored!.hist as unknown[] : [])
+            .filter((h): h is [string, number] => Array.isArray(h) && typeof h[0] === 'string' && Number.isFinite(h[1]))
+        );
+        for (const [d, v] of recent) byDate.set(d, v);
+        const hist = [...byDate].sort((a, b) => a[0].localeCompare(b[0])).slice(-30);
         await kv.set('t2108_v1', {
           ...t2108,
+          hist,
           updatedAt: new Date().toISOString(),
         });
       } catch (e) { console.error('t2108 persist failed', e); }

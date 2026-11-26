@@ -185,6 +185,9 @@ export interface MacroScorecardPanelProps {
   quotes: Record<string, any>;
   breadth: BreadthLike | null;
   tVal: number | null;
+  /** Previous session's reading and the 15-session low (/api/t2108/latest), for the up/down colour and "from X%". */
+  tPrev?: number | null;
+  tLow?: { value: number; date: string } | null;
   chop: any;
   chopVal: number | null;
   chopRaw: number | null;
@@ -227,6 +230,8 @@ export default function MacroScorecardPanel({
   quotes,
   breadth,
   tVal,
+  tPrev = null,
+  tLow = null,
   chop,
   chopVal,
   chopRaw,
@@ -529,12 +534,21 @@ export default function MacroScorecardPanel({
         }
 
         if (tVal != null) {
+          /* 25 Nov 2026: the number is green when up on the previous
+             session, red when down; "from X%" is the 15-session low it has
+             bounced off (shown once it is 1+ point above that low). */
+          const tDir = tPrev == null ? 0 : Math.round(tVal * 10) > Math.round(tPrev * 10) ? 1 : Math.round(tVal * 10) < Math.round(tPrev * 10) ? -1 : 0;
+          const bounced = tLow != null && tVal - tLow.value >= 1 ? tLow : null;
+          const lowDay = bounced ? new Date(`${bounced.date}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : '';
           cells.push({
             label: 'ABOVE 40-DAY',
             value: `${tVal.toFixed(0)}%`,
-            sub: t2108ZoneLabel(tVal),
+            valueNode: <span className={tDir > 0 ? 'text-emerald-400' : tDir < 0 ? 'text-rose-400' : undefined}>{tVal.toFixed(0)}%{tDir !== 0 && <span className="text-[9px] ml-0.5">{tDir > 0 ? '\u25B2' : '\u25BC'}</span>}</span>,
+            sub: bounced ? `${t2108ZoneLabel(tVal)} · from ${bounced.value.toFixed(0)}%` : t2108ZoneLabel(tVal),
             color: t2108CellTone(tVal),
             titleContent: ttWrap('Share of stocks above their 40-day average (T2108)', <>
+              {tPrev != null && ttRow('Prev', `${tPrev.toFixed(1)}%`, <>last session; now {tVal.toFixed(1)}%</>)}
+              {bounced && ttRow('Low', `${bounced.value.toFixed(1)}%`, <>15-session low, {lowDay}</>)}
               {ttRow('≤ 20%', 'green', <>breakouts in 4 of 6 scans did better (4 yrs)</>)}
               {ttRow('20–80%', 'neutral', <>no reliable effect either way</>)}
               {ttRow('> 80%', 'red', <>worst for every scan — one episode (late 2021)</>)}
