@@ -518,8 +518,10 @@ function AnalystTab({ tier }: { tier: string }) {
       <P>
         The top five of the News page&apos;s catalyst list, right under Key News &amp; Catalysts: the ticker, a
         grade (A&#9733; / A / B / P2 — how hard and new the news is), the one-line reason for the move, and the
-        change% and volume, live. The list is re-read every 30 minutes from 7:30 AM to 12:30 PM ET and appears
-        after the day&apos;s first run. The phase emails carry the same five, with the move as of that run.
+        change% and volume, live. The list is re-read every 30 minutes from 7:30 AM to 12:30 PM ET, then at 2:00 and 3:30 PM, and
+        appears after the day&apos;s first run. Moves are ranked against each stock&apos;s usual daily range, and
+        the bigger of the change from yesterday&apos;s close and from today&apos;s open counts, so a gap that
+        reverses is a move. The phase emails carry the same five, with the move as of that run.
         Grades are a read of the news, not a buy signal.
       </P>
 
@@ -682,7 +684,7 @@ function UpdatesTab({ tier }: { tier: string }) {
             <strong className="text-slate-200">Main Scanner</strong> — Stocks in Play, Top Movers, Daily Setups. Runs at :05, :20, :35, :50 past the hour, 4 AM – 7 PM ET.
           </Sched>
           <Sched time="Every 30 min">
-            <strong className="text-slate-200">Catalysts</strong> — today&apos;s gappers and earnings reporters, read and graded (News page, Top Catalysts on the Briefing page and Setups Summary, the phase emails). 7:30 AM – 12:30 PM ET.
+            <strong className="text-slate-200">Catalysts</strong> — today&apos;s gappers and earnings reporters, read and graded (News page, Top Catalysts on the Briefing page and Setups Summary, the phase emails). Every 30 min 7:30 AM – 12:30 PM ET, then 2:00 and 3:30 PM.
           </Sched>
           <Sched time="Every 15 min">
             <strong className="text-slate-200">Dollar Volume</strong> — Dollar volume scanner. Runs at :07, :22, :37, :52 past the hour, 4 AM – 7 PM ET.

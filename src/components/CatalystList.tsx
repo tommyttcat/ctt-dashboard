@@ -1,6 +1,6 @@
 'use client';
 /* News page catalyst list (25 Nov 2026). Written by a cloud routine every 30
-   minutes 7:30-12:30 ET (see lib/catalysts.ts); this card reads /api/catalysts
+   minutes 7:30-12:30 ET + 2:00/3:30 PM (see lib/catalysts.ts); this card reads /api/catalysts
    once on load and on Refresh. % change and volume are live: /api/live-quotes
    (Webull real-time, 15s edge, 0 KV) with one sorted symbol list, so every
    viewer shares one cache entry. No cache-buster. */
@@ -119,7 +119,7 @@ function useLiveQuotes(syms: string): LiveQuotesPayload | null {
    catalyst run, each in its own page's format. Hidden until today's first run (7:30 ET) so a stale
    list from the last trading day never reads as today's. Re-reads
    /api/catalysts every 5 minutes (edge-cached 120s, so KV is flat in
-   readers); the list itself only changes every 30 minutes, 7:30-12:30 ET. */
+   readers); the list itself only changes every 30 minutes, 7:30-12:30 ET, then 2:00 and 3:30 PM. */
 /** Today's top five ranked catalysts with live quotes; empty before the day's first run. */
 export function useTopCatalysts() {
   const [data, setData] = React.useState<CatalystsPayload | null>(null);
@@ -198,7 +198,7 @@ export default function CatalystList({ reloadKey }: { reloadKey: number }) {
   const ranked = data.ranked.filter(keep);
   const passed = data.passed.filter(keep);
   const old = etDay(data.runAt) !== etDay(new Date().toISOString());
-  const info = 'A scheduled Claude routine reads today’s gappers and earnings reporters with their SEC 8-K filings and news, then writes one line on what happened and grades it. Re-read every 30 minutes from 7:30 to 12:30 ET on weekdays. % change and volume are live (real-time, refreshed every 30 seconds); market cap is as of the run. Grades are a read of the news, not a buy signal and not a tested edge.';
+  const info = 'A scheduled Claude routine reads today’s gappers and earnings reporters with their SEC 8-K filings and news, then writes one line on what happened and grades it. Re-read every 30 minutes from 7:30 to 12:30 ET, then at 2:00 and 3:30 PM, on weekdays. Moves are ranked against each stock’s usual daily range, counting the move from the open as well as from yesterday’s close. % change and volume are live (real-time, refreshed every 30 seconds); market cap is as of the run. Grades are a read of the news, not a buy signal and not a tested edge.';
 
   return (
     <section className="space-y-3">
